@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  HR
+  DG
+}
+
+enum CheckInStatus {
+  ON_TIME
+  LATE
+}
+
+enum CheckOutStatus {
+  MANUAL
+  AUTO
+}
+
+enum FinalStatus {
+  PRESENT
+  ABSENT
+  PERMISSION
+  MISSION
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id              String     @id @default(cuid())
+  supabaseAuthId  String     @unique @map("supabase_auth_id")
+  email           String     @unique
+  name            String
+  role            Role       @default(HR)
+  active          Boolean    @default(true)
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model Employee {
+  id               String             @id @default(cuid())
+  matricule        String             @unique
+  firstName        String             @map("first_name")
+  lastName         String             @map("last_name")
+  service          String
+  active           Boolean            @default(true)
+  whatsappPhone    String?            @unique @map("whatsapp_phone")
+  whatsappLinkedAt DateTime?          @map("whatsapp_linked_at")
+  onboardingCode   String?            @unique @map("onboarding_code")
+  onboardingExpiry DateTime?          @map("onboarding_expiry")
+  siteId           String?            @map("site_id")
+  site             Site?              @relation(fields: [siteId], references: [id])
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  attendances      AttendanceRecord[]
+  leaveRequests    LeaveRequest[]
+  missions         Mission[]
+  fraudAttempts    FraudAttempt[]
+
+  @@map("employees")
+}
+
+model Site {
+  id        String     @id @default(cuid())
+  name      String
+  centerLat Float      @map("center_lat")
+  centerLng Float      @map("center_lng")
+  radiusM   Int        @map("radius_m")
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  employees Employee[]
+  schedules Schedule[]
+
+  @@map("sites")
+}
+
+model Schedule {
+  id           String   @id @default(cuid())
+  siteId       String   @map("site_id")
+  site         Site     @relation(fields: [siteId], references: [id])
+  startTime    String   @map("start_time")
+  endTime      String   @map("end_time")
+  closureTime  String   @map("closure_time")
+  lateGraceMin Int      @default(0) @map("late_grace_min")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("schedules")
+}
+
+model AttendanceRecord {
+  id              String          @id @default(cuid())
+  employeeId      String          @map("employee_id")
+  employee        Employee        @relation(fields: [employeeId], references: [id])
+  date            DateTime        @db.Date
+  checkInTime     DateTime?       @map("check_in_time")
+  checkInStatus   CheckInStatus?  @map("check_in_status")
+  checkInComment  String?         @map("check_in_comment")
+  checkInLat      Float?          @map("check_in_lat")
+  checkInLng      Float?          @map("check_in_lng")
+  checkOutTime    DateTime?       @map("check_out_time")
+  checkOutStatus  CheckOutStatus? @map("check_out_status")
+  checkOutComment String?         @map("check_out_comment")
+  checkOutLat     Float?          @map("check_out_lat")
+  checkOutLng     Float?          @map("check_out_lng")
+  totalMinutes    Int?            @map("total_minutes")
+  overtimeMinutes Int?            @default(0) @map("overtime_minutes")
+  finalStatus     FinalStatus     @default(PRESENT) @map("final_status")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@unique([employeeId, date])
+  @@map("attendance_records")
+}
+
+model LeaveRequest {
+  id         String        @id @default(cuid())
+  employeeId String        @map("employee_id")
+  employee   Employee      @relation(fields: [employeeId], references: [id])
+  startDate  DateTime      @map("start_date") @db.Date
+  endDate    DateTime      @map("end_date") @db.Date
+  reason     String
+  status     RequestStatus @default(PENDING)
+  document   String?
+  approvedBy String?       @map("approved_by")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  @@map("leave_requests")
+}
+
+model Mission {
+  id         String        @id @default(cuid())
+  employeeId String        @map("employee_id")
+  employee   Employee      @relation(fields: [employeeId], references: [id])
+  startDate  DateTime      @map("start_date") @db.Date
+  endDate    DateTime      @map("end_date") @db.Date
+  reason     String
+  location   String?
+  status     RequestStatus @default(PENDING)
+  approvedBy String?       @map("approved_by")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  @@map("missions")
+}
+
+model FraudAttempt {
+  id         String   @id @default(cuid())
+  employeeId String   @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  timestamp  DateTime @default(now())
+  lat        Float
+  lng        Float
+  distanceM  Float    @map("distance_m")
+  type       String
+  rawMessage String?  @map("raw_message")
+
+  @@map("fraud_attempts")
+}
+
+model Holiday {
+  id        String   @id @default(cuid())
+  name      String
+  date      DateTime @db.Date
+  recurring Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("holidays")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String   @map("actor_id")
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  entity     String
+  entityId   String   @map("entity_id")
+  beforeJson String?  @map("before_json") @db.Text
+  afterJson  String?  @map("after_json") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
