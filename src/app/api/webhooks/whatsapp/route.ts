@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
 import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
-import { parseIntent, HELP_MESSAGE } from "@/lib/intent-parser";
+import { parseIntent, WELCOME_FIRST_MESSAGE } from "@/lib/intent-parser";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -210,15 +210,8 @@ async function handleMessage(
       }
 
       case "GREETING":
-        await sendWhatsAppMessage(
-          phone,
-          `👋 Bienvenue sur le pointage !\n\n${HELP_MESSAGE}`
-        );
-        await sendWhatsAppButtons(phone);
-        break;
-
       case "HELP":
-        await sendWhatsAppMessage(phone, HELP_MESSAGE);
+        await sendWhatsAppMessage(phone, WELCOME_FIRST_MESSAGE);
         await sendWhatsAppButtons(phone);
         break;
 

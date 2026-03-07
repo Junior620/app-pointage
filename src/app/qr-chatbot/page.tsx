@@ -20,7 +20,7 @@ export default function QrChatbotPage() {
         </div>
         <h1 className="text-xl font-bold text-slate-800 mb-1">Pointage par WhatsApp</h1>
         <p className="text-sm text-slate-500 mb-6">
-          Scannez le QR code pour ouvrir le chat, puis envoyez <strong>Bonjour</strong> pour afficher le menu de pointage (boutons Arrivé / Départ / Statut).
+          Scannez le QR code pour ouvrir le chat. Envoyez <strong>Bonjour</strong> ou <strong>/</strong> pour recevoir les instructions, la liste des commandes (Arrivé, Départ, Mon statut) et les boutons.
         </p>
 
         {error ? (
@@ -62,7 +62,7 @@ export default function QrChatbotPage() {
 
         <div className="mt-8 pt-6 border-t border-slate-100">
           <p className="text-xs text-slate-400">
-            Après &quot;Bonjour&quot;, utilisez les boutons ou tapez : <strong>Arrivé</strong> · <strong>Départ</strong> · <strong>Statut</strong> · <strong>Aide</strong>
+            Le bot vous enverra d&apos;abord les instructions. Ensuite : boutons ou tapez <strong>Arrivé</strong> · <strong>Départ</strong> · <strong>Statut</strong> · <strong>/</strong> pour le menu
           </p>
         </div>
       </div>

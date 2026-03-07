@@ -49,6 +49,11 @@ export function parseIntent(message: string): {
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
 
+  // Commande "/" → afficher la liste des commandes (Arrivé, Départ, Mon statut)
+  if (normalized === "/" || normalized.startsWith("/")) {
+    return { intent: "HELP" };
+  }
+
   const parts = normalized.split(/\s+/);
   const firstWord = parts[0];
   const rest = parts.slice(1).join(" ").trim() || undefined;
@@ -110,3 +115,12 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 📍 Envoyez votre *localisation* pour valider le pointage
 
 ❓ *AIDE* — Afficher ce menu`;
+
+/** Message envoyé au premier contact (après scan QR : Bonjour ou /) */
+export const WELCOME_FIRST_MESSAGE = `👋 *Bienvenue sur le pointage !*
+
+Voici ce que vous pouvez faire :
+
+${HELP_MESSAGE}
+
+💡 Tapez */* à tout moment pour réafficher cette liste et les boutons (Arrivé, Départ, Mon statut).`;
