@@ -14,6 +14,8 @@ export type WhatsAppMessage = {
   type: "text" | "location" | "interactive" | "button";
   text?: { body: string };
   location?: { latitude: number; longitude: number };
+  button?: { payload: string; text: string };
+  interactive?: { type: string; button_reply?: { id: string; title: string } };
 };
 
 export type WhatsAppWebhookPayload = {

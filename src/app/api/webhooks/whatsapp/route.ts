@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendWhatsAppMessage, sendWhatsAppLocationRequest, normalizePhone } from "@/lib/whatsapp";
+import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
 import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
 import { parseIntent, HELP_MESSAGE } from "@/lib/intent-parser";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
@@ -60,7 +60,12 @@ export async function POST(request: NextRequest) {
 
 async function handleMessage(
   phone: string,
-  message: { type: string; text?: { body: string }; location?: { latitude: number; longitude: number } }
+  message: {
+    type: string;
+    text?: { body: string };
+    location?: { latitude: number; longitude: number };
+    interactive?: { type: string; button_reply?: { id: string; title: string } };
+  }
 ) {
   cleanPending();
   const normalizedPhone = normalizePhone(phone);
@@ -107,6 +112,42 @@ async function handleMessage(
     } else {
       const result = await processCheckOut(employee.id, point, pending.comment);
       await sendWhatsAppMessage(phone, result.message);
+    }
+    return;
+  }
+
+  // Clic sur un bouton (Arrivé, Départ, Mon statut)
+  if (message.type === "interactive" && message.interactive?.button_reply) {
+    const id = message.interactive.button_reply.id;
+    if (id === "BTN_ARRIVE") {
+      pendingActions.set(normalizedPhone, { intent: "CHECK_IN", timestamp: Date.now() });
+      await sendWhatsAppLocationRequest(phone);
+    } else if (id === "BTN_DEPART") {
+      pendingActions.set(normalizedPhone, { intent: "CHECK_OUT", timestamp: Date.now() });
+      await sendWhatsAppLocationRequest(phone);
+    } else if (id === "BTN_STATUT") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const record = await prisma.attendanceRecord.findUnique({
+        where: { employeeId_date: { employeeId: employee.id, date: today } },
+      });
+      if (!record) {
+        await sendWhatsAppMessage(phone, "Aucun pointage aujourd'hui.");
+      } else {
+        let statusMsg = `📊 *Pointage du jour*\n`;
+        if (record.checkInTime) {
+          const inTime = record.checkInTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          statusMsg += `\n✅ Arrivée: ${inTime} (${record.checkInStatus === "LATE" ? "En retard" : "À l'heure"})`;
+        }
+        if (record.checkOutTime) {
+          const outTime = record.checkOutTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
+        } else {
+          statusMsg += `\n⏳ Départ: Non encore pointé`;
+        }
+        statusMsg += `\nStatut: ${record.finalStatus}`;
+        await sendWhatsAppMessage(phone, statusMsg);
+      }
     }
     return;
   }
@@ -171,13 +212,11 @@ async function handleMessage(
 
       case "HELP":
         await sendWhatsAppMessage(phone, HELP_MESSAGE);
+        await sendWhatsAppButtons(phone);
         break;
 
       default:
-        await sendWhatsAppMessage(
-          phone,
-          `Commande non reconnue. Envoyez *AIDE* pour voir les commandes disponibles.`
-        );
+        await sendWhatsAppButtons(phone);
     }
   }
 }

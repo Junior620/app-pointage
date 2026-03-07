@@ -109,7 +109,22 @@ Configure **`WHATSAPP_BUSINESS_PHONE`** (même numéro que celui utilisé pour l
 
 ---
 
-## 5. Tester
+## 5. Boutons du chatbot
+
+L’app envoie des **boutons interactifs** (sans modèle à faire approuver) :
+
+- Quand l’employé envoie **Aide** / **Menu** ou un message non reconnu, il reçoit un message avec 3 boutons : **Arrivé**, **Départ**, **Mon statut**.
+- Un clic sur un bouton déclenche la même action que la commande texte (demande de localisation pour Arrivé/Départ, affichage du statut pour Mon statut).
+
+Pour modifier les libellés ou les identifiants des boutons, édite dans le code :
+- **Envoi des boutons** : `src/lib/whatsapp.ts` → fonction `sendWhatsAppButtons()` (titles limités à 20 caractères, max 3 boutons).
+- **Réaction au clic** : `src/app/api/webhooks/whatsapp/route.ts` → bloc `message.type === "interactive"` (ids `BTN_ARRIVE`, `BTN_DEPART`, `BTN_STATUT`).
+
+Aucune configuration côté Meta n’est nécessaire pour ces boutons (hors 24 h de session).
+
+---
+
+## 6. Tester
 
 1. Redémarre le serveur Next.js après modification des variables.
 2. Envoie un message **au numéro WhatsApp associé à ton app** (numéro de test ou Business).
@@ -117,7 +132,7 @@ Configure **`WHATSAPP_BUSINESS_PHONE`** (même numéro que celui utilisé pour l
    - **Arrivé** / **ARRIVÉ** → demande de localisation puis enregistrement de l’arrivée.
    - **Départ** / **DÉPART** → idem pour le départ.
    - **Statut** → récap du pointage du jour.
-   - **Aide** → liste des commandes.
+   - **Aide** → liste des commandes + affichage des boutons.
 
 Vérifie que :
 - le numéro de l’employé est enregistré en base (champ `whatsappPhone`) ;
@@ -125,7 +140,7 @@ Vérifie que :
 
 ---
 
-## 6. Passage en production (numéro Business)
+## 7. Passage en production (numéro Business)
 
 - Valide ton **Meta Business Manager** et ton **numéro Business**.
 - Remplace le numéro de test par ce numéro dans la configuration WhatsApp.
