@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { normalizePhone } from "@/lib/whatsapp";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -49,7 +50,12 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    const { matricule, firstName, lastName, service, siteId, active } = body;
+    const { matricule, firstName, lastName, service, siteId, whatsappPhone, active } = body;
+
+    const siteIdValue = siteId !== undefined ? (siteId?.trim() || null) : undefined;
+    const rawPhone = whatsappPhone?.trim() || "";
+    const whatsappPhoneValue =
+      whatsappPhone !== undefined ? (rawPhone ? normalizePhone(rawPhone) : null) : undefined;
 
     const employee = await prisma.employee.update({
       where: { id },
@@ -58,7 +64,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         ...(firstName !== undefined && { firstName }),
         ...(lastName !== undefined && { lastName }),
         ...(service !== undefined && { service }),
-        ...(siteId !== undefined && { siteId }),
+        ...(siteId !== undefined && { siteId: siteIdValue }),
+        ...(whatsappPhone !== undefined && { whatsappPhone: whatsappPhoneValue }),
         ...(active !== undefined && { active }),
       },
       include: { site: true },
