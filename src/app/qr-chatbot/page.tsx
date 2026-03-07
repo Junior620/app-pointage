@@ -20,7 +20,7 @@ export default function QrChatbotPage() {
         </div>
         <h1 className="text-xl font-bold text-slate-800 mb-1">Pointage par WhatsApp</h1>
         <p className="text-sm text-slate-500 mb-6">
-          Scannez le QR code pour ouvrir le chat. Envoyez <strong>Bonjour</strong> ou <strong>/</strong> pour recevoir les instructions, la liste des commandes (Arrivé, Départ, Mon statut) et les boutons.
+          Scannez le QR code : le chat s&apos;ouvre avec <strong>Bonjour</strong> déjà écrit. Appuyez sur Envoyer pour recevoir le message du bot (instructions et boutons Arrivé, Départ, Mon statut).
         </p>
 
         {error ? (

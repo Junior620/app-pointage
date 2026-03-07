@@ -10,7 +10,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const link = `https://wa.me/${phone.trim()}`;
+  // "Bonjour" pré-rempli : l'utilisateur n'a qu'à envoyer pour recevoir le message du bot
+  const link = `https://wa.me/${phone.trim()}?text=${encodeURIComponent("Bonjour")}`;
   const download = request.nextUrl.searchParams.get("download") === "1";
 
   try {
