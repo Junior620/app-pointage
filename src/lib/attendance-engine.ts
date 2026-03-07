@@ -64,7 +64,19 @@ export async function verifyGeofence(
   actionType: string
 ): Promise<{ allowed: boolean; distance: number }> {
   const data = await getScheduleForEmployee(employeeId);
-  if (!data) return { allowed: false, distance: -1 };
+
+  if (!data) {
+    await prisma.fraudAttempt.create({
+      data: {
+        employeeId,
+        lat: point.lat,
+        lng: point.lng,
+        distanceM: -1,
+        type: actionType,
+      },
+    });
+    return { allowed: false, distance: -1 };
+  }
 
   const center: GeoPoint = {
     lat: data.site.centerLat,
@@ -97,7 +109,7 @@ export async function processCheckIn(
   const today = todayDate();
 
   if (isWeekend(today)) {
-    return { success: false, message: "Pas de pointage le weekend." };
+    return { success: false, message: "Pas de pointage le dimanche." };
   }
 
   if (await isHoliday(today)) {

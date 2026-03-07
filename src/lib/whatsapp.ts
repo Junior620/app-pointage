@@ -2,6 +2,11 @@ import crypto from "crypto";
 
 const WHATSAPP_API_URL = "https://graph.facebook.com/v21.0";
 
+/** Numéro au format attendu par l'API WhatsApp : chiffres uniquement, sans + */
+function toWhatsAppPhone(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
 export async function sendWhatsAppMessage(
   to: string,
   text: string
@@ -10,10 +15,11 @@ export async function sendWhatsAppMessage(
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
   if (!phoneNumberId || !accessToken) {
-    console.error("WhatsApp credentials not configured");
+    console.error("[WhatsApp] Envoi impossible : WHATSAPP_PHONE_NUMBER_ID ou WHATSAPP_ACCESS_TOKEN manquant");
     return;
   }
 
+  const toNumber = toWhatsAppPhone(to);
   const url = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
   const response = await fetch(url, {
@@ -24,7 +30,7 @@ export async function sendWhatsAppMessage(
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",
-      to,
+      to: toNumber,
       type: "text",
       text: { body: text },
     }),
@@ -32,7 +38,7 @@ export async function sendWhatsAppMessage(
 
   if (!response.ok) {
     const error = await response.text();
-    console.error("WhatsApp send error:", error);
+    console.error("[WhatsApp] Erreur envoi message vers", toNumber, ":", response.status, error);
   }
 }
 
@@ -41,11 +47,9 @@ export async function sendWhatsAppButtons(to: string): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
-  if (!phoneNumberId || !accessToken) {
-    console.error("WhatsApp credentials not configured");
-    return;
-  }
+  if (!phoneNumberId || !accessToken) return;
 
+  const toNumber = toWhatsAppPhone(to);
   const url = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
   const response = await fetch(url, {
@@ -56,7 +60,7 @@ export async function sendWhatsAppButtons(to: string): Promise<void> {
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",
-      to,
+      to: toNumber,
       type: "interactive",
       interactive: {
         type: "button",
@@ -76,12 +80,13 @@ export async function sendWhatsAppButtons(to: string): Promise<void> {
 
   if (!response.ok) {
     const error = await response.text();
-    console.error("WhatsApp buttons error:", error);
+    console.error("[WhatsApp] Erreur envoi boutons vers", toNumber, ":", response.status, error);
   }
 }
 
 export async function sendWhatsAppLocationRequest(
-  to: string
+  to: string,
+  action: "CHECK_IN" | "CHECK_OUT"
 ): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
@@ -89,9 +94,12 @@ export async function sendWhatsAppLocationRequest(
 
   if (!phoneNumberId || !accessToken) return;
 
-  const url = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
+  const toNumber = toWhatsAppPhone(to);
+  const base = baseUrl?.startsWith("http://") || baseUrl?.startsWith("https://") ? baseUrl : `http://${baseUrl || "localhost:3000"}`;
+  const geolocUrl = `${base.replace(/\/$/, "")}/geoloc?phone=${encodeURIComponent(toNumber)}&action=${action}`;
+  const apiUrl = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
-  await fetch(url, {
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -99,16 +107,22 @@ export async function sendWhatsAppLocationRequest(
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",
-      to,
+      to: toNumber,
       type: "text",
       text: {
         body:
-          `📍 Pour valider votre pointage, veuillez partager votre position.\n\n` +
-          `Option 1 : Envoyez votre localisation via WhatsApp (📎 > Localisation)\n` +
-          `Option 2 : Cliquez sur ce lien : ${baseUrl}/geoloc?phone=${encodeURIComponent(to)}`,
+          `📍 Pour valider votre pointage, *cliquez sur le lien* ci-dessous.\n\n` +
+          `Votre position sera enregistrée *à l’instant* (GPS en direct).\n\n` +
+          `${geolocUrl}\n\n` +
+          `Ouvrez le lien puis appuyez sur « Récupérer ma position maintenant ».`,
       },
     }),
   });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error("[WhatsApp] Erreur envoi localisation vers", toNumber, ":", response.status, error);
+  }
 }
 
 export function verifyWebhookSignature(

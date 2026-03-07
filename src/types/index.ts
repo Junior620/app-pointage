@@ -42,6 +42,7 @@ export type Intent =
   | "CHECK_OUT"
   | "STATUS"
   | "HELP"
+  | "GREETING"
   | "LOCATION"
   | "UNKNOWN";
 

@@ -1,5 +1,17 @@
 import type { Intent } from "@/types";
 
+const GREETING_KEYWORDS = [
+  "bonjour",
+  "salut",
+  "hello",
+  "hi",
+  "coucou",
+  "debut",
+  "début",
+  "start",
+  "allo",
+];
+
 const CHECK_IN_KEYWORDS = [
   "arrivé",
   "arrivee",
@@ -7,7 +19,6 @@ const CHECK_IN_KEYWORDS = [
   "checkin",
   "check-in",
   "check in",
-  "bonjour",
   "present",
   "présent",
 ];
@@ -41,6 +52,15 @@ export function parseIntent(message: string): {
   const parts = normalized.split(/\s+/);
   const firstWord = parts[0];
   const rest = parts.slice(1).join(" ").trim() || undefined;
+
+  for (const keyword of GREETING_KEYWORDS) {
+    const normalizedKeyword = keyword
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (normalized === normalizedKeyword || normalized.startsWith(normalizedKeyword + " ")) {
+      return { intent: "GREETING" };
+    }
+  }
 
   for (const keyword of CHECK_IN_KEYWORDS) {
     const normalizedKeyword = keyword

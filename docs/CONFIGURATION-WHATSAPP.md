@@ -140,7 +140,38 @@ Vérifie que :
 
 ---
 
-## 7. Passage en production (numéro Business)
+## 7. Dépannage : « Rien ne se passe » quand j’envoie un message
+
+Si le chatbot ne répond pas du tout :
+
+1. **Le webhook doit être accessible par Internet**  
+   En local, Meta ne peut pas appeler `http://localhost:3000`. Il faut exposer ton serveur avec **ngrok** :
+   ```bash
+   ngrok http 3000
+   ```
+   Puis dans Meta (WhatsApp → Configuration → Webhook), mets **URL de rappel** :  
+   `https://TON_URL_NGROK/api/webhooks/whatsapp`  
+   (ex. `https://abc123.ngrok.io/api/webhooks/whatsapp`).
+
+2. **Vérifier que Meta envoie bien les événements**  
+   Avec `pnpm dev` et ngrok actif, envoie un message au numéro du bot. Dans le terminal où tourne Next.js tu dois voir une ligne du type :  
+   `[WhatsApp] Message reçu de 15551436294 type: text`  
+   Si tu ne vois rien, Meta n’appelle pas ton URL (mauvaise URL, abonnement « messages » non coché, ou jeton de vérification incorrect).
+
+3. **Vérifier le numéro de l’employé**  
+   Si tu vois le log mais pas de réponse, regarde si apparaît :  
+   `[WhatsApp] Numéro non lié: 15551436294`  
+   Alors ce numéro n’est pas reconnu. Dans **Employés**, édite la fiche et enregistre le numéro WhatsApp au **format international** (ex. `+15551436294` ou `15551436294`). Le bot accepte les deux formats pour la reconnaissance.
+
+4. **Numéro de test : destinataires autorisés**  
+   Avec un **numéro de test** Meta, tu ne peux envoyer des messages **qu’aux numéros ajoutés** dans l’app. Va dans **WhatsApp** → **Démarrage** (ou **Configuration de l’API**) → section **« Ajouter un numéro de téléphone »** / **« To »** et ajoute le numéro qui reçoit les messages (ex. `+237695607089`). Sinon l’API renvoie une erreur et le bot ne répond pas. En prod avec un vrai numéro Business, cette limite disparaît.
+
+5. **En production**  
+   Déploie l’app (ex. Vercel) et configure le webhook avec l’URL de prod (ex. `https://ton-app.vercel.app/api/webhooks/whatsapp`). Plus besoin de ngrok.
+
+---
+
+## 8. Passage en production (numéro Business)
 
 - Valide ton **Meta Business Manager** et ton **numéro Business**.
 - Remplace le numéro de test par ce numéro dans la configuration WhatsApp.

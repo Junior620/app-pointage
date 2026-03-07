@@ -14,6 +14,7 @@ import {
   Shield,
   ArrowRight,
   MapPin,
+  RefreshCw,
 } from "lucide-react";
 import StatCard from "@/components/dashboard/StatCard";
 import PunctualityChart from "@/components/dashboard/PunctualityChart";
@@ -63,12 +64,22 @@ export default function DashboardClient({ userName }: { userName: string }) {
   const [data, setData] = useState<DashboardAPIData["data"] | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchDashboard = () => {
     fetch("/api/dashboard")
       .then((r) => r.json())
       .then((json) => setData(json.data))
       .catch(console.error)
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchDashboard();
+  }, []);
+
+  useEffect(() => {
+    const onFocus = () => fetchDashboard();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   if (loading) {
@@ -276,12 +287,22 @@ export default function DashboardClient({ userName }: { userName: string }) {
             <Shield className="h-5 w-5 text-red-500" />
             Tentatives suspectes
           </h3>
-          <Link
-            href="/attendance"
-            className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
-          >
-            Voir tout <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setLoading(true); fetchDashboard(); }}
+              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+              title="Actualiser"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <Link
+              href="/attendance"
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              Voir tout <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -333,7 +354,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <span className="font-semibold text-red-600">
-                      {Math.round(f.distanceM)} m
+                      {f.distanceM >= 0 ? `${Math.round(f.distanceM)} m` : "—"}
                     </span>
                   </td>
                 </tr>

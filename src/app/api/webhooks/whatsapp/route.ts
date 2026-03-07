@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
         if (!messages) continue;
 
         for (const message of messages) {
+          console.log("[WhatsApp] Message reçu de", message.from, "type:", message.type);
           await handleMessage(message.from, message);
         }
       }
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ status: "ok" });
   } catch (error) {
-    console.error("Webhook error:", error);
+    console.error("[WhatsApp] Webhook error:", error);
     return NextResponse.json({ status: "error" }, { status: 500 });
   }
 }
@@ -69,12 +70,20 @@ async function handleMessage(
 ) {
   cleanPending();
   const normalizedPhone = normalizePhone(phone);
+  const digitsOnly = normalizedPhone.replace(/\D/g, "");
 
-  const employee = await prisma.employee.findUnique({
-    where: { whatsappPhone: normalizedPhone },
+  const employee = await prisma.employee.findFirst({
+    where: {
+      OR: [
+        { whatsappPhone: normalizedPhone },
+        { whatsappPhone: digitsOnly },
+        { whatsappPhone: `+${digitsOnly}` },
+      ],
+    },
   });
 
   if (!employee) {
+    console.log("[WhatsApp] Numéro non lié:", digitsOnly || normalizedPhone);
     const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
     await sendWhatsAppMessage(
       phone,
@@ -88,31 +97,20 @@ async function handleMessage(
     return;
   }
 
-  // Localisation reçue → traiter l'action en attente
+  // Localisation envoyée via WhatsApp : refusée (anti-fraude). On n'accepte que la position à l'instant via le lien.
   if (message.type === "location" && message.location) {
-    const point: GeoPoint = {
-      lat: message.location.latitude,
-      lng: message.location.longitude,
-    };
-
     const pending = pendingActions.get(normalizedPhone);
     if (!pending) {
       await sendWhatsAppMessage(
         phone,
-        "Localisation reçue. Envoyez d'abord ARRIVÉ ou DÉPART, puis votre position."
+        "Envoyez d'abord ARRIVÉ ou DÉPART pour recevoir le lien de pointage."
       );
       return;
     }
-
-    pendingActions.delete(normalizedPhone);
-
-    if (pending.intent === "CHECK_IN") {
-      const result = await processCheckIn(employee.id, point, pending.comment);
-      await sendWhatsAppMessage(phone, result.message);
-    } else {
-      const result = await processCheckOut(employee.id, point, pending.comment);
-      await sendWhatsAppMessage(phone, result.message);
-    }
+    await sendWhatsAppMessage(
+      phone,
+      "Pour des raisons de vérification, le pointage doit se faire via le *lien* envoyé (position enregistrée à l'instant). Veuillez cliquer sur le lien reçu et appuyer sur « Récupérer ma position maintenant »."
+    );
     return;
   }
 
@@ -121,10 +119,10 @@ async function handleMessage(
     const id = message.interactive.button_reply.id;
     if (id === "BTN_ARRIVE") {
       pendingActions.set(normalizedPhone, { intent: "CHECK_IN", timestamp: Date.now() });
-      await sendWhatsAppLocationRequest(phone);
+      await sendWhatsAppLocationRequest(phone, "CHECK_IN");
     } else if (id === "BTN_DEPART") {
       pendingActions.set(normalizedPhone, { intent: "CHECK_OUT", timestamp: Date.now() });
-      await sendWhatsAppLocationRequest(phone);
+      await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
     } else if (id === "BTN_STATUT") {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -155,6 +153,7 @@ async function handleMessage(
   // Message texte
   if (message.type === "text" && message.text) {
     const { intent, comment } = parseIntent(message.text.body);
+    console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
     switch (intent) {
       case "CHECK_IN":
@@ -163,7 +162,7 @@ async function handleMessage(
           comment,
           timestamp: Date.now(),
         });
-        await sendWhatsAppLocationRequest(phone);
+        await sendWhatsAppLocationRequest(phone, "CHECK_IN");
         break;
 
       case "CHECK_OUT":
@@ -172,7 +171,7 @@ async function handleMessage(
           comment,
           timestamp: Date.now(),
         });
-        await sendWhatsAppLocationRequest(phone);
+        await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
         break;
 
       case "STATUS": {
@@ -209,6 +208,14 @@ async function handleMessage(
         }
         break;
       }
+
+      case "GREETING":
+        await sendWhatsAppMessage(
+          phone,
+          `👋 Bienvenue sur le pointage !\n\n${HELP_MESSAGE}`
+        );
+        await sendWhatsAppButtons(phone);
+        break;
 
       case "HELP":
         await sendWhatsAppMessage(phone, HELP_MESSAGE);

@@ -13,13 +13,15 @@ function GeolocForm() {
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
   const [geoError, setGeoError] = useState("");
-  const [geoLoading, setGeoLoading] = useState(true);
+  const [geoLoading, setGeoLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const requestGeolocation = useCallback(() => {
     setGeoLoading(true);
     setGeoError("");
+    setLat(null);
+    setLng(null);
 
     if (!navigator.geolocation) {
       setGeoError("La géolocalisation n'est pas supportée par votre navigateur.");
@@ -53,10 +55,6 @@ function GeolocForm() {
     );
   }, []);
 
-  useEffect(() => {
-    requestGeolocation();
-  }, [requestGeolocation]);
-
   const handleConfirm = async () => {
     if (lat === null || lng === null) return;
     setSubmitting(true);
@@ -67,9 +65,10 @@ function GeolocForm() {
         body: JSON.stringify({ phone, lat, lng, action }),
       });
       const json = await res.json();
+      const data = json.data ?? json;
       setResult({
         success: res.ok,
-        message: json.message ?? (res.ok ? "Position enregistrée" : "Erreur"),
+        message: data.message ?? (res.ok ? "Position enregistrée" : "Erreur"),
       });
     } catch {
       setResult({ success: false, message: "Erreur de connexion au serveur" });
@@ -107,9 +106,25 @@ function GeolocForm() {
           </div>
           <h1 className="text-xl font-bold text-slate-800">Pointage géolocalisé</h1>
           <p className="text-slate-500 text-sm mt-1">
-            {action === "checkout" ? "Enregistrement du départ" : "Enregistrement de l'arrivée"}
+            {action === "CHECK_OUT" ? "Enregistrement du départ" : "Enregistrement de l'arrivée"}
           </p>
         </div>
+
+        {!lat && !lng && !geoLoading && !geoError && (
+          <div className="text-center py-4">
+            <p className="text-slate-600 text-sm mb-6">
+              Appuyez sur le bouton pour enregistrer votre position <strong>à l&apos;instant</strong> (GPS en direct).
+            </p>
+            <button
+              type="button"
+              onClick={requestGeolocation}
+              className="w-full py-4 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-3 shadow-lg"
+            >
+              <Navigation className="w-6 h-6" />
+              Récupérer ma position maintenant
+            </button>
+          </div>
+        )}
 
         {geoLoading && (
           <div className="text-center py-8">

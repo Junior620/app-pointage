@@ -40,9 +40,9 @@ export function minutesBetween(start: Date, end: Date): number {
   return Math.round((end.getTime() - start.getTime()) / (1000 * 60));
 }
 
+/** Dimanche uniquement (samedi autorisé pour le pointage). */
 export function isWeekend(date: Date): boolean {
-  const day = date.getDay();
-  return day === 0 || day === 6;
+  return date.getDay() === 0;
 }
 
 export function todayDate(): Date {

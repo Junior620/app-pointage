@@ -30,7 +30,8 @@ interface Employee {
   service: string;
   whatsappPhone: string | null;
   active: boolean;
-  site?: { name: string } | null;
+  siteId?: string | null;
+  site?: { id: string; name: string } | null;
 }
 
 const employeeSchema = z.object({
@@ -65,6 +66,7 @@ export default function EmployeesPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [services, setServices] = useState<string[]>([]);
+  const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const perPage = 15;
 
   const fetchEmployees = useCallback(async () => {
@@ -102,6 +104,13 @@ export default function EmployeesPage() {
     fetchEmployees();
   }, [fetchEmployees]);
 
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((json) => setSites(json.data?.sites ?? []))
+      .catch(() => setSites([]));
+  }, []);
+
   const totalPages = Math.ceil(total / perPage);
 
   // KPI calculations
@@ -125,7 +134,7 @@ export default function EmployeesPage() {
       lastName: emp.lastName,
       service: emp.service,
       whatsappPhone: emp.whatsappPhone ?? "",
-      siteId: "",
+      siteId: emp.siteId ?? emp.site?.id ?? "",
     });
     setErrors({});
     setModalOpen(true);
@@ -597,6 +606,28 @@ export default function EmployeesPage() {
                     </p>
                   )}
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Zone de travail (site)
+                </label>
+                <select
+                  value={form.siteId}
+                  onChange={(e) =>
+                    setForm({ ...form, siteId: e.target.value })
+                  }
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                >
+                  <option value="">Aucun site</option>
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  Requis pour valider le pointage par géolocalisation.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">

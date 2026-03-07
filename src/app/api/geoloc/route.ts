@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
+import { sendWhatsAppMessage } from "@/lib/whatsapp";
 
 const geolocSchema = z.object({
   phone: z.string().min(1, "Le numéro de téléphone est requis"),
@@ -21,9 +22,16 @@ export async function POST(request: NextRequest) {
     }
 
     const { phone, lat, lng, action, comment } = parsed.data;
+    const digitsOnly = phone.replace(/\D/g, "");
 
-    const employee = await prisma.employee.findUnique({
-      where: { whatsappPhone: phone },
+    const employee = await prisma.employee.findFirst({
+      where: {
+        OR: [
+          { whatsappPhone: phone },
+          { whatsappPhone: digitsOnly },
+          { whatsappPhone: `+${digitsOnly}` },
+        ],
+      },
     });
 
     if (!employee) {
@@ -39,6 +47,11 @@ export async function POST(request: NextRequest) {
     const result = action === "CHECK_IN"
       ? await processCheckIn(employee.id, point, comment)
       : await processCheckOut(employee.id, point, comment);
+
+    if (!result.success && result.message) {
+      const toPhone = employee.whatsappPhone || phone;
+      await sendWhatsAppMessage(toPhone, result.message);
+    }
 
     return NextResponse.json({
       data: {
