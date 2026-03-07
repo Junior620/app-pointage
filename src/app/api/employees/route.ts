@@ -77,8 +77,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
     }
 
+    const data = {
+      ...parsed.data,
+      siteId: parsed.data.siteId?.trim() || undefined,
+    };
+
     const employee = await prisma.employee.create({
-      data: parsed.data,
+      data,
       include: { site: true },
     });
 
