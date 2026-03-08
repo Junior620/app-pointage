@@ -9,8 +9,8 @@ export async function GET(request: NextRequest) {
 
     const startDate = searchParams.get("dateFrom") || searchParams.get("startDate");
     const endDate = searchParams.get("dateTo") || searchParams.get("endDate");
-    const service = searchParams.get("service");
-    const search = searchParams.get("search");
+    const service = searchParams.get("service")?.trim() || undefined;
+    const search = searchParams.get("search")?.trim() || undefined;
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "dateFrom et dateTo sont requis" }, { status: 400 });
@@ -20,15 +20,17 @@ export async function GET(request: NextRequest) {
       date: { gte: new Date(startDate), lte: new Date(endDate) },
     };
 
-    const employeeWhere: Record<string, unknown> = { active: true };
-    if (service) employeeWhere.service = service;
-    if (search) {
-      employeeWhere.OR = [
-        { firstName: { contains: search, mode: "insensitive" } },
-        { lastName: { contains: search, mode: "insensitive" } },
-        { matricule: { contains: search, mode: "insensitive" } },
-      ];
-    }
+    const employeeWhere = {
+      active: true,
+      ...(service && { service }),
+      ...(search && {
+        OR: [
+          { firstName: { contains: search, mode: "insensitive" as const } },
+          { lastName: { contains: search, mode: "insensitive" as const } },
+          { matricule: { contains: search, mode: "insensitive" as const } },
+        ],
+      }),
+    };
 
     const employees = await prisma.employee.findMany({
       where: employeeWhere,

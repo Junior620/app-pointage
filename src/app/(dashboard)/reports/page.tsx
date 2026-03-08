@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   FileSpreadsheet,
   FileText,
@@ -122,15 +122,24 @@ export default function ReportsPage() {
   const [sortField, setSortField] = useState<keyof ReportRow>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
+  // Charger la liste des services au montage pour le filtre
+  useEffect(() => {
+    fetch("/api/reports/services")
+      .then((res) => res.json())
+      .then((json) => setServices(json.services ?? []))
+      .catch(() => {});
+  }, []);
+
   const generate = useCallback(async () => {
     if (!dateFrom || !dateTo) return;
     setLoading(true);
     try {
+      const searchTrimmed = employeeSearch.trim();
       const params = new URLSearchParams({
         dateFrom,
         dateTo,
-        ...(service && { service }),
-        ...(employeeSearch && { search: employeeSearch }),
+        ...(service.trim() && { service: service.trim() }),
+        ...(searchTrimmed && { search: searchTrimmed }),
       });
       const res = await fetch(`/api/reports?${params}`);
       const json = await res.json();
