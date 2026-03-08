@@ -100,21 +100,28 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    const employee = await prisma.employee.update({
-      where: { id },
-      data: { active: false },
+    await prisma.$transaction(async (tx) => {
+      await tx.fraudAttempt.deleteMany({ where: { employeeId: id } });
+      await tx.attendanceRecord.deleteMany({ where: { employeeId: id } });
+      await tx.leaveRequest.deleteMany({ where: { employeeId: id } });
+      await tx.mission.deleteMany({ where: { employeeId: id } });
+      await tx.employee.delete({ where: { id } });
     });
 
-    await createAuditLog({
-      actorId: session.id,
-      action: "SOFT_DELETE",
-      entity: "Employee",
-      entityId: id,
-      before,
-      after: employee,
-    });
+    try {
+      await createAuditLog({
+        actorId: session.id,
+        action: "DELETE",
+        entity: "Employee",
+        entityId: id,
+        before,
+        after: null,
+      });
+    } catch (auditErr) {
+      console.error("[DELETE employee] Audit log error:", auditErr);
+    }
 
-    return NextResponse.json({ data: employee });
+    return NextResponse.json({ data: { id }, deleted: true });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });

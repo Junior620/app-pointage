@@ -7,6 +7,7 @@ import {
   Eye,
   Pencil,
   Ban,
+  Trash2,
   ChevronLeft,
   ChevronRight,
   X,
@@ -67,6 +68,11 @@ export default function EmployeesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [services, setServices] = useState<string[]>([]);
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
+  const [userRole, setUserRole] = useState<string>("");
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
   const perPage = 15;
 
   const fetchEmployees = useCallback(async () => {
@@ -109,6 +115,13 @@ export default function EmployeesPage() {
       .then((r) => r.json())
       .then((json) => setSites(json.data?.sites ?? []))
       .catch(() => setSites([]));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((json) => setUserRole(json.role ?? ""))
+      .catch(() => setUserRole(""));
   }, []);
 
   const totalPages = Math.ceil(total / perPage);
@@ -180,8 +193,41 @@ export default function EmployeesPage() {
     fetchEmployees();
   };
 
+  const handleConfirmDelete = async () => {
+    if (!employeeToDelete) return;
+    const idToDelete = employeeToDelete.id;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/employees/${idToDelete}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setEmployeeToDelete(null);
+        setEmployees((prev) => prev.filter((e) => e.id !== idToDelete));
+        setTotal((t) => Math.max(0, t - 1));
+        setDeleteSuccess(true);
+        setTimeout(() => setDeleteSuccess(false), 3000);
+      } else {
+        setDeleteError(json.error || `Erreur ${res.status}`);
+      }
+    } catch (e) {
+      console.error(e);
+      setDeleteError("Erreur réseau. Réessayez.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {deleteSuccess && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-medium text-emerald-800">
+          Employé supprimé définitivement de la base de données.
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
@@ -434,6 +480,18 @@ export default function EmployeesPage() {
                         >
                           <Ban className="w-4 h-4" />
                         </button>
+                        {userRole === "ADMIN" && (
+                          <button
+                            onClick={() => {
+                              setEmployeeToDelete(emp);
+                              setDeleteError(null);
+                            }}
+                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                            title="Supprimer l'employé"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -666,6 +724,60 @@ export default function EmployeesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmation suppression (ADMIN) */}
+      {employeeToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => {
+              if (!deleting) {
+                setEmployeeToDelete(null);
+                setDeleteError(null);
+              }
+            }}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 z-10">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <div className="h-10 w-10 rounded-full bg-red-50 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-900">Supprimer l&apos;employé</h2>
+            </div>
+            <p className="text-sm text-slate-600 mb-6">
+              Voulez-vous supprimer <strong>{employeeToDelete.firstName} {employeeToDelete.lastName}</strong> ({employeeToDelete.matricule}) ? L&apos;employé sera supprimé définitivement de la base de données (pointages, absences et missions liés seront aussi supprimés).
+            </p>
+            {deleteError && (
+              <p className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-2 mb-4">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!deleting) {
+                    setEmployeeToDelete(null);
+                    setDeleteError(null);
+                  }
+                }}
+                disabled={deleting}
+                className="h-10 px-4 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                className="h-10 px-5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {deleting ? "Suppression…" : "Supprimer"}
+              </button>
+            </div>
           </div>
         </div>
       )}
