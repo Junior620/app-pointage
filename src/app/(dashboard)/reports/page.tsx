@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   FileSpreadsheet,
   FileText,
@@ -121,6 +121,10 @@ export default function ReportsPage() {
   const [generated, setGenerated] = useState(false);
   const [sortField, setSortField] = useState<keyof ReportRow>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [employeeSuggestions, setEmployeeSuggestions] = useState<{ id: string; firstName: string; lastName: string; matricule: string; service: string; label: string }[]>([]);
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const employeeInputRef = useRef<HTMLDivElement>(null);
 
   // Charger la liste des services au montage pour le filtre
   useEffect(() => {
@@ -128,6 +132,40 @@ export default function ReportsPage() {
       .then((res) => res.json())
       .then((json) => setServices(json.services ?? []))
       .catch(() => {});
+  }, []);
+
+  // Suggestions employés (autocomplete) avec debounce
+  useEffect(() => {
+    const q = employeeSearch.trim();
+    if (q.length < 2) {
+      setEmployeeSuggestions([]);
+      setShowEmployeeDropdown(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      setLoadingSuggestions(true);
+      const params = new URLSearchParams({ q, limit: "15", ...(service.trim() && { service: service.trim() }) });
+      fetch(`/api/reports/employees?${params}`)
+        .then((res) => res.json())
+        .then((json) => {
+          setEmployeeSuggestions(json.data ?? []);
+          setShowEmployeeDropdown(true);
+        })
+        .catch(() => setEmployeeSuggestions([]))
+        .finally(() => setLoadingSuggestions(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [employeeSearch, service]);
+
+  // Clic extérieur pour fermer le dropdown employé
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (employeeInputRef.current && !employeeInputRef.current.contains(e.target as Node)) {
+        setShowEmployeeDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const generate = useCallback(async () => {
@@ -339,14 +377,38 @@ export default function ReportsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Employé</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <div className="relative" ref={employeeInputRef}>
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 <input
                   value={employeeSearch}
                   onChange={(e) => setEmployeeSearch(e.target.value)}
-                  placeholder="Rechercher…"
+                  onFocus={() => employeeSearch.trim().length >= 2 && employeeSuggestions.length > 0 && setShowEmployeeDropdown(true)}
+                  placeholder="Rechercher (nom, prénom, matricule)…"
                   className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-slate-400"
                 />
+                {loadingSuggestions && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">…</span>
+                )}
+                {showEmployeeDropdown && employeeSuggestions.length > 0 && (
+                  <ul className="absolute z-10 left-0 right-0 mt-1 py-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-auto">
+                    {employeeSuggestions.map((emp) => (
+                      <li key={emp.id}>
+                        <button
+                          type="button"
+                          className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                          onClick={() => {
+                            setEmployeeSearch(`${emp.lastName} ${emp.firstName}`);
+                            setShowEmployeeDropdown(false);
+                            setEmployeeSuggestions([]);
+                          }}
+                        >
+                          <span className="font-medium">{emp.lastName} {emp.firstName}</span>
+                          {emp.service && <span className="text-slate-400 text-xs">— {emp.service}</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           </div>
