@@ -54,6 +54,11 @@ export function parseIntent(message: string): {
     return { intent: "HELP" };
   }
 
+  // Réponse par numéro : 1 = Arrivée, 2 = Départ, 3 = Statut
+  if (normalized === "1") return { intent: "CHECK_IN" };
+  if (normalized === "2") return { intent: "CHECK_OUT" };
+  if (normalized === "3") return { intent: "STATUS" };
+
   const parts = normalized.split(/\s+/);
   const firstWord = parts[0];
   const rest = parts.slice(1).join(" ").trim() || undefined;
@@ -116,11 +121,15 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 
 ❓ *AIDE* — Afficher ce menu`;
 
-/** Message envoyé au premier contact (après scan QR : Bonjour ou /) */
-export const WELCOME_FIRST_MESSAGE = `👋 *Bienvenue sur le pointage !*
+/** Message envoyé au premier contact (Bonjour ou /) : personnalisé avec le prénom */
+export function getWelcomeMessage(firstName: string): string {
+  return `👋 Bonjour ${firstName}
 
-Voici ce que vous pouvez faire :
+Que souhaitez-vous faire ?
 
-${HELP_MESSAGE}
+1️⃣ Pointer mon arrivée
+2️⃣ Pointer mon départ
+3️⃣ Voir mon statut
 
-💡 Tapez */* à tout moment pour réafficher cette liste et les boutons (Arrivé, Départ, Mon statut).`;
+Répondez *1*, *2* ou *3* (ou tapez Arrivé / Départ / Statut).`;
+}
