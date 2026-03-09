@@ -100,6 +100,8 @@ export async function verifyGeofence(
   return { allowed, distance: Math.round(distance) };
 }
 
+const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
+
 export async function processCheckIn(
   employeeId: string,
   point: GeoPoint,
@@ -180,6 +182,7 @@ export async function processCheckIn(
   const timeStr = now.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: APP_TIMEZONE,
   });
 
   if (status === "LATE") {
@@ -255,6 +258,7 @@ export async function processCheckOut(
   const timeStr = now.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: APP_TIMEZONE,
   });
   const hours = Math.floor(total / 60);
   const mins = total % 60;

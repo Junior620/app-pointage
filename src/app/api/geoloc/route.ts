@@ -44,22 +44,27 @@ export async function POST(request: NextRequest) {
 
     const point = { lat, lng };
 
-    const result = action === "CHECK_IN"
-      ? await processCheckIn(employee.id, point, comment)
-      : await processCheckOut(employee.id, point, comment);
+    const result =
+      action === "CHECK_IN"
+        ? await processCheckIn(employee.id, point, comment)
+        : await processCheckOut(employee.id, point, comment);
 
-    if (!result.success && result.message) {
+    if (result.message) {
       const toPhone = employee.whatsappPhone || phone;
+      // On envoie toujours un récap sur WhatsApp (succès ou erreur)
       await sendWhatsAppMessage(toPhone, result.message);
     }
 
-    return NextResponse.json({
-      data: {
-        success: result.success,
-        message: result.message,
-        status: result.status,
+    return NextResponse.json(
+      {
+        data: {
+          success: result.success,
+          message: result.message,
+          status: result.status,
+        },
       },
-    }, { status: result.success ? 200 : 400 });
+      { status: result.success ? 200 : 400 }
+    );
   } catch (error) {
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
