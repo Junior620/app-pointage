@@ -82,15 +82,14 @@ async function handleMessage(
     },
   });
 
-  if (!employee) {
-    console.log("[WhatsApp] Numéro non lié:", digitsOnly || normalizedPhone);
-    const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
-    await sendWhatsAppMessage(
-      phone,
-      `Votre numéro n'est pas encore lié. Veuillez vous enregistrer ici : ${baseUrl}/onboarding`
-    );
-    return;
-  }
+    if (!employee) {
+      console.log("[WhatsApp] Numéro non lié:", digitsOnly || normalizedPhone);
+      await sendWhatsAppMessage(
+        phone,
+        "Votre numéro n'est pas encore lié au système de pointage. Veuillez contacter le service RH pour qu'il vous ajoute et renseigne votre numéro WhatsApp."
+      );
+      return;
+    }
 
   if (!employee.active) {
     await sendWhatsAppMessage(phone, "Votre compte est désactivé. Contactez les RH.");
