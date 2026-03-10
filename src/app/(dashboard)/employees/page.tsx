@@ -36,13 +36,15 @@ interface Employee {
 }
 
 const employeeSchema = z.object({
-  matricule: z.string().min(1, "Le matricule est requis"),
+  matricule: z.string().optional(),
   firstName: z.string().min(1, "Le prénom est requis"),
   lastName: z.string().min(1, "Le nom est requis"),
   service: z.string().min(1, "Le service est requis"),
   whatsappPhone: z.string().optional(),
   siteId: z.string().optional(),
 });
+
+const createEmployeeSchema = employeeSchema.omit({ matricule: true });
 
 type EmployeeForm = z.infer<typeof employeeSchema>;
 
@@ -155,7 +157,8 @@ export default function EmployeesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = employeeSchema.safeParse(form);
+    const schema = editingId ? employeeSchema : createEmployeeSchema;
+    const result = schema.safeParse(form);
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
       result.error.issues.forEach((i) => {
@@ -168,10 +171,14 @@ export default function EmployeesPage() {
     try {
       const url = editingId ? `/api/employees/${editingId}` : "/api/employees";
       const method = editingId ? "PUT" : "POST";
+      const payload =
+        editingId
+          ? result.data
+          : { ...result.data }; // matricule généré côté serveur
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.data),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setModalOpen(false);
@@ -594,18 +601,27 @@ export default function EmployeesPage() {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Matricule
                   </label>
-                  <input
-                    value={form.matricule}
-                    onChange={(e) =>
-                      setForm({ ...form, matricule: e.target.value })
-                    }
-                    placeholder="EMP001"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                  />
-                  {errors.matricule && (
-                    <p className="text-xs text-red-500 mt-1">
-                      {errors.matricule}
-                    </p>
+                  {editingId ? (
+                    <>
+                      <input
+                        value={form.matricule}
+                        onChange={(e) =>
+                          setForm({ ...form, matricule: e.target.value })
+                        }
+                        placeholder="AFREXIA-SCPB-IT-0001"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
+                      />
+                      {errors.matricule && (
+                        <p className="text-xs text-red-500 mt-1">
+                          {errors.matricule}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="w-full px-3 py-2.5 border border-dashed border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50">
+                      Sera généré automatiquement à l&apos;enregistrement
+                      (ex.&nbsp;AFREXIA-SCPB-IT-0001).
+                    </div>
                   )}
                 </div>
                 <div>

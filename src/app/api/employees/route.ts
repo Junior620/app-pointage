@@ -5,12 +5,44 @@ import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 
 const createEmployeeSchema = z.object({
-  matricule: z.string().min(1, "Le matricule est requis"),
+  // Matricule optionnel : s'il est vide/non fourni, il sera généré automatiquement
+  matricule: z.string().optional(),
   firstName: z.string().min(1, "Le prénom est requis"),
   lastName: z.string().min(1, "Le nom est requis"),
   service: z.string().min(1, "Le service est requis"),
   siteId: z.string().optional(),
 });
+
+async function generateNextMatricule(service: string): Promise<string> {
+  const raw = service.trim().toUpperCase();
+  const DEPT_MAP: Record<string, string> = {
+    IT: "IT",
+    QHSE: "QHSE",
+    RH: "RH",
+    DAF: "DAF",
+    RAF: "RAF",
+    ST: "ST",
+  };
+  const derived = raw.replace(/[^A-Z]/g, "").slice(0, 4);
+  const dept = DEPT_MAP[raw] || derived || "GEN";
+  const prefix = `AFREXIA-SCPB-${dept}-`;
+
+  const last = await prisma.employee.findFirst({
+    where: { matricule: { startsWith: prefix } },
+    orderBy: { matricule: "desc" },
+  });
+
+  let next = 1;
+  if (last?.matricule) {
+    const match = last.matricule.match(/(\d+)$/);
+    if (match) {
+      next = Number(match[1]) + 1;
+    }
+  }
+
+  const numberPart = String(next).padStart(4, "0");
+  return `${prefix}${numberPart}`;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,14 +104,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const existing = await prisma.employee.findUnique({ where: { matricule: parsed.data.matricule } });
+    const { matricule, ...rest } = parsed.data;
+    let finalMatricule = (matricule ?? "").trim();
+    if (!finalMatricule) {
+      finalMatricule = await generateNextMatricule(rest.service);
+    }
+
+    const existing = await prisma.employee.findUnique({ where: { matricule: finalMatricule } });
     if (existing) {
       return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
     }
 
     const data = {
-      ...parsed.data,
-      siteId: parsed.data.siteId?.trim() || undefined,
+      ...rest,
+      matricule: finalMatricule,
+      siteId: rest.siteId?.trim() || undefined,
     };
 
     const employee = await prisma.employee.create({
