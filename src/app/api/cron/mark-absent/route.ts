@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runMarkAbsent } from "@/lib/attendance-engine";
 
-export async function POST(request: NextRequest) {
+function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  return authHeader === `Bearer ${process.env.CRON_SECRET}`;
+}
+
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -22,3 +26,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = GET;
