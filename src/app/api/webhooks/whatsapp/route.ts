@@ -247,6 +247,22 @@ async function handleMessage(
         break;
       }
 
+      case "MY_ATTENDANCE":
+        await handleMyAttendance(phone, employee.id, employee.firstName);
+        break;
+
+      case "MY_ABSENCES":
+        await handleMyAbsences(phone, employee.id, employee.firstName);
+        break;
+
+      case "MY_OVERTIME":
+        await handleMyOvertime(phone, employee.id, employee.firstName);
+        break;
+
+      case "MY_MISSIONS":
+        await handleMyMissions(phone, employee.id, employee.firstName);
+        break;
+
       case "GREETING":
       case "HELP":
         await sendWhatsAppMessage(phone, getWelcomeMessage(employee.firstName));
@@ -256,4 +272,237 @@ async function handleMessage(
         await sendWhatsAppButtons(phone);
     }
   }
+}
+
+async function handleMyAttendance(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const records = await prisma.attendanceRecord.findMany({
+    where: { employeeId, date: { gte: startOfMonth } },
+    orderBy: { date: "desc" },
+  });
+
+  if (records.length === 0) {
+    await sendWhatsAppMessage(
+      phone,
+      `📋 *${firstName}*, aucun pointage ce mois-ci.`
+    );
+    return;
+  }
+
+  const present = records.filter((r) => r.finalStatus === "PRESENT").length;
+  const absent = records.filter((r) => r.finalStatus === "ABSENT").length;
+  const late = records.filter((r) => r.checkInStatus === "LATE").length;
+  const onTime = records.filter((r) => r.checkInStatus === "ON_TIME").length;
+  const totalOT = records.reduce((s, r) => s + (r.overtimeMinutes ?? 0), 0);
+
+  const monthName = now.toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+
+  let msg = `📋 *Pointages de ${monthName}*\n\n`;
+  msg += `✅ Présent : ${present} jour(s)\n`;
+  msg += `❌ Absent : ${absent} jour(s)\n`;
+  msg += `⏰ À l'heure : ${onTime} | En retard : ${late}\n`;
+  if (totalOT > 0) {
+    msg += `💪 Heures sup : ${Math.floor(totalOT / 60)}h${(totalOT % 60).toString().padStart(2, "0")}\n`;
+  }
+
+  msg += `\n📊 *5 derniers jours :*\n`;
+  for (const r of records.slice(0, 5)) {
+    const dateStr = r.date.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+    });
+    const inTime = r.checkInTime
+      ? r.checkInTime.toLocaleTimeString("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "—";
+    const outTime = r.checkOutTime
+      ? r.checkOutTime.toLocaleTimeString("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "—";
+    const status =
+      r.finalStatus === "PRESENT"
+        ? "✅"
+        : r.finalStatus === "ABSENT"
+          ? "❌"
+          : "📌";
+    msg += `${status} ${dateStr} : ${inTime} → ${outTime}\n`;
+  }
+
+  await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleMyAbsences(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const now = new Date();
+  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+
+  const absences = await prisma.attendanceRecord.findMany({
+    where: {
+      employeeId,
+      finalStatus: "ABSENT",
+      date: { gte: threeMonthsAgo },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  if (absences.length === 0) {
+    await sendWhatsAppMessage(
+      phone,
+      `📅 *${firstName}*, aucune absence ces 3 derniers mois. Excellent !`
+    );
+    return;
+  }
+
+  let msg = `📅 *Absences (3 derniers mois) — ${firstName}*\n\n`;
+  msg += `Total : ${absences.length} jour(s) d'absence\n\n`;
+
+  for (const a of absences.slice(0, 10)) {
+    const dateStr = a.date.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "long",
+    });
+    msg += `❌ ${dateStr}\n`;
+  }
+
+  if (absences.length > 10) {
+    msg += `\n... et ${absences.length - 10} autres jour(s)`;
+  }
+
+  await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleMyOvertime(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const records = await prisma.attendanceRecord.findMany({
+    where: {
+      employeeId,
+      date: { gte: startOfMonth },
+      overtimeMinutes: { gt: 0 },
+    },
+    orderBy: { date: "desc" },
+  });
+
+  const totalOT = records.reduce((s, r) => s + (r.overtimeMinutes ?? 0), 0);
+  const monthName = now.toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+
+  if (records.length === 0 || totalOT === 0) {
+    await sendWhatsAppMessage(
+      phone,
+      `⏰ *${firstName}*, aucune heure supplémentaire enregistrée en ${monthName}.`
+    );
+    return;
+  }
+
+  let msg = `⏰ *Heures supplémentaires — ${monthName}*\n\n`;
+  msg += `Total : *${Math.floor(totalOT / 60)}h${(totalOT % 60).toString().padStart(2, "0")}*\n`;
+  msg += `Jours avec heures sup : ${records.length}\n\n`;
+
+  for (const r of records.slice(0, 8)) {
+    const dateStr = r.date.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+    });
+    const ot = r.overtimeMinutes ?? 0;
+    msg += `💪 ${dateStr} : +${Math.floor(ot / 60)}h${(ot % 60).toString().padStart(2, "0")}\n`;
+  }
+
+  await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleMyMissions(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const now = new Date();
+  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+
+  const missions = await prisma.mission.findMany({
+    where: {
+      employeeId,
+      startDate: { gte: threeMonthsAgo },
+    },
+    orderBy: { startDate: "desc" },
+  });
+
+  const leaves = await prisma.leaveRequest.findMany({
+    where: {
+      employeeId,
+      startDate: { gte: threeMonthsAgo },
+    },
+    orderBy: { startDate: "desc" },
+  });
+
+  if (missions.length === 0 && leaves.length === 0) {
+    await sendWhatsAppMessage(
+      phone,
+      `🌍 *${firstName}*, aucune mission ni permission ces 3 derniers mois.`
+    );
+    return;
+  }
+
+  let msg = `🌍 *Missions & Permissions — ${firstName}*\n\n`;
+
+  if (missions.length > 0) {
+    msg += `*Missions (${missions.length}) :*\n`;
+    for (const m of missions.slice(0, 5)) {
+      const from = m.startDate.toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+      const to = m.endDate.toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+      const statusIcon =
+        m.status === "APPROVED" ? "✅" : m.status === "PENDING" ? "⏳" : "❌";
+      msg += `${statusIcon} ${from} → ${to} : ${m.reason}${m.location ? ` (${m.location})` : ""}\n`;
+    }
+  }
+
+  if (leaves.length > 0) {
+    msg += `\n*Permissions (${leaves.length}) :*\n`;
+    for (const l of leaves.slice(0, 5)) {
+      const from = l.startDate.toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+      const to = l.endDate.toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+      const statusIcon =
+        l.status === "APPROVED" ? "✅" : l.status === "PENDING" ? "⏳" : "❌";
+      msg += `${statusIcon} ${from} → ${to} : ${l.reason}\n`;
+    }
+  }
+
+  await sendWhatsAppMessage(phone, msg);
 }

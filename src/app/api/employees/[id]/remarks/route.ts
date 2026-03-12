@@ -10,8 +10,12 @@ const remarkSchema = z.object({
     "retard_repete",
     "absence_injustifiee",
     "avertissement",
+    "mise_a_pied",
+    "convocation",
+    "licenciement",
     "observation",
   ]),
+  level: z.number().int().min(1).max(6).nullable().optional(),
   content: z.string().min(1, "Le contenu est requis"),
 });
 
@@ -64,6 +68,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       data: {
         employeeId: id,
         category: parsed.data.category,
+        level: parsed.data.level ?? null,
         content: parsed.data.content,
         authorId: session.id,
       },

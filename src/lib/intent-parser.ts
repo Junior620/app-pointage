@@ -35,7 +35,38 @@ const CHECK_OUT_KEYWORDS = [
   "sortie",
 ];
 
-const STATUS_KEYWORDS = ["statut", "status", "état", "etat", "historique"];
+const STATUS_KEYWORDS = ["statut", "status", "état", "etat"];
+
+const MY_ATTENDANCE_KEYWORDS = [
+  "mes pointages",
+  "mon historique",
+  "pointages du mois",
+  "mes pointages du mois",
+  "historique pointage",
+  "mon mois",
+];
+
+const MY_ABSENCES_KEYWORDS = [
+  "mes absences",
+  "absence",
+  "combien absence",
+  "jours absent",
+];
+
+const MY_OVERTIME_KEYWORDS = [
+  "mes heures sup",
+  "heures supplementaires",
+  "heures supplémentaires",
+  "overtime",
+  "mes heures",
+  "heure sup",
+];
+
+const MY_MISSIONS_KEYWORDS = [
+  "mes missions",
+  "mission en cours",
+  "mes permissions",
+];
 
 const HELP_KEYWORDS = ["aide", "help", "menu", "commandes", "?"];
 
@@ -58,6 +89,10 @@ export function parseIntent(message: string): {
   if (normalized === "1") return { intent: "CHECK_IN" };
   if (normalized === "2") return { intent: "CHECK_OUT" };
   if (normalized === "3") return { intent: "STATUS" };
+  if (normalized === "4") return { intent: "MY_ATTENDANCE" };
+  if (normalized === "5") return { intent: "MY_ABSENCES" };
+  if (normalized === "6") return { intent: "MY_OVERTIME" };
+  if (normalized === "7") return { intent: "MY_MISSIONS" };
 
   const parts = normalized.split(/\s+/);
   const firstWord = parts[0];
@@ -92,6 +127,34 @@ export function parseIntent(message: string): {
     }
   }
 
+  for (const keyword of MY_ATTENDANCE_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_ATTENDANCE" };
+    }
+  }
+
+  for (const keyword of MY_ABSENCES_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_ABSENCES" };
+    }
+  }
+
+  for (const keyword of MY_OVERTIME_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_OVERTIME" };
+    }
+  }
+
+  for (const keyword of MY_MISSIONS_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_MISSIONS" };
+    }
+  }
+
   for (const keyword of STATUS_KEYWORDS) {
     if (normalized.includes(keyword)) {
       return { intent: "STATUS" };
@@ -110,18 +173,16 @@ export function parseIntent(message: string): {
 export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 
 ✅ *ARRIVÉ* — Pointer votre arrivée
-   Ex: "Arrivé" ou "Arrivé embouteillage"
-
 🚪 *DÉPART* — Pointer votre départ
-   Ex: "Départ" ou "Départ rdv médecin"
-
 📊 *STATUT* — Voir votre pointage du jour
 
-📍 Envoyez votre *localisation* pour valider le pointage
+📋 *MES POINTAGES* — Historique du mois
+📅 *MES ABSENCES* — Voir vos absences
+⏰ *MES HEURES SUP* — Vos heures supplémentaires
+🌍 *MES MISSIONS* — Missions et permissions
 
 ❓ *AIDE* — Afficher ce menu`;
 
-/** Message envoyé au premier contact (Bonjour ou /) : personnalisé avec le prénom */
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
 
@@ -131,5 +192,9 @@ Que souhaitez-vous faire ?
 2️⃣ Pointer mon départ
 3️⃣ Voir mon statut
 
-Répondez *1*, *2* ou *3* (ou tapez Arrivé / Départ / Statut).`;
+Ou tapez directement :
+📋 *Mes pointages* — historique du mois
+📅 *Mes absences* — détails des absences
+⏰ *Mes heures sup* — heures supplémentaires
+🌍 *Mes missions* — missions en cours`;
 }

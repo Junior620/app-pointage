@@ -44,6 +44,10 @@ export type Intent =
   | "HELP"
   | "GREETING"
   | "LOCATION"
+  | "MY_ATTENDANCE"
+  | "MY_ABSENCES"
+  | "MY_OVERTIME"
+  | "MY_MISSIONS"
   | "UNKNOWN";
 
 export type GeoPoint = {
