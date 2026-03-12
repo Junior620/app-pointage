@@ -123,7 +123,7 @@ export default async function EmployeeDetailPage({
                 <th className="pb-3 font-medium">Arrivée</th>
                 <th className="pb-3 font-medium">Statut arrivée</th>
                 <th className="pb-3 font-medium">Départ</th>
-                <th className="pb-3 font-medium">Durée (min)</th>
+                <th className="pb-3 font-medium">Durée</th>
                 <th className="pb-3 font-medium">Statut final</th>
               </tr>
             </thead>
@@ -164,7 +164,11 @@ export default async function EmployeeDetailPage({
                         ? new Date(a.checkOutTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
                         : "—"}
                     </td>
-                    <td className="py-2.5 text-slate-600">{a.totalMinutes ?? "—"}</td>
+                    <td className="py-2.5 text-slate-600">
+                      {a.totalMinutes != null
+                        ? `${Math.floor(a.totalMinutes / 60)}h${(a.totalMinutes % 60).toString().padStart(2, "0")}`
+                        : "—"}
+                    </td>
                     <td className="py-2.5">
                       <span
                         className={cn(

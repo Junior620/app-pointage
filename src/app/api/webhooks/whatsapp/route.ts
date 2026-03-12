@@ -168,6 +168,18 @@ async function handleMessage(
       if (!record || !rawComment) {
         // Pas de pointage aujourd'hui ou message vide : on retombera sur les
         // commandes par défaut plus bas.
+      } else if (record.checkOutTime && !record.checkOutComment) {
+        // Priorité au départ (le plus récent) : si l'employé vient de partir,
+        // c'est probablement pour ça qu'il répond.
+        await prisma.attendanceRecord.update({
+          where: { id: record.id },
+          data: { checkOutComment: rawComment },
+        });
+        await sendWhatsAppMessage(
+          phone,
+          `Motif enregistré pour votre départ : "${rawComment}". Merci.`
+        );
+        return;
       } else if (record.checkInStatus === "LATE" && !record.checkInComment) {
         await prisma.attendanceRecord.update({
           where: { id: record.id },
@@ -176,16 +188,6 @@ async function handleMessage(
         await sendWhatsAppMessage(
           phone,
           `Motif enregistré pour votre retard : "${rawComment}". Merci.`
-        );
-        return;
-      } else if (record.checkOutTime && !record.checkOutComment) {
-        await prisma.attendanceRecord.update({
-          where: { id: record.id },
-          data: { checkOutComment: rawComment },
-        });
-        await sendWhatsAppMessage(
-          phone,
-          `Motif enregistré pour votre départ : "${rawComment}". Merci.`
         );
         return;
       }
