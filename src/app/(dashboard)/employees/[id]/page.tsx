@@ -4,7 +4,8 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { ArrowLeft, Phone, MapPin, Hash, Building2 } from "lucide-react";
+import { ArrowLeft, Phone, MapPin, Hash, Building2, Landmark } from "lucide-react";
+import HrRemarks from "./HrRemarks";
 
 function getWorkingDays(from: Date, to: Date): Date[] {
   const days: Date[] = [];
@@ -71,6 +72,7 @@ export default async function EmployeeDetailPage({
     checkOutTime: Date | null;
     checkOutStatus: string | null;
     totalMinutes: number | null;
+    overtimeMinutes: number | null;
     finalStatus: string;
   };
 
@@ -85,6 +87,7 @@ export default async function EmployeeDetailPage({
           checkOutTime: rec.checkOutTime,
           checkOutStatus: rec.checkOutStatus,
           totalMinutes: rec.totalMinutes,
+          overtimeMinutes: rec.overtimeMinutes,
           finalStatus: rec.finalStatus,
         };
       }
@@ -95,6 +98,7 @@ export default async function EmployeeDetailPage({
         checkOutTime: null,
         checkOutStatus: null,
         totalMinutes: null,
+        overtimeMinutes: null,
         finalStatus: "ABSENT",
       };
     })
@@ -104,6 +108,7 @@ export default async function EmployeeDetailPage({
   const onTimeDays = rows.filter((r) => r.checkInStatus === "ON_TIME").length;
   const lateDays = rows.filter((r) => r.checkInStatus === "LATE").length;
   const absentDays = rows.filter((r) => r.finalStatus === "ABSENT").length;
+  const totalOvertimeMin = rows.reduce((sum, r) => sum + (r.overtimeMinutes ?? 0), 0);
   const punctualityRate =
     onTimeDays + lateDays > 0
       ? Math.round((onTimeDays / (onTimeDays + lateDays)) * 100)
@@ -146,6 +151,10 @@ export default async function EmployeeDetailPage({
                 {employee.matricule}
               </span>
               <span className="flex items-center gap-1.5">
+                <Landmark className="w-4 h-4" />
+                {employee.structure}
+              </span>
+              <span className="flex items-center gap-1.5">
                 <Building2 className="w-4 h-4" />
                 {employee.service}
               </span>
@@ -166,7 +175,7 @@ export default async function EmployeeDetailPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
           <p className="text-sm text-slate-500">Ponctualité</p>
           <p className="text-3xl font-bold text-blue-600 mt-1">{punctualityRate}%</p>
@@ -182,6 +191,12 @@ export default async function EmployeeDetailPage({
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
           <p className="text-sm text-slate-500">Absences</p>
           <p className="text-3xl font-bold text-red-600 mt-1">{absentDays}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
+          <p className="text-sm text-slate-500">Heures sup</p>
+          <p className="text-3xl font-bold text-violet-600 mt-1">
+            {totalOvertimeMin > 0 ? `${Math.floor(totalOvertimeMin / 60)}h${(totalOvertimeMin % 60).toString().padStart(2, "0")}` : "0"}
+          </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
           <p className="text-sm text-slate-500">Jours ouvrés</p>
@@ -202,13 +217,14 @@ export default async function EmployeeDetailPage({
                 <th className="pb-3 font-medium">Statut arrivée</th>
                 <th className="pb-3 font-medium">Départ</th>
                 <th className="pb-3 font-medium">Durée</th>
+                <th className="pb-3 font-medium">Heures sup</th>
                 <th className="pb-3 font-medium">Statut final</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
                     Aucun jour ouvré sur cette période
                   </td>
                 </tr>
@@ -252,6 +268,11 @@ export default async function EmployeeDetailPage({
                         ? `${Math.floor(a.totalMinutes / 60)}h${(a.totalMinutes % 60).toString().padStart(2, "0")}`
                         : "—"}
                     </td>
+                    <td className="py-2.5 text-slate-600">
+                      {a.overtimeMinutes && a.overtimeMinutes > 0
+                        ? <span className="text-violet-600 font-medium">{`${Math.floor(a.overtimeMinutes / 60)}h${(a.overtimeMinutes % 60).toString().padStart(2, "0")}`}</span>
+                        : "—"}
+                    </td>
                     <td className="py-2.5">
                       <span
                         className={cn(
@@ -274,6 +295,8 @@ export default async function EmployeeDetailPage({
           </table>
         </div>
       </div>
+
+      <HrRemarks employeeId={id} userRole={session.role} />
     </div>
   );
 }

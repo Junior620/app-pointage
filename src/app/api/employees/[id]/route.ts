@@ -50,7 +50,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    const { matricule, firstName, lastName, service, siteId, whatsappPhone, active } = body;
+    const { matricule, firstName, lastName, service, structure, siteId, whatsappPhone, active } = body;
 
     const siteIdValue = siteId !== undefined ? (siteId?.trim() || null) : undefined;
     const rawPhone = whatsappPhone?.trim() || "";
@@ -64,6 +64,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         ...(firstName !== undefined && { firstName }),
         ...(lastName !== undefined && { lastName }),
         ...(service !== undefined && { service }),
+        ...(structure !== undefined && { structure }),
         ...(siteId !== undefined && { siteId: siteIdValue }),
         ...(whatsappPhone !== undefined && { whatsappPhone: whatsappPhoneValue }),
         ...(active !== undefined && { active }),
@@ -101,6 +102,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     }
 
     await prisma.$transaction(async (tx) => {
+      await tx.hrRemark.deleteMany({ where: { employeeId: id } });
       await tx.fraudAttempt.deleteMany({ where: { employeeId: id } });
       await tx.attendanceRecord.deleteMany({ where: { employeeId: id } });
       await tx.leaveRequest.deleteMany({ where: { employeeId: id } });

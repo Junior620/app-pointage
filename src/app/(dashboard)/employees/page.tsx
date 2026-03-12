@@ -29,6 +29,7 @@ interface Employee {
   firstName: string;
   lastName: string;
   service: string;
+  structure: "SCPB" | "AFREXIA";
   whatsappPhone: string | null;
   active: boolean;
   siteId?: string | null;
@@ -40,6 +41,7 @@ const employeeSchema = z.object({
   firstName: z.string().min(1, "Le prénom est requis"),
   lastName: z.string().min(1, "Le nom est requis"),
   service: z.string().min(1, "Le service est requis"),
+  structure: z.enum(["SCPB", "AFREXIA"]).default("SCPB"),
   whatsappPhone: z.string().optional(),
   siteId: z.string().optional(),
 });
@@ -53,6 +55,7 @@ export default function EmployeesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
+  const [structureFilter, setStructureFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -63,6 +66,7 @@ export default function EmployeesPage() {
     firstName: "",
     lastName: "",
     service: "",
+    structure: "SCPB",
     whatsappPhone: "",
     siteId: "",
   });
@@ -84,6 +88,7 @@ export default function EmployeesPage() {
       limit: String(perPage),
       ...(search && { q: search }),
       ...(serviceFilter && { service: serviceFilter }),
+      ...(structureFilter && { structure: structureFilter }),
       ...(statusFilter !== "all" && { active: statusFilter === "active" ? "true" : "false" }),
     });
     try {
@@ -106,7 +111,7 @@ export default function EmployeesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, serviceFilter, statusFilter]);
+  }, [page, search, serviceFilter, structureFilter, statusFilter]);
 
   useEffect(() => {
     fetchEmployees();
@@ -136,7 +141,7 @@ export default function EmployeesPage() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ matricule: "", firstName: "", lastName: "", service: "", whatsappPhone: "", siteId: "" });
+    setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", siteId: "" });
     setErrors({});
     setModalOpen(true);
   };
@@ -148,6 +153,7 @@ export default function EmployeesPage() {
       firstName: emp.firstName,
       lastName: emp.lastName,
       service: emp.service,
+      structure: emp.structure ?? "SCPB",
       whatsappPhone: emp.whatsappPhone ?? "",
       siteId: emp.siteId ?? emp.site?.id ?? "",
     });
@@ -322,6 +328,18 @@ export default function EmployeesPage() {
               ))}
             </select>
             <select
+              value={structureFilter}
+              onChange={(e) => {
+                setStructureFilter(e.target.value);
+                setPage(1);
+              }}
+              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+            >
+              <option value="">Toutes les structures</option>
+              <option value="SCPB">SCPB</option>
+              <option value="AFREXIA">AFREXIA</option>
+            </select>
+            <select
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value as typeof statusFilter);
@@ -351,6 +369,9 @@ export default function EmployeesPage() {
                   Service
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Structure
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   WhatsApp
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -365,14 +386,14 @@ export default function EmployeesPage() {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={6} className="px-6 py-4">
+                    <td colSpan={7} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
+                  <td colSpan={7} className="px-6 py-16 text-center">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">
                       Aucun employé trouvé
@@ -431,6 +452,17 @@ export default function EmployeesPage() {
                     </td>
                     {/* Service */}
                     <td className="px-6 py-4 text-slate-600">{emp.service}</td>
+                    {/* Structure */}
+                    <td className="px-6 py-4">
+                      <span className={cn(
+                        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+                        emp.structure === "AFREXIA"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-sky-50 text-sky-700"
+                      )}>
+                        {emp.structure}
+                      </span>
+                    </td>
                     {/* WhatsApp */}
                     <td className="px-6 py-4">
                       {emp.whatsappPhone ? (
@@ -608,7 +640,7 @@ export default function EmployeesPage() {
                         onChange={(e) =>
                           setForm({ ...form, matricule: e.target.value })
                         }
-                        placeholder="AFREXIA-SCPB-IT-0001"
+                        placeholder="SCPB-IT-0001"
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
                       />
                       {errors.matricule && (
@@ -620,7 +652,7 @@ export default function EmployeesPage() {
                   ) : (
                     <div className="w-full px-3 py-2.5 border border-dashed border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50">
                       Sera généré automatiquement à l&apos;enregistrement
-                      (ex.&nbsp;AFREXIA-SCPB-IT-0001).
+                      (ex.&nbsp;SCPB-IT-0001).
                     </div>
                   )}
                 </div>
@@ -649,6 +681,21 @@ export default function EmployeesPage() {
                     </p>
                   )}
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Structure
+                </label>
+                <select
+                  value={form.structure}
+                  onChange={(e) =>
+                    setForm({ ...form, structure: e.target.value as "SCPB" | "AFREXIA" })
+                  }
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="SCPB">SCPB</option>
+                  <option value="AFREXIA">AFREXIA</option>
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

@@ -10,6 +10,7 @@ const createMissionSchema = z.object({
   endDate: z.string().min(1),
   reason: z.string().min(1, "Le motif est requis"),
   location: z.string().optional(),
+  hostStructure: z.enum(["SCPB", "AFREXIA"]).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -32,6 +33,8 @@ export async function GET(request: NextRequest) {
     if (startDate) where.startDate = { gte: new Date(startDate) };
     if (endDate) where.endDate = { lte: new Date(endDate) };
     if (service) where.employee = { service };
+    const structure = searchParams.get("structure");
+    if (structure) where.originStructure = structure;
 
     const [missions, total, pending, approved, rejected, serviceRows] = await Promise.all([
       prisma.mission.findMany({
@@ -89,6 +92,8 @@ export async function POST(request: NextRequest) {
         endDate: new Date(parsed.data.endDate),
         reason: parsed.data.reason,
         location: parsed.data.location || null,
+        originStructure: employee.structure,
+        hostStructure: parsed.data.hostStructure || null,
       },
       include: { employee: true },
     });

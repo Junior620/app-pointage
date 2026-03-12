@@ -34,6 +34,7 @@ interface ReportRow {
   matricule: string;
   name: string;
   service: string;
+  structure: string;
   totalDays: number;
   presents: number;
   absents: number;
@@ -41,6 +42,7 @@ interface ReportRow {
   missions: number;
   permissions: number;
   totalHours: number;
+  overtimeHours: number;
   punctualityRate: number;
 }
 
@@ -67,6 +69,7 @@ interface Summary {
   totalRetards: number;
   totalAbsences: number;
   totalHours: number;
+  totalOvertimeHours: number;
   avgPunctuality: number;
 }
 
@@ -109,6 +112,7 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [service, setService] = useState("");
+  const [structure, setStructure] = useState("");
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<ReportRow[]>([]);
@@ -177,6 +181,7 @@ export default function ReportsPage() {
         dateFrom,
         dateTo,
         ...(service.trim() && { service: service.trim() }),
+        ...(structure && { structure }),
         ...(searchTrimmed && { search: searchTrimmed }),
       });
       const res = await fetch(`/api/reports?${params}`);
@@ -194,7 +199,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, service, employeeSearch]);
+  }, [dateFrom, dateTo, service, structure, employeeSearch]);
 
   const handleSort = (field: keyof ReportRow) => {
     if (sortField === field) {
@@ -215,12 +220,12 @@ export default function ReportsPage() {
   const exportExcel = async () => {
     const ExcelJS = (await import("exceljs")).default;
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Rapport");
 
-    sheet.columns = [
-      { header: "Matricule", key: "matricule", width: 15 },
+    const cols = [
+      { header: "Matricule", key: "matricule", width: 18 },
       { header: "Nom", key: "name", width: 25 },
-      { header: "Service", key: "service", width: 20 },
+      { header: "Structure", key: "structure", width: 12 },
+      { header: "Service", key: "service", width: 12 },
       { header: "Jours", key: "totalDays", width: 10 },
       { header: "Présents", key: "presents", width: 12 },
       { header: "Absents", key: "absents", width: 12 },
@@ -228,22 +233,37 @@ export default function ReportsPage() {
       { header: "Missions", key: "missions", width: 12 },
       { header: "Permissions", key: "permissions", width: 14 },
       { header: "Heures", key: "totalHours", width: 12 },
+      { header: "Heures sup", key: "overtimeHours", width: 12 },
       { header: "Ponctualité (%)", key: "punctualityRate", width: 16 },
     ];
 
-    const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+    const styleHeader = (sheet: import("exceljs").Worksheet) => {
+      const headerRow = sheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+    };
 
-    rows.forEach((row) => sheet.addRow(row));
-
+    const allSheet = workbook.addWorksheet("Tous");
+    allSheet.columns = cols;
+    styleHeader(allSheet);
+    rows.forEach((row) => allSheet.addRow(row));
     if (summary) {
-      sheet.addRow({});
-      sheet.addRow({ matricule: "RÉSUMÉ", name: "", service: "" });
-      sheet.addRow({ matricule: "Taux présence", name: `${summary.presenceRate}%` });
-      sheet.addRow({ matricule: "Retards totaux", name: String(summary.totalRetards) });
-      sheet.addRow({ matricule: "Absences totales", name: String(summary.totalAbsences) });
-      sheet.addRow({ matricule: "Heures totales", name: `${summary.totalHours}h` });
+      allSheet.addRow({});
+      allSheet.addRow({ matricule: "RÉSUMÉ" });
+      allSheet.addRow({ matricule: "Taux présence", name: `${summary.presenceRate}%` });
+      allSheet.addRow({ matricule: "Retards totaux", name: String(summary.totalRetards) });
+      allSheet.addRow({ matricule: "Absences totales", name: String(summary.totalAbsences) });
+      allSheet.addRow({ matricule: "Heures totales", name: `${summary.totalHours}h` });
+      allSheet.addRow({ matricule: "Heures sup totales", name: `${summary.totalOvertimeHours}h` });
+    }
+
+    for (const struct of ["SCPB", "AFREXIA"] as const) {
+      const structRows = rows.filter((r) => r.structure === struct);
+      if (structRows.length === 0) continue;
+      const sheet = workbook.addWorksheet(struct);
+      sheet.columns = cols;
+      styleHeader(sheet);
+      structRows.forEach((row) => sheet.addRow(row));
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -279,24 +299,49 @@ export default function ReportsPage() {
 
     autoTable(doc, {
       startY: 42,
-      head: [["Matricule", "Nom", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Permissions", "Heures", "Ponctualité"]],
+      head: [["Matricule", "Nom", "Structure", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Heures", "H. sup", "Ponctualité"]],
       body: rows.map((r) => [
         r.matricule,
         r.name,
+        r.structure,
         r.service,
         r.totalDays,
         r.presents,
         r.absents,
         r.retards,
         r.missions,
-        r.permissions,
         `${r.totalHours}h`,
+        `${r.overtimeHours}h`,
         `${r.punctualityRate}%`,
       ]),
       theme: "striped",
       headStyles: { fillColor: [37, 99, 235] },
       styles: { fontSize: 8 },
     });
+
+    const scpbRows = rows.filter((r) => r.structure === "SCPB");
+    const afrexiaRows = rows.filter((r) => r.structure === "AFREXIA");
+    for (const [label, structRows] of [["SCPB", scpbRows], ["AFREXIA", afrexiaRows]] as const) {
+      if (structRows.length === 0) continue;
+      doc.addPage();
+      doc.setFontSize(14);
+      doc.setTextColor(0);
+      doc.text(`Récapitulatif — ${label}`, 14, 18);
+      doc.setFontSize(10);
+      const totalH = structRows.reduce((s, r) => s + r.totalHours, 0);
+      const totalOt = structRows.reduce((s, r) => s + r.overtimeHours, 0);
+      const totalAbs = structRows.reduce((s, r) => s + r.absents, 0);
+      const totalRet = structRows.reduce((s, r) => s + r.retards, 0);
+      doc.text(`Employés: ${structRows.length} | Heures: ${totalH}h | H. sup: ${totalOt}h | Absences: ${totalAbs} | Retards: ${totalRet}`, 14, 26);
+      autoTable(doc, {
+        startY: 34,
+        head: [["Matricule", "Nom", "Service", "Présents", "Absents", "Retards", "Heures", "H. sup", "Ponctualité"]],
+        body: structRows.map((r) => [r.matricule, r.name, r.service, r.presents, r.absents, r.retards, `${r.totalHours}h`, `${r.overtimeHours}h`, `${r.punctualityRate}%`]),
+        theme: "striped",
+        headStyles: { fillColor: [37, 99, 235] },
+        styles: { fontSize: 8 },
+      });
+    }
 
     doc.save(`rapport_${dateFrom}_${dateTo}.pdf`);
   };
@@ -343,7 +388,7 @@ export default function ReportsPage() {
       {/* Filtres */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
         <div className="flex flex-col lg:flex-row gap-4 items-end">
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Date début</label>
               <input
@@ -373,6 +418,18 @@ export default function ReportsPage() {
                 {services.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Structure</label>
+              <select
+                value={structure}
+                onChange={(e) => setStructure(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Toutes</option>
+                <option value="SCPB">SCPB</option>
+                <option value="AFREXIA">AFREXIA</option>
               </select>
             </div>
             <div>
@@ -645,6 +702,9 @@ export default function ReportsPage() {
                     <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("name")}>
                       Nom <SortIcon field="name" />
                     </th>
+                    <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("structure")}>
+                      Structure <SortIcon field="structure" />
+                    </th>
                     <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("service")}>
                       Service <SortIcon field="service" />
                     </th>
@@ -662,6 +722,9 @@ export default function ReportsPage() {
                     <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("totalHours")}>
                       Heures <SortIcon field="totalHours" />
                     </th>
+                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("overtimeHours")}>
+                      H. sup <SortIcon field="overtimeHours" />
+                    </th>
                     <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("punctualityRate")}>
                       Ponctualité <SortIcon field="punctualityRate" />
                     </th>
@@ -670,7 +733,7 @@ export default function ReportsPage() {
                 <tbody>
                   {sortedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center">
+                      <td colSpan={12} className="py-12 text-center">
                         <UserX className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                         <p className="text-slate-400">Aucun pointage trouvé pour cette période.</p>
                       </td>
@@ -686,6 +749,11 @@ export default function ReportsPage() {
                             </div>
                             <span className="font-medium text-slate-800">{r.name}</span>
                           </div>
+                        </td>
+                        <td className="py-3">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.structure === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"}`}>
+                            {r.structure}
+                          </span>
                         </td>
                         <td className="py-3 text-slate-500">{r.service}</td>
                         <td className="py-3 text-center font-medium text-emerald-600">{r.presents}</td>
@@ -706,6 +774,9 @@ export default function ReportsPage() {
                         <td className="py-3 text-center text-purple-600 font-medium">{r.missions || <span className="text-slate-300">0</span>}</td>
                         <td className="py-3 text-center text-blue-600 font-medium">{r.permissions || <span className="text-slate-300">0</span>}</td>
                         <td className="py-3 text-center font-medium text-slate-700">{r.totalHours}h</td>
+                        <td className="py-3 text-center font-medium text-violet-600">
+                          {r.overtimeHours > 0 ? `${r.overtimeHours}h` : <span className="text-slate-300">0</span>}
+                        </td>
                         <td className="py-3 text-center">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             r.punctualityRate >= 90 ? "bg-emerald-50 text-emerald-700" :

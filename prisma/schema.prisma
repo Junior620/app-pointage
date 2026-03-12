@@ -37,6 +37,11 @@ enum RequestStatus {
   REJECTED
 }
 
+enum Structure {
+  SCPB
+  AFREXIA
+}
+
 model User {
   id              String     @id @default(cuid())
   supabaseAuthId  String     @unique @map("supabase_auth_id")
@@ -47,6 +52,7 @@ model User {
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
   auditLogs       AuditLog[]
+  hrRemarks       HrRemark[]
 
   @@map("users")
 }
@@ -57,6 +63,7 @@ model Employee {
   firstName        String             @map("first_name")
   lastName         String             @map("last_name")
   service          String
+  structure        Structure          @default(SCPB)
   active           Boolean            @default(true)
   whatsappPhone    String?            @unique @map("whatsapp_phone")
   whatsappLinkedAt DateTime?          @map("whatsapp_linked_at")
@@ -70,6 +77,7 @@ model Employee {
   leaveRequests    LeaveRequest[]
   missions         Mission[]
   fraudAttempts    FraudAttempt[]
+  hrRemarks        HrRemark[]
 
   @@map("employees")
 }
@@ -145,17 +153,20 @@ model LeaveRequest {
 }
 
 model Mission {
-  id         String        @id @default(cuid())
-  employeeId String        @map("employee_id")
-  employee   Employee      @relation(fields: [employeeId], references: [id])
-  startDate  DateTime      @map("start_date") @db.Date
-  endDate    DateTime      @map("end_date") @db.Date
-  reason     String
-  location   String?
-  status     RequestStatus @default(PENDING)
-  approvedBy String?       @map("approved_by")
-  createdAt  DateTime      @default(now()) @map("created_at")
-  updatedAt  DateTime      @updatedAt @map("updated_at")
+  id               String        @id @default(cuid())
+  employeeId       String        @map("employee_id")
+  employee         Employee      @relation(fields: [employeeId], references: [id])
+  startDate        DateTime      @map("start_date") @db.Date
+  endDate          DateTime      @map("end_date") @db.Date
+  reason           String
+  location         String?
+  originStructure  Structure?    @map("origin_structure")
+  hostStructure    Structure?    @map("host_structure")
+  daysCompleted    Int           @default(0) @map("days_completed")
+  status           RequestStatus @default(PENDING)
+  approvedBy       String?       @map("approved_by")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
   @@map("missions")
 }
@@ -182,6 +193,19 @@ model Holiday {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("holidays")
+}
+
+model HrRemark {
+  id         String   @id @default(cuid())
+  employeeId String   @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  category   String
+  content    String   @db.Text
+  authorId   String   @map("author_id")
+  author     User     @relation(fields: [authorId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("hr_remarks")
 }
 
 model AuditLog {

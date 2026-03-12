@@ -29,11 +29,15 @@ interface Mission {
     lastName: string;
     matricule: string;
     service?: string;
+    structure?: string;
   };
   startDate: string;
   endDate: string;
   reason: string;
   location: string | null;
+  originStructure: string | null;
+  hostStructure: string | null;
+  daysCompleted: number;
   status: "PENDING" | "APPROVED" | "REJECTED";
   approvedBy: string | null;
   createdAt: string;
@@ -46,6 +50,7 @@ const missionSchema = z.object({
   endDate: z.string().min(1, "La date de fin est requise"),
   reason: z.string().min(1, "Le motif est requis"),
   location: z.string().optional(),
+  hostStructure: z.enum(["SCPB", "AFREXIA"]).optional(),
 });
 
 const statusBadge: Record<string, { bg: string; label: string }> = {
@@ -82,7 +87,7 @@ export default function MissionsPage() {
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailMission, setDetailMission] = useState<Mission | null>(null);
-  const [form, setForm] = useState({ employeeId: "", startDate: "", endDate: "", reason: "", location: "" });
+  const [form, setForm] = useState({ employeeId: "", startDate: "", endDate: "", reason: "", location: "", hostStructure: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
@@ -133,7 +138,7 @@ export default function MissionsPage() {
 
   const openCreate = () => {
     fetchEmployees();
-    setForm({ employeeId: "", startDate: "", endDate: "", reason: "", location: "" });
+    setForm({ employeeId: "", startDate: "", endDate: "", reason: "", location: "", hostStructure: "" });
     setErrors({});
     setModalOpen(true);
   };
@@ -285,6 +290,8 @@ export default function MissionsPage() {
               <tr className="border-b border-slate-100">
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employé</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Service</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Origine</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Accueil</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Fin</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
@@ -297,14 +304,14 @@ export default function MissionsPage() {
               {loading ? (
                 [...Array(3)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={8} className="px-6 py-4">
+                    <td colSpan={10} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : missions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center">
+                  <td colSpan={10} className="px-6 py-16 text-center">
                     <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">Aucune mission</p>
                     <p className="mt-1 text-sm text-slate-500">
@@ -355,6 +362,22 @@ export default function MissionsPage() {
                       {/* Service */}
                       <td className="px-6 py-4 text-slate-600 text-sm">
                         {mission.employee.service ?? "—"}
+                      </td>
+                      {/* Origine */}
+                      <td className="px-6 py-4">
+                        {mission.originStructure ? (
+                          <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", mission.originStructure === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700")}>
+                            {mission.originStructure}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      {/* Accueil */}
+                      <td className="px-6 py-4">
+                        {mission.hostStructure ? (
+                          <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", mission.hostStructure === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700")}>
+                            {mission.hostStructure}
+                          </span>
+                        ) : "—"}
                       </td>
                       {/* Début */}
                       <td className="px-6 py-4 text-slate-700">
@@ -521,6 +544,19 @@ export default function MissionsPage() {
                 </p>
               )}
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Structure d&apos;accueil</label>
+                <select
+                  value={form.hostStructure}
+                  onChange={(e) => setForm({ ...form, hostStructure: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                >
+                  <option value="">Aucune (mission externe)</option>
+                  <option value="SCPB">SCPB</option>
+                  <option value="AFREXIA">AFREXIA</option>
+                </select>
+                <p className="text-xs text-slate-400 mt-1">Structure dans laquelle l&apos;employé effectuera la mission.</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Lieu de mission</label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -614,6 +650,12 @@ export default function MissionsPage() {
                 <DetailRow label="Date début" value={new Date(detailMission.startDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Date fin" value={new Date(detailMission.endDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Durée" value={formatDuration(detailMission.startDate, detailMission.endDate)} />
+                {detailMission.originStructure && (
+                  <DetailRow label="Structure d'origine" value={detailMission.originStructure} />
+                )}
+                {detailMission.hostStructure && (
+                  <DetailRow label="Structure d'accueil" value={detailMission.hostStructure} />
+                )}
                 {detailMission.location && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 flex items-center gap-1.5">

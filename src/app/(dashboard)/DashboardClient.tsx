@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   UserCheck,
@@ -13,504 +13,438 @@ import {
   Users,
   Shield,
   ArrowRight,
-  MapPin,
   RefreshCw,
+  Landmark,
 } from "lucide-react";
-import StatCard from "@/components/dashboard/StatCard";
-import PunctualityChart from "@/components/dashboard/PunctualityChart";
-import ServiceChart from "@/components/dashboard/ServiceChart";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
+import { cn } from "@/lib/utils";
 
-interface TodaySummary {
-  present: number;
-  absent: number;
-  late: number;
-  onTime: number;
-  permission: number;
-  mission: number;
-  total: number;
-}
-
-interface EmployeeInfo {
-  id: string;
-  firstName: string;
-  lastName: string;
-  service: string;
-  matricule: string;
-}
-
-interface DashboardAPIData {
-  data: {
-    todaySummary: TodaySummary;
-    punctualityTrend: { date: string; rate: number; onTime: number; late: number }[];
-    topLate: { employee: EmployeeInfo; lateDays: number }[];
-    topPresent: { employee: EmployeeInfo; presentDays: number }[];
-    recentFraud: {
-      id: string;
-      timestamp: string;
-      type: string;
-      distanceM: number;
-      employee: EmployeeInfo;
-    }[];
-    byService: {
-      service: string;
-      present: number;
-      absent: number;
-      late: number;
-    }[];
+interface DashboardData {
+  today: {
+    totalEmployees: number;
+    present: number;
+    absent: number;
+    late: number;
+    mission: number;
+    permission: number;
   };
+  byStructure: Record<string, { total: number; present: number; absent: number; late: number }>;
+  trend30: { date: string; label: string; present: number; absent: number; late: number; presenceRate: number }[];
+  trend7: DashboardData["trend30"];
+  alerts: {
+    topLate: { firstName?: string; lastName?: string; matricule?: string; service?: string; structure?: string; count: number }[];
+    topAbsent: { firstName?: string; lastName?: string; matricule?: string; service?: string; structure?: string; count: number }[];
+  };
+  recentCheckIns: {
+    id: string;
+    employee: { firstName: string; lastName: string; matricule: string; service: string; structure: string };
+    checkInTime: string | null;
+    checkInStatus: string | null;
+    checkOutTime: string | null;
+    finalStatus: string;
+  }[];
 }
+
+const PIE_COLORS = ["#10b981", "#ef4444", "#f59e0b", "#8b5cf6", "#3b82f6"];
 
 export default function DashboardClient({ userName }: { userName: string }) {
-  const [data, setData] = useState<DashboardAPIData["data"] | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [structureFilter, setStructureFilter] = useState("");
 
-  const fetchDashboard = () => {
-    fetch("/api/dashboard")
+  const fetchDashboard = useCallback(() => {
+    setLoading(true);
+    const params = structureFilter ? `?structure=${structureFilter}` : "";
+    fetch(`/api/dashboard${params}`)
       .then((r) => r.json())
-      .then((json) => setData(json.data))
+      .then((json) => setData(json))
       .catch(console.error)
       .finally(() => setLoading(false));
-  };
+  }, [structureFilter]);
 
   useEffect(() => {
     fetchDashboard();
-  }, []);
+  }, [fetchDashboard]);
 
   useEffect(() => {
     const onFocus = () => fetchDashboard();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, []);
+  }, [fetchDashboard]);
 
-  if (loading) {
+  const today = data?.today ?? { totalEmployees: 0, present: 0, absent: 0, late: 0, mission: 0, permission: 0 };
+  const hasData = today.totalEmployees > 0;
+
+  const pieData = [
+    { name: "Présents", value: today.present },
+    { name: "Absents", value: today.absent },
+    { name: "Retards", value: today.late },
+    { name: "Missions", value: today.mission },
+    { name: "Permissions", value: today.permission },
+  ].filter((d) => d.value > 0);
+
+  const structureBarData = data?.byStructure
+    ? Object.entries(data.byStructure).map(([struct, stats]) => ({
+        name: struct,
+        Présents: stats.present,
+        Absents: stats.absent,
+        Retards: stats.late,
+      }))
+    : [];
+
+  if (loading && !data) {
     return (
       <div className="space-y-6">
         <div className="h-20 bg-white rounded-2xl border border-slate-200 animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="h-[130px] bg-white rounded-2xl border border-slate-200 animate-pulse"
-            />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-[120px] bg-white rounded-2xl border border-slate-200 animate-pulse" />
           ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 h-[340px] bg-white rounded-2xl border border-slate-200 animate-pulse" />
-          <div className="h-[340px] bg-white rounded-2xl border border-slate-200 animate-pulse" />
         </div>
       </div>
     );
   }
 
-  const summary = data?.todaySummary ?? {
-    present: 0,
-    absent: 0,
-    late: 0,
-    onTime: 0,
-    permission: 0,
-    mission: 0,
-    total: 0,
-  };
-
-  const hasData = summary.total > 0;
-
   return (
     <div className="space-y-6">
-      {/* Hero Header */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
             Bonjour, {userName}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Voici un aperçu des présences et anomalies du jour.
-            {summary.total > 0 && (
+            Apercu des presences et anomalies du jour.
+            {today.totalEmployees > 0 && (
               <span className="ml-1 font-medium text-slate-700">
-                {summary.total} employé{summary.total > 1 ? "s" : ""} actif
-                {summary.total > 1 ? "s" : ""}.
+                {today.totalEmployees} employe{today.totalEmployees > 1 ? "s" : ""} actif{today.totalEmployees > 1 ? "s" : ""}.
               </span>
             )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link
-            href="/employees"
-            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          <select
+            value={structureFilter}
+            onChange={(e) => setStructureFilter(e.target.value)}
+            className="h-10 px-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Ajouter employé</span>
-          </Link>
-          <Link
-            href="/missions"
-            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            <option value="">Toutes structures</option>
+            <option value="SCPB">SCPB</option>
+            <option value="AFREXIA">AFREXIA</option>
+          </select>
+          <button
+            onClick={fetchDashboard}
+            className="h-10 w-10 rounded-xl border border-slate-300 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 transition-colors"
+            title="Actualiser"
           >
-            <Briefcase className="h-4 w-4" />
-            <span className="hidden sm:inline">Mission</span>
-          </Link>
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </button>
           <Link
             href="/reports"
             className="inline-flex items-center gap-2 h-10 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
           >
             <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Exporter</span>
+            <span className="hidden sm:inline">Rapports</span>
           </Link>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Présents"
-          value={summary.present}
-          icon={UserCheck}
-          color="green"
-          subtitle={
-            summary.total > 0
-              ? `${Math.round((summary.present / summary.total) * 100)}% des employés`
-              : "Aujourd'hui"
-          }
-        />
-        <StatCard
-          label="Absents"
-          value={summary.absent}
-          icon={UserX}
-          color="red"
-          subtitle={
-            summary.absent > 0
-              ? `${summary.absent} non justifié${summary.absent > 1 ? "s" : ""}`
-              : "Aucun absent"
-          }
-        />
-        <StatCard
-          label="En retard"
-          value={summary.late}
-          icon={Clock}
-          color="orange"
-          subtitle={
-            summary.present > 0
-              ? `${Math.round((summary.late / (summary.present || 1)) * 100)}% des présents`
-              : "Aujourd'hui"
-          }
-        />
-        <StatCard
-          label="Mission / Permission"
-          value={summary.mission + summary.permission}
-          icon={Briefcase}
-          color="purple"
-          subtitle={`${summary.mission} mission${summary.mission > 1 ? "s" : ""}, ${summary.permission} permission${summary.permission > 1 ? "s" : ""}`}
-        />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <KpiCard icon={UserCheck} label="Presents" value={today.present} color="emerald"
+          sub={today.totalEmployees > 0 ? `${Math.round((today.present / today.totalEmployees) * 100)}%` : undefined} />
+        <KpiCard icon={UserX} label="Absents" value={today.absent} color="red"
+          sub={today.absent > 0 ? `${today.absent} non justifie${today.absent > 1 ? "s" : ""}` : undefined} />
+        <KpiCard icon={Clock} label="Retards" value={today.late} color="amber"
+          sub={today.present > 0 ? `${Math.round((today.late / today.present) * 100)}% des presents` : undefined} />
+        <KpiCard icon={Briefcase} label="Missions" value={today.mission} color="purple" />
+        <KpiCard icon={Shield} label="Permissions" value={today.permission} color="blue" />
       </div>
 
-      {/* Alerts Section */}
-      <AlertsSection
-        late={summary.late}
-        absent={summary.absent}
-        fraud={(data?.recentFraud ?? []).length}
-        hasData={hasData}
-      />
-
-      {/* Charts Section: Tendance + Mini Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">
-            Tendance de ponctualité — 30 jours
+      {/* Alerts */}
+      {hasData && (today.late > 0 || today.absent > 0) && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-5">
+          <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            A surveiller aujourd&apos;hui
           </h3>
-          <PunctualityChart data={data?.punctualityTrend ?? []} />
+          <div className="flex flex-wrap gap-2">
+            {today.late > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50">
+                <Clock className="h-3.5 w-3.5" /> {today.late} retard{today.late > 1 ? "s" : ""}
+              </span>
+            )}
+            {today.absent > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50">
+                <UserX className="h-3.5 w-3.5" /> {today.absent} absence{today.absent > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col gap-4">
-          <MiniStat
-            label="Taux de présence moyen"
-            value={
-              summary.total > 0
-                ? `${Math.round((summary.present / summary.total) * 100)}%`
-                : "—"
-            }
-            color="emerald"
+      )}
+
+      {!hasData && (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center">
+          <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <p className="text-base font-semibold text-slate-700">Aucune donnee disponible</p>
+          <p className="mt-2 text-sm text-slate-500">Les statistiques s&apos;afficheront apres les premiers pointages.</p>
+          <Link href="/employees" className="mt-4 inline-flex items-center gap-2 h-9 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+            <Plus className="h-4 w-4" /> Ajouter un employe
+          </Link>
+        </div>
+      )}
+
+      {/* Charts: Trend line + Pie */}
+      {hasData && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-900 mb-4">
+              Tendance de presence — 30 jours
+            </h3>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={data?.trend30 ?? []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Line type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} name="Presents" dot={false} />
+                <Line type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2} name="Absents" dot={false} />
+                <Line type="monotone" dataKey="late" stroke="#f59e0b" strokeWidth={2} name="Retards" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-900 mb-4">
+              Repartition du jour
+            </h3>
+            {pieData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} dataKey="value" label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                    {pieData.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-slate-400 text-center py-16">Aucune donnee</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Structure comparison */}
+      {hasData && structureBarData.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <Landmark className="h-4 w-4 text-slate-500" />
+              Comparaison par structure
+            </h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={structureBarData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="Présents" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Absents" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Retards" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Structure KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {Object.entries(data?.byStructure ?? {}).map(([struct, stats]) => (
+              <div key={struct} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={cn(
+                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                    struct === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
+                  )}>
+                    {struct}
+                  </span>
+                  <span className="text-xs text-slate-400">{stats.total} employes</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Presents</span>
+                    <span className="font-semibold text-emerald-600">{stats.present}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Absents</span>
+                    <span className="font-semibold text-red-600">{stats.absent}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Retards</span>
+                    <span className="font-semibold text-amber-600">{stats.late}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full"
+                      style={{ width: `${stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 text-right">
+                    {stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}% de presence
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top Retards / Absences */}
+      {hasData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TopList
+            title="Top retards (30 jours)"
+            icon={Clock}
+            iconColor="text-amber-500"
+            items={(data?.alerts?.topLate ?? []).map((e) => ({
+              name: `${e.firstName ?? ""} ${e.lastName ?? ""}`,
+              initials: `${(e.firstName ?? "?")[0]}${(e.lastName ?? "?")[0]}`,
+              service: e.service ?? "",
+              structure: e.structure ?? "",
+              count: e.count,
+              label: `${e.count} retard${e.count > 1 ? "s" : ""}`,
+              badgeColor: "bg-amber-50 text-amber-700",
+              avatarColor: "bg-amber-100 text-amber-700",
+            }))}
+            emptyText="Aucun retard ce mois"
           />
-          <MiniStat
-            label="Taux de retard moyen"
-            value={
-              summary.present > 0
-                ? `${Math.round((summary.late / (summary.present || 1)) * 100)}%`
-                : "—"
-            }
-            color="amber"
-          />
-          <MiniStat
-            label="Départs auto ce mois"
-            value="—"
-            color="slate"
+          <TopList
+            title="Top absences (30 jours)"
+            icon={UserX}
+            iconColor="text-red-500"
+            items={(data?.alerts?.topAbsent ?? []).map((e) => ({
+              name: `${e.firstName ?? ""} ${e.lastName ?? ""}`,
+              initials: `${(e.firstName ?? "?")[0]}${(e.lastName ?? "?")[0]}`,
+              service: e.service ?? "",
+              structure: e.structure ?? "",
+              count: e.count,
+              label: `${e.count} absence${e.count > 1 ? "s" : ""}`,
+              badgeColor: "bg-red-50 text-red-700",
+              avatarColor: "bg-red-100 text-red-700",
+            }))}
+            emptyText="Aucune absence ce mois"
           />
         </div>
-      </div>
+      )}
 
-      {/* Top Retards / Présents */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TopList
-          title="Top retards"
-          icon={Clock}
-          iconColor="text-amber-500"
-          items={(data?.topLate ?? []).map((e) => ({
-            name: `${e.employee?.firstName ?? ""} ${e.employee?.lastName ?? ""}`,
-            initials: `${(e.employee?.firstName ?? "?")[0]}${(e.employee?.lastName ?? "?")[0]}`,
-            service: e.employee?.service ?? "",
-            value: e.lateDays,
-            valueLabel: `${e.lateDays} retard${e.lateDays > 1 ? "s" : ""}`,
-            badgeColor: "bg-amber-50 text-amber-700",
-            avatarColor: "bg-amber-100 text-amber-700",
-          }))}
-          emptyText="Aucun retard enregistré ce mois"
-          emptyAction={{ label: "Voir les pointages", href: "/attendance" }}
-        />
-        <TopList
-          title="Top présents"
-          icon={UserCheck}
-          iconColor="text-emerald-500"
-          items={(data?.topPresent ?? []).map((e) => ({
-            name: `${e.employee?.firstName ?? ""} ${e.employee?.lastName ?? ""}`,
-            initials: `${(e.employee?.firstName ?? "?")[0]}${(e.employee?.lastName ?? "?")[0]}`,
-            service: e.employee?.service ?? "",
-            value: e.presentDays,
-            valueLabel: `${e.presentDays} jour${e.presentDays > 1 ? "s" : ""}`,
-            badgeColor: "bg-emerald-50 text-emerald-700",
-            avatarColor: "bg-emerald-100 text-emerald-700",
-          }))}
-          emptyText="Aucune présence consolidée sur cette période"
-          emptyAction={{ label: "Voir les employés", href: "/employees" }}
-        />
-      </div>
-
-      {/* Fraud Table */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-6 pb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-red-500" />
-            Tentatives suspectes
-          </h3>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => { setLoading(true); fetchDashboard(); }}
-              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-              title="Actualiser"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            <Link
-              href="/attendance"
-              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
-            >
+      {/* Recent check-ins */}
+      {hasData && (data?.recentCheckIns ?? []).length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="p-6 pb-4 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">Derniers pointages du jour</h3>
+            <Link href="/attendance" className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
               Voir tout <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-t border-slate-100">
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Employé
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Distance
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data?.recentFraud ?? []).map((f) => (
-                <tr
-                  key={f.id}
-                  className="border-t border-slate-50 hover:bg-slate-50/50 transition-colors"
-                >
-                  <td className="px-6 py-4 text-slate-700 font-medium">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-semibold">
-                        {f.employee?.firstName?.[0]}
-                        {f.employee?.lastName?.[0]}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-t border-slate-100">
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employe</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Structure</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Arrivee</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.recentCheckIns ?? []).map((r) => (
+                  <tr key={r.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-7 w-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
+                          {r.employee.firstName[0]}{r.employee.lastName[0]}
+                        </div>
+                        <span className="font-medium text-slate-800">{r.employee.firstName} {r.employee.lastName}</span>
                       </div>
-                      {f.employee?.firstName} {f.employee?.lastName}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-500">
-                    {new Date(f.timestamp).toLocaleString("fr-FR", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
-                      <MapPin className="h-3 w-3" />
-                      {f.type === "CHECK_IN" ? "Arrivée" : "Départ"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <span className="font-semibold text-red-600">
-                      {f.distanceM >= 0 ? `${Math.round(f.distanceM)} m` : "—"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {(data?.recentFraud ?? []).length === 0 && (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-6 py-10 text-center text-slate-400"
-                  >
-                    <Shield className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                    Aucune tentative suspecte détectée
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    </td>
+                    <td className="px-6 py-3">
+                      <span className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                        r.employee.structure === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
+                      )}>
+                        {r.employee.structure}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 text-slate-600">
+                      {r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                    </td>
+                    <td className="px-6 py-3">
+                      <span className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                        r.checkInStatus === "ON_TIME" ? "bg-emerald-50 text-emerald-700" : r.checkInStatus === "LATE" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"
+                      )}>
+                        {r.checkInStatus === "ON_TIME" ? "A l'heure" : r.checkInStatus === "LATE" ? "Retard" : r.finalStatus}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-
-      {/* Service Stats */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-slate-900 mb-4">
-          Statistiques par service
-        </h3>
-        <ServiceChart data={data?.byService ?? []} />
-      </div>
+      )}
     </div>
   );
 }
 
-/* =========== Sub-components =========== */
-
-function AlertsSection({
-  late,
-  absent,
-  fraud,
-  hasData,
-}: {
-  late: number;
-  absent: number;
-  fraud: number;
-  hasData: boolean;
-}) {
-  if (!hasData) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center">
-        <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-        <p className="text-base font-semibold text-slate-700">
-          Aucune donnée disponible pour le moment
-        </p>
-        <p className="mt-2 text-sm text-slate-500">
-          Les statistiques s&apos;afficheront après les premiers pointages.
-        </p>
-        <div className="mt-5 flex items-center justify-center gap-3">
-          <Link
-            href="/employees"
-            className="inline-flex items-center gap-2 h-9 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Ajouter un employé
-          </Link>
-          <Link
-            href="/settings"
-            className="inline-flex items-center gap-2 h-9 rounded-xl px-4 border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            Configurer les horaires
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const alerts = [];
-  if (late > 0)
-    alerts.push({
-      label: `${late} employé${late > 1 ? "s" : ""} en retard`,
-      color: "text-amber-700 bg-amber-50",
-      icon: Clock,
-    });
-  if (absent > 0)
-    alerts.push({
-      label: `${absent} absence${absent > 1 ? "s" : ""} non justifiée${absent > 1 ? "s" : ""}`,
-      color: "text-red-700 bg-red-50",
-      icon: UserX,
-    });
-  if (fraud > 0)
-    alerts.push({
-      label: `${fraud} tentative${fraud > 1 ? "s" : ""} suspecte${fraud > 1 ? "s" : ""}`,
-      color: "text-red-700 bg-red-50",
-      icon: AlertTriangle,
-    });
-
-  if (alerts.length === 0) {
-    return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-          <UserCheck className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-emerald-800">
-            Tout est en ordre aujourd&apos;hui
-          </p>
-          <p className="text-xs text-emerald-600 mt-0.5">
-            Aucune alerte, aucun retard, aucune anomalie.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-5">
-      <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-amber-500" />
-        À surveiller aujourd&apos;hui
-      </h3>
-      <div className="flex flex-wrap gap-2">
-        {alerts.map((alert, i) => {
-          const Icon = alert.icon;
-          return (
-            <span
-              key={i}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${alert.color}`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {alert.label}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MiniStat({
+function KpiCard({
+  icon: Icon,
   label,
   value,
   color,
+  sub,
 }: {
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string;
-  color: "emerald" | "amber" | "slate";
+  value: number;
+  color: "emerald" | "red" | "amber" | "purple" | "blue";
+  sub?: string;
 }) {
   const colorMap = {
-    emerald: "text-emerald-700",
-    amber: "text-amber-700",
-    slate: "text-slate-700",
+    emerald: { bg: "bg-emerald-50", text: "text-emerald-600", value: "text-emerald-700" },
+    red: { bg: "bg-red-50", text: "text-red-600", value: "text-red-700" },
+    amber: { bg: "bg-amber-50", text: "text-amber-600", value: "text-amber-700" },
+    purple: { bg: "bg-violet-50", text: "text-violet-600", value: "text-violet-700" },
+    blue: { bg: "bg-blue-50", text: "text-blue-600", value: "text-blue-700" },
   };
-
+  const c = colorMap[color];
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex-1 flex flex-col justify-center">
-      <p className="text-sm font-medium text-slate-500">{label}</p>
-      <p className={`mt-2 text-3xl font-bold tracking-tight ${colorMap[color]}`}>
-        {value}
-      </p>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", c.bg, c.text)}>
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs font-medium text-slate-500">{label}</p>
+          <p className={cn("text-2xl font-bold tracking-tight", c.value)}>{value}</p>
+          {sub && <p className="text-xs text-slate-400">{sub}</p>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -521,7 +455,6 @@ function TopList({
   iconColor,
   items,
   emptyText,
-  emptyAction,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -530,57 +463,40 @@ function TopList({
     name: string;
     initials: string;
     service: string;
-    value: number;
-    valueLabel: string;
+    structure: string;
+    count: number;
+    label: string;
     badgeColor: string;
     avatarColor: string;
   }[];
   emptyText: string;
-  emptyAction: { label: string; href: string };
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <div className="p-6 pb-3 flex items-center gap-2">
-        <Icon className={`h-5 w-5 ${iconColor}`} />
-        <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        <Icon className={cn("h-5 w-5", iconColor)} />
+        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
       </div>
       {items.length === 0 ? (
         <div className="px-6 pb-6 pt-2 text-center">
           <p className="text-sm text-slate-400 py-4">{emptyText}</p>
-          <Link
-            href={emptyAction.href}
-            className="text-sm font-medium text-blue-600 hover:text-blue-700"
-          >
-            {emptyAction.label} →
-          </Link>
         </div>
       ) : (
         <div className="px-6 pb-4 space-y-1">
           {items.map((item, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between py-3 px-2 rounded-xl hover:bg-slate-50 transition-colors"
-            >
+            <div key={i} className="flex items-center justify-between py-2.5 px-2 rounded-xl hover:bg-slate-50 transition-colors">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center text-xs font-bold text-slate-400 w-5">
-                  {i + 1}
-                </div>
-                <div
-                  className={`h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold ${item.avatarColor}`}
-                >
+                <span className="text-xs font-bold text-slate-400 w-5 text-center">{i + 1}</span>
+                <div className={cn("h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold", item.avatarColor)}>
                   {item.initials}
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-800">
-                    {item.name}
-                  </p>
-                  <p className="text-xs text-slate-400">{item.service}</p>
+                  <p className="text-sm font-medium text-slate-800">{item.name}</p>
+                  <p className="text-xs text-slate-400">{item.service} — {item.structure}</p>
                 </div>
               </div>
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${item.badgeColor}`}
-              >
-                {item.valueLabel}
+              <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium", item.badgeColor)}>
+                {item.label}
               </span>
             </div>
           ))}

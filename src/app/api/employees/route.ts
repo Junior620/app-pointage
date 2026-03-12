@@ -4,16 +4,18 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 
+const STRUCTURES = ["SCPB", "AFREXIA"] as const;
+
 const createEmployeeSchema = z.object({
-  // Matricule optionnel : s'il est vide/non fourni, il sera généré automatiquement
   matricule: z.string().optional(),
   firstName: z.string().min(1, "Le prénom est requis"),
   lastName: z.string().min(1, "Le nom est requis"),
   service: z.string().min(1, "Le service est requis"),
+  structure: z.enum(STRUCTURES).default("SCPB"),
   siteId: z.string().optional(),
 });
 
-async function generateNextMatricule(service: string): Promise<string> {
+async function generateNextMatricule(service: string, structure: string): Promise<string> {
   const raw = service.trim().toUpperCase();
   const DEPT_MAP: Record<string, string> = {
     IT: "IT",
@@ -25,7 +27,8 @@ async function generateNextMatricule(service: string): Promise<string> {
   };
   const derived = raw.replace(/[^A-Z]/g, "").slice(0, 4);
   const dept = DEPT_MAP[raw] || derived || "GEN";
-  const prefix = `AFREXIA-SCPB-${dept}-`;
+  const struct = structure.trim().toUpperCase() || "SCPB";
+  const prefix = `${struct}-${dept}-`;
 
   const last = await prisma.employee.findFirst({
     where: { matricule: { startsWith: prefix } },
@@ -66,6 +69,8 @@ export async function GET(request: NextRequest) {
       ];
     }
     if (service) where.service = service;
+    const structure = searchParams.get("structure");
+    if (structure) where.structure = structure;
     if (active !== null && active !== undefined) {
       where.active = active === "true";
     }
@@ -107,7 +112,7 @@ export async function POST(request: NextRequest) {
     const { matricule, ...rest } = parsed.data;
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
-      finalMatricule = await generateNextMatricule(rest.service);
+      finalMatricule = await generateNextMatricule(rest.service, rest.structure);
     }
 
     const existing = await prisma.employee.findUnique({ where: { matricule: finalMatricule } });

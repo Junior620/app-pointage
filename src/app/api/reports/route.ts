@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { Structure } from "@prisma/client";
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,6 +11,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get("dateFrom") || searchParams.get("startDate");
     const endDate = searchParams.get("dateTo") || searchParams.get("endDate");
     const service = searchParams.get("service")?.trim() || undefined;
+    const structure = searchParams.get("structure")?.trim() || undefined;
     const search = searchParams.get("search")?.trim() || undefined;
 
     if (!startDate || !endDate) {
@@ -23,6 +25,7 @@ export async function GET(request: NextRequest) {
     const employeeWhere = {
       active: true,
       ...(service && { service }),
+      ...(structure && { structure: structure as Structure }),
       ...(search && {
         OR: [
           { firstName: { contains: search, mode: "insensitive" as const } },
@@ -59,12 +62,14 @@ export async function GET(request: NextRequest) {
       matricule: string;
       name: string;
       service: string;
+      structure: string;
       presents: number;
       absents: number;
       retards: number;
       missions: number;
       permissions: number;
       totalHours: number;
+      overtimeHours: number;
       totalDays: number;
       punctualityRate: number;
     }> = [];
@@ -117,12 +122,14 @@ export async function GET(request: NextRequest) {
         matricule: emp.matricule,
         name: `${emp.lastName} ${emp.firstName}`,
         service: emp.service,
+        structure: emp.structure,
         presents: empPresent + empPermission + empMission,
         absents: empAbsent,
         retards: empLate,
         missions: empMission,
         permissions: empPermission,
         totalHours: Math.round((empMinutes / 60) * 10) / 10,
+        overtimeHours: Math.round((empOvertime / 60) * 10) / 10,
         totalDays: empTotal,
         punctualityRate: empPunctuality,
       });
@@ -188,6 +195,7 @@ export async function GET(request: NextRequest) {
         totalRetards: totalLate,
         totalAbsences: totalAbsent,
         totalHours,
+        totalOvertimeHours: Math.round((totalOvertime / 60) * 10) / 10,
         avgPunctuality: totalOnTime + totalLate > 0
           ? Math.round((totalOnTime / (totalOnTime + totalLate)) * 100)
           : 0,
