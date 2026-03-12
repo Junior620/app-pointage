@@ -154,6 +154,31 @@ async function handleMessage(
     const { intent, comment } = parseIntent(message.text.body);
     console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
+    // Si le message ne correspond à aucune commande connue, on l'interprète
+    // éventuellement comme un *motif de retard* pour l'arrivée du jour.
+    if (intent === "UNKNOWN") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const record = await prisma.attendanceRecord.findUnique({
+        where: { employeeId_date: { employeeId: employee.id, date: today } },
+      });
+
+      if (record && record.checkInStatus === "LATE" && !record.checkInComment) {
+        const rawComment = message.text.body.trim();
+        if (rawComment.length > 0) {
+          await prisma.attendanceRecord.update({
+            where: { id: record.id },
+            data: { checkInComment: rawComment },
+          });
+          await sendWhatsAppMessage(
+            phone,
+            `Motif enregistré pour votre retard : "${rawComment}". Merci.`
+          );
+          return;
+        }
+      }
+    }
+
     switch (intent) {
       case "CHECK_IN":
         pendingActions.set(normalizedPhone, {
