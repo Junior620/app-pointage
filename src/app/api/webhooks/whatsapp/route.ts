@@ -155,7 +155,8 @@ async function handleMessage(
     console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
     // Si le message ne correspond à aucune commande connue, on l'interprète
-    // éventuellement comme un *motif de retard* pour l'arrivée du jour.
+    // éventuellement comme un *motif* pour le pointage du jour (retard à l'arrivée
+    // ou départ anticipé).
     if (intent === "UNKNOWN") {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -163,19 +164,30 @@ async function handleMessage(
         where: { employeeId_date: { employeeId: employee.id, date: today } },
       });
 
-      if (record && record.checkInStatus === "LATE" && !record.checkInComment) {
-        const rawComment = message.text.body.trim();
-        if (rawComment.length > 0) {
-          await prisma.attendanceRecord.update({
-            where: { id: record.id },
-            data: { checkInComment: rawComment },
-          });
-          await sendWhatsAppMessage(
-            phone,
-            `Motif enregistré pour votre retard : "${rawComment}". Merci.`
-          );
-          return;
-        }
+      const rawComment = message.text.body.trim();
+      if (!record || !rawComment) {
+        // Pas de pointage aujourd'hui ou message vide : on retombera sur les
+        // commandes par défaut plus bas.
+      } else if (record.checkInStatus === "LATE" && !record.checkInComment) {
+        await prisma.attendanceRecord.update({
+          where: { id: record.id },
+          data: { checkInComment: rawComment },
+        });
+        await sendWhatsAppMessage(
+          phone,
+          `Motif enregistré pour votre retard : "${rawComment}". Merci.`
+        );
+        return;
+      } else if (record.checkOutTime && !record.checkOutComment) {
+        await prisma.attendanceRecord.update({
+          where: { id: record.id },
+          data: { checkOutComment: rawComment },
+        });
+        await sendWhatsAppMessage(
+          phone,
+          `Motif enregistré pour votre départ : "${rawComment}". Merci.`
+        );
+        return;
       }
     }
 

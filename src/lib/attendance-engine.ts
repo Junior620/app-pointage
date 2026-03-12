@@ -236,9 +236,9 @@ export async function processCheckOut(
     return { success: false, message: "Configuration manquante. Contactez les RH." };
   }
 
-  const total = minutesBetween(record.checkInTime, now);
   const scheduleEnd = parseTimeString(data.schedule.endTime, today);
   const scheduleStart = parseTimeString(data.schedule.startTime, today);
+  const total = minutesBetween(record.checkInTime, now);
   const normalMinutes = minutesBetween(scheduleStart, scheduleEnd);
   const overtime = Math.max(0, total - normalMinutes);
 
@@ -262,14 +262,30 @@ export async function processCheckOut(
   });
   const hours = Math.floor(total / 60);
   const mins = total % 60;
-  let msg = `Départ enregistré à ${timeStr}. Durée: ${hours}h${mins.toString().padStart(2, "0")}. ✅`;
-  if (overtime > 0) {
-    const otH = Math.floor(overtime / 60);
-    const otM = overtime % 60;
-    msg += `\nHeures supplémentaires: ${otH}h${otM.toString().padStart(2, "0")}`;
+  const leftEarly = now < scheduleEnd;
+
+  let msg: string;
+  if (leftEarly) {
+    const earlyMin = minutesBetween(now, scheduleEnd);
+    msg = comment
+      ? `Départ enregistré à ${timeStr} (en avance de ${earlyMin} min). Motif: ${comment}`
+      : `Départ enregistré à ${timeStr} (en avance de ${earlyMin} min).\n⚠️ Veuillez indiquer le motif de votre départ anticipé.`;
+  } else {
+    msg = `Départ enregistré à ${timeStr}. Durée: ${hours}h${mins
+      .toString()
+      .padStart(2, "0")}. ✅`;
+    if (overtime > 0) {
+      const otH = Math.floor(overtime / 60);
+      const otM = overtime % 60;
+      msg += `\nHeures supplémentaires: ${otH}h${otM.toString().padStart(2, "0")}`;
+    }
   }
 
-  return { success: true, message: msg, status: "CHECKED_OUT" };
+  return {
+    success: true,
+    message: msg,
+    status: "CHECKED_OUT",
+  };
 }
 
 export async function runAutoCheckout(): Promise<number> {
