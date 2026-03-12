@@ -172,16 +172,15 @@ export function parseIntent(message: string): {
 
 export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 
-✅ *ARRIVÉ* — Pointer votre arrivée
-🚪 *DÉPART* — Pointer votre départ
-📊 *STATUT* — Voir votre pointage du jour
+1️⃣ *Arrivé* — Pointer votre arrivée
+2️⃣ *Départ* — Pointer votre départ
+3️⃣ *Statut* — Pointage du jour
+4️⃣ *Mes pointages* — Historique du mois
+5️⃣ *Mes absences* — Voir vos absences
+6️⃣ *Mes heures sup* — Heures supplémentaires
+7️⃣ *Mes missions* — Missions et permissions
 
-📋 *MES POINTAGES* — Historique du mois
-📅 *MES ABSENCES* — Voir vos absences
-⏰ *MES HEURES SUP* — Vos heures supplémentaires
-🌍 *MES MISSIONS* — Missions et permissions
-
-❓ *AIDE* — Afficher ce menu`;
+Répondez par le *numéro* ou tapez la commande.`;
 
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
@@ -191,10 +190,10 @@ Que souhaitez-vous faire ?
 1️⃣ Pointer mon arrivée
 2️⃣ Pointer mon départ
 3️⃣ Voir mon statut
+4️⃣ Mes pointages du mois
+5️⃣ Mes absences
+6️⃣ Mes heures sup
+7️⃣ Mes missions
 
-Ou tapez directement :
-📋 *Mes pointages* — historique du mois
-📅 *Mes absences* — détails des absences
-⏰ *Mes heures sup* — heures supplémentaires
-🌍 *Mes missions* — missions en cours`;
+Répondez par le *numéro* correspondant.`;
 }
