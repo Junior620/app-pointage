@@ -6,6 +6,22 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { ArrowLeft, Phone, MapPin, Hash, Building2 } from "lucide-react";
 
+function getWorkingDays(from: Date, to: Date): Date[] {
+  const days: Date[] = [];
+  const d = new Date(from);
+  while (d <= to) {
+    if (d.getDay() !== 0) {
+      days.push(new Date(d));
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+function dateKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 export default async function EmployeeDetailPage({
   params,
 }: {
@@ -16,24 +32,82 @@ export default async function EmployeeDetailPage({
 
   const { id } = await params;
 
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const employee = await prisma.employee.findUnique({
     where: { id },
     include: {
       site: true,
       attendances: {
+        where: { date: { gte: thirtyDaysAgo } },
         orderBy: { date: "desc" },
-        take: 30,
       },
     },
   });
 
   if (!employee) notFound();
 
-  const totalDays = employee.attendances.length;
-  const onTimeDays = employee.attendances.filter((a) => a.checkInStatus === "ON_TIME").length;
-  const lateDays = employee.attendances.filter((a) => a.checkInStatus === "LATE").length;
-  const absentDays = employee.attendances.filter((a) => a.finalStatus === "ABSENT").length;
-  const punctualityRate = totalDays > 0 ? Math.round((onTimeDays / totalDays) * 100) : 0;
+  const holidays = await prisma.holiday.findMany({
+    where: { date: { gte: thirtyDaysAgo, lte: today } },
+  });
+  const holidaySet = new Set(holidays.map((h) => dateKey(h.date)));
+
+  const workingDays = getWorkingDays(thirtyDaysAgo, today).filter(
+    (d) => !holidaySet.has(dateKey(d))
+  );
+
+  const recordMap = new Map(
+    employee.attendances.map((a) => [dateKey(a.date), a])
+  );
+
+  type DayRow = {
+    date: Date;
+    checkInTime: Date | null;
+    checkInStatus: string | null;
+    checkOutTime: Date | null;
+    checkOutStatus: string | null;
+    totalMinutes: number | null;
+    finalStatus: string;
+  };
+
+  const rows: DayRow[] = workingDays
+    .map((d) => {
+      const rec = recordMap.get(dateKey(d));
+      if (rec) {
+        return {
+          date: d,
+          checkInTime: rec.checkInTime,
+          checkInStatus: rec.checkInStatus,
+          checkOutTime: rec.checkOutTime,
+          checkOutStatus: rec.checkOutStatus,
+          totalMinutes: rec.totalMinutes,
+          finalStatus: rec.finalStatus,
+        };
+      }
+      return {
+        date: d,
+        checkInTime: null,
+        checkInStatus: null,
+        checkOutTime: null,
+        checkOutStatus: null,
+        totalMinutes: null,
+        finalStatus: "ABSENT",
+      };
+    })
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  const totalWorkDays = rows.length;
+  const onTimeDays = rows.filter((r) => r.checkInStatus === "ON_TIME").length;
+  const lateDays = rows.filter((r) => r.checkInStatus === "LATE").length;
+  const absentDays = rows.filter((r) => r.finalStatus === "ABSENT").length;
+  const punctualityRate =
+    onTimeDays + lateDays > 0
+      ? Math.round((onTimeDays / (onTimeDays + lateDays)) * 100)
+      : 100;
 
   return (
     <div className="space-y-6">
@@ -92,7 +166,7 @@ export default async function EmployeeDetailPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
           <p className="text-sm text-slate-500">Ponctualité</p>
           <p className="text-3xl font-bold text-blue-600 mt-1">{punctualityRate}%</p>
@@ -108,6 +182,10 @@ export default async function EmployeeDetailPage({
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
           <p className="text-sm text-slate-500">Absences</p>
           <p className="text-3xl font-bold text-red-600 mt-1">{absentDays}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
+          <p className="text-sm text-slate-500">Jours ouvrés</p>
+          <p className="text-3xl font-bold text-slate-600 mt-1">{totalWorkDays}</p>
         </div>
       </div>
 
@@ -128,17 +206,20 @@ export default async function EmployeeDetailPage({
               </tr>
             </thead>
             <tbody>
-              {employee.attendances.length === 0 ? (
+              {rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-400">
-                    Aucun pointage
+                    Aucun jour ouvré sur cette période
                   </td>
                 </tr>
               ) : (
-                employee.attendances.map((a) => (
-                  <tr key={a.id} className="border-b border-slate-50 hover:bg-slate-50">
+                rows.map((a) => (
+                  <tr key={dateKey(a.date)} className={cn(
+                    "border-b border-slate-50 hover:bg-slate-50",
+                    a.finalStatus === "ABSENT" && !a.checkInTime && "bg-red-50/40"
+                  )}>
                     <td className="py-2.5 text-slate-700">
-                      {new Date(a.date).toLocaleDateString("fr-FR")}
+                      {a.date.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
                     </td>
                     <td className="py-2.5 text-slate-600">
                       {a.checkInTime
@@ -146,7 +227,7 @@ export default async function EmployeeDetailPage({
                         : "—"}
                     </td>
                     <td className="py-2.5">
-                      {a.checkInStatus && (
+                      {a.checkInStatus ? (
                         <span
                           className={cn(
                             "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
@@ -157,7 +238,9 @@ export default async function EmployeeDetailPage({
                         >
                           {a.checkInStatus === "ON_TIME" ? "À l'heure" : "Retard"}
                         </span>
-                      )}
+                      ) : a.finalStatus === "ABSENT" ? (
+                        <span className="text-xs text-red-400">—</span>
+                      ) : null}
                     </td>
                     <td className="py-2.5 text-slate-600">
                       {a.checkOutTime
