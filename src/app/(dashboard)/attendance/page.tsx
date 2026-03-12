@@ -425,10 +425,19 @@ export default function AttendancePage() {
                     {/* Actions */}
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {r.checkInComment && (
+                        {(r.checkInComment || r.checkOutComment) && (
                           <span
                             className="p-1.5 text-slate-400"
-                            title={r.checkInComment}
+                            title={
+                              [
+                                r.checkInComment &&
+                                  `Arrivée : ${r.checkInComment}`,
+                                r.checkOutComment &&
+                                  `Départ : ${r.checkOutComment}`,
+                              ]
+                                .filter(Boolean)
+                                .join(" | ")
+                            }
                           >
                             <MessageSquare className="w-4 h-4" />
                           </span>
@@ -610,16 +619,31 @@ export default function AttendancePage() {
                 )}
               </div>
 
-              {/* Comment */}
-              {detailRecord.checkInComment && !editMode && (
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    Commentaire
-                  </p>
-                  <p className="text-sm text-slate-700">
-                    {detailRecord.checkInComment}
-                  </p>
+              {/* Commentaires */}
+              {!editMode && (
+                <div className="space-y-3">
+                  {detailRecord.checkInComment && (
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Commentaire arrivée
+                      </p>
+                      <p className="text-sm text-slate-700">
+                        {detailRecord.checkInComment}
+                      </p>
+                    </div>
+                  )}
+                  {detailRecord.checkOutComment && (
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Commentaire départ
+                      </p>
+                      <p className="text-sm text-slate-700">
+                        {detailRecord.checkOutComment}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
