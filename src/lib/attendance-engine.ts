@@ -288,8 +288,17 @@ export async function processCheckOut(
   };
 }
 
-export async function runAutoCheckout(): Promise<number> {
+export type AutoCheckoutResult = {
+  employeeId: string;
+  firstName: string;
+  whatsappPhone: string | null;
+  checkOutTime: Date;
+  checkInTime: Date;
+};
+
+export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
   const today = todayDate();
+  const tz = process.env.APP_TIMEZONE || "Africa/Douala";
 
   const records = await prisma.attendanceRecord.findMany({
     where: {
@@ -302,7 +311,7 @@ export async function runAutoCheckout(): Promise<number> {
     },
   });
 
-  let count = 0;
+  const results: AutoCheckoutResult[] = [];
   for (const record of records) {
     const schedule = record.employee.site?.schedules?.[0];
     if (!schedule) continue;
@@ -311,7 +320,6 @@ export async function runAutoCheckout(): Promise<number> {
     const checkInTime = record.checkInTime!;
     const total = minutesBetween(checkInTime, endTime);
     const scheduleStart = parseTimeString(schedule.startTime, today);
-    const normalMinutes = minutesBetween(scheduleStart, endTime);
 
     await prisma.attendanceRecord.update({
       where: { id: record.id },
@@ -323,10 +331,17 @@ export async function runAutoCheckout(): Promise<number> {
         overtimeMinutes: 0,
       },
     });
-    count++;
+
+    results.push({
+      employeeId: record.employee.id,
+      firstName: record.employee.firstName,
+      whatsappPhone: record.employee.whatsappPhone,
+      checkOutTime: endTime,
+      checkInTime,
+    });
   }
 
-  return count;
+  return results;
 }
 
 export async function runMarkAbsent(): Promise<number> {
