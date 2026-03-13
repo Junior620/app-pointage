@@ -147,7 +147,7 @@ export async function processCheckIn(
     return { success: false, message: "Configuration manquante. Contactez les RH." };
   }
 
-  const scheduleStart = parseTimeString(data.schedule.startTime, today);
+  const scheduleStart = parseTimeString(data.schedule.startTime, today, APP_TIMEZONE);
   const graceEnd = new Date(
     scheduleStart.getTime() + data.schedule.lateGraceMin * 60 * 1000
   );
@@ -236,8 +236,8 @@ export async function processCheckOut(
     return { success: false, message: "Configuration manquante. Contactez les RH." };
   }
 
-  const scheduleEnd = parseTimeString(data.schedule.endTime, today);
-  const scheduleStart = parseTimeString(data.schedule.startTime, today);
+  const scheduleEnd = parseTimeString(data.schedule.endTime, today, APP_TIMEZONE);
+  const scheduleStart = parseTimeString(data.schedule.startTime, today, APP_TIMEZONE);
   const total = minutesBetween(record.checkInTime, now);
   const normalMinutes = minutesBetween(scheduleStart, scheduleEnd);
   const overtime = Math.max(0, total - normalMinutes);
@@ -298,7 +298,6 @@ export type AutoCheckoutResult = {
 
 export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
   const today = todayDate();
-  const tz = process.env.APP_TIMEZONE || "Africa/Douala";
 
   const records = await prisma.attendanceRecord.findMany({
     where: {
@@ -316,10 +315,9 @@ export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
     const schedule = record.employee.site?.schedules?.[0];
     if (!schedule) continue;
 
-    const endTime = parseTimeString(schedule.endTime, today);
+    const endTime = parseTimeString(schedule.endTime, today, APP_TIMEZONE);
     const checkInTime = record.checkInTime!;
     const total = minutesBetween(checkInTime, endTime);
-    const scheduleStart = parseTimeString(schedule.startTime, today);
 
     await prisma.attendanceRecord.update({
       where: { id: record.id },

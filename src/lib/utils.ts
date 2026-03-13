@@ -29,11 +29,50 @@ export function formatDateShort(date: Date): string {
   });
 }
 
-export function parseTimeString(timeStr: string, date: Date): Date {
+/**
+ * Parse "HH:MM" into a Date for the given calendar day.
+ * When timezone is provided, the time is interpreted in that timezone
+ * (critical for Vercel which runs in UTC).
+ */
+export function parseTimeString(
+  timeStr: string,
+  date: Date,
+  timezone?: string
+): Date {
   const [hours, minutes] = timeStr.split(":").map(Number);
-  const result = new Date(date);
-  result.setHours(hours, minutes, 0, 0);
-  return result;
+
+  if (!timezone) {
+    const result = new Date(date);
+    result.setHours(hours, minutes, 0, 0);
+    return result;
+  }
+
+  const y = date.getFullYear();
+  const m = (date.getMonth() + 1).toString().padStart(2, "0");
+  const d = date.getDate().toString().padStart(2, "0");
+  const h = hours.toString().padStart(2, "0");
+  const min = minutes.toString().padStart(2, "0");
+
+  const tentative = new Date(`${y}-${m}-${d}T${h}:${min}:00Z`);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(tentative);
+
+  const tzHour = parseInt(parts.find((p) => p.type === "hour")?.value || "0");
+  const tzMin = parseInt(parts.find((p) => p.type === "minute")?.value || "0");
+
+  const utcTotalMin = tentative.getUTCHours() * 60 + tentative.getUTCMinutes();
+  const tzTotalMin = tzHour * 60 + tzMin;
+  let offsetMin = tzTotalMin - utcTotalMin;
+
+  if (offsetMin < -720) offsetMin += 1440;
+  if (offsetMin > 720) offsetMin -= 1440;
+
+  return new Date(tentative.getTime() - offsetMin * 60 * 1000);
 }
 
 export function minutesBetween(start: Date, end: Date): number {
