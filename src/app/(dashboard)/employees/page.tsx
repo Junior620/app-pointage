@@ -139,6 +139,127 @@ export default function EmployeesPage() {
   const inactiveCount = employees.filter((e) => !e.active).length;
   const whatsappCount = employees.filter((e) => e.whatsappPhone).length;
 
+  const fetchAllEmployees = async (): Promise<Employee[]> => {
+    const params = new URLSearchParams({
+      page: "1",
+      limit: "10000",
+      ...(search && { q: search }),
+      ...(serviceFilter && { service: serviceFilter }),
+      ...(structureFilter && { structure: structureFilter }),
+      ...(statusFilter !== "all" && { active: statusFilter === "active" ? "true" : "false" }),
+    });
+    const res = await fetch(`/api/employees?${params}`);
+    const json = await res.json();
+    return json.data ?? [];
+  };
+
+  const exportExcel = async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const all = await fetchAllEmployees();
+    const workbook = new ExcelJS.Workbook();
+
+    const addSheet = (name: string, data: Employee[]) => {
+      const ws = workbook.addWorksheet(name);
+      ws.columns = [
+        { header: "Matricule", key: "matricule", width: 18 },
+        { header: "Nom", key: "lastName", width: 18 },
+        { header: "Prénom", key: "firstName", width: 18 },
+        { header: "Service", key: "service", width: 14 },
+        { header: "Structure", key: "structure", width: 12 },
+        { header: "Site", key: "site", width: 20 },
+        { header: "WhatsApp", key: "whatsapp", width: 18 },
+        { header: "Statut", key: "status", width: 10 },
+      ];
+
+      ws.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
+        cell.alignment = { horizontal: "center" };
+      });
+
+      data.forEach((emp) => {
+        ws.addRow({
+          matricule: emp.matricule,
+          lastName: emp.lastName,
+          firstName: emp.firstName,
+          service: emp.service,
+          structure: emp.structure,
+          site: emp.site?.name ?? "Non assigné",
+          whatsapp: emp.whatsappPhone ?? "—",
+          status: emp.active ? "Actif" : "Inactif",
+        });
+      });
+    };
+
+    addSheet("Tous", all);
+    const scpb = all.filter((e) => e.structure === "SCPB");
+    const afrexia = all.filter((e) => e.structure === "AFREXIA");
+    if (scpb.length > 0) addSheet("SCPB", scpb);
+    if (afrexia.length > 0) addSheet("AFREXIA", afrexia);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `employes_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPdf = async () => {
+    const { jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const all = await fetchAllEmployees();
+
+    const doc = new jsPDF({ orientation: "landscape" });
+    const now = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+    const generatePage = (title: string, data: Employee[], startNew: boolean) => {
+      if (startNew) doc.addPage("a4", "landscape");
+
+      doc.setFontSize(16);
+      doc.text(title, 14, 18);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`Généré le ${now} — ${data.length} employé(s)`, 14, 25);
+      doc.setTextColor(0);
+
+      const active = data.filter((e) => e.active).length;
+      const inactive = data.length - active;
+      const whatsapp = data.filter((e) => e.whatsappPhone).length;
+      doc.setFontSize(8);
+      doc.text(`Actifs: ${active}  |  Inactifs: ${inactive}  |  WhatsApp: ${whatsapp}`, 14, 31);
+
+      autoTable(doc, {
+        startY: 35,
+        head: [["Matricule", "Nom", "Prénom", "Service", "Structure", "Site", "WhatsApp", "Statut"]],
+        body: data.map((emp) => [
+          emp.matricule,
+          emp.lastName,
+          emp.firstName,
+          emp.service,
+          emp.structure,
+          emp.site?.name ?? "Non assigné",
+          emp.whatsappPhone ?? "—",
+          emp.active ? "Actif" : "Inactif",
+        ]),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+    };
+
+    generatePage("Liste des employés", all, false);
+
+    const scpb = all.filter((e) => e.structure === "SCPB");
+    const afrexia = all.filter((e) => e.structure === "AFREXIA");
+    if (scpb.length > 0) generatePage("Employés — SCPB", scpb, true);
+    if (afrexia.length > 0) generatePage("Employés — AFREXIA", afrexia, true);
+
+    doc.save(`employes_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", siteId: "" });
@@ -252,9 +373,19 @@ export default function EmployeesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+          <button
+            onClick={exportExcel}
+            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-emerald-200 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+          >
             <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Exporter</span>
+            <span className="hidden sm:inline">Excel</span>
+          </button>
+          <button
+            onClick={exportPdf}
+            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-red-200 bg-red-50 text-sm font-medium text-red-700 hover:bg-red-100 transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">PDF</span>
           </button>
           <button
             onClick={openCreate}
