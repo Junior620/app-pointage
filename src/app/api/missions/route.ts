@@ -11,6 +11,9 @@ const createMissionSchema = z.object({
   reason: z.string().min(1, "Le motif est requis"),
   location: z.string().optional(),
   hostStructure: z.enum(["SCPB", "AFREXIA"]).optional(),
+  transport: z.string().optional(),
+  lodging: z.string().optional(),
+  expenses: z.string().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -86,15 +89,20 @@ export async function POST(request: NextRequest) {
     }
 
     const mission = await prisma.mission.create({
+      // Cast en any pour rester compatible tant que le client Prisma
+      // généré n'a pas encore les nouveaux champs (transport/lodging/expenses).
       data: {
         employeeId: parsed.data.employeeId,
         startDate: new Date(parsed.data.startDate),
         endDate: new Date(parsed.data.endDate),
         reason: parsed.data.reason,
         location: parsed.data.location || null,
+        transport: parsed.data.transport || null,
+        lodging: parsed.data.lodging || null,
+        expenses: parsed.data.expenses || null,
         originStructure: employee.structure,
         hostStructure: parsed.data.hostStructure || null,
-      },
+      } as any,
       include: { employee: true },
     });
 

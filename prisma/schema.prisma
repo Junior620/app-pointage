@@ -160,6 +160,9 @@ model Mission {
   endDate          DateTime      @map("end_date") @db.Date
   reason           String
   location         String?
+  transport        String?
+  lodging          String?
+  expenses         String?
   originStructure  Structure?    @map("origin_structure")
   hostStructure    Structure?    @map("host_structure")
   daysCompleted    Int           @default(0) @map("days_completed")

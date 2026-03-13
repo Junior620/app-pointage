@@ -35,6 +35,9 @@ interface Mission {
   endDate: string;
   reason: string;
   location: string | null;
+  transport: string | null;
+  lodging: string | null;
+  expenses: string | null;
   originStructure: string | null;
   hostStructure: string | null;
   daysCompleted: number;
@@ -51,6 +54,9 @@ const missionSchema = z.object({
   reason: z.string().min(1, "Le motif est requis"),
   location: z.string().optional(),
   hostStructure: z.enum(["SCPB", "AFREXIA"]).optional(),
+  transport: z.string().optional(),
+  lodging: z.string().optional(),
+  expenses: z.string().optional(),
 });
 
 const statusBadge: Record<string, { bg: string; label: string }> = {
@@ -87,7 +93,17 @@ export default function MissionsPage() {
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailMission, setDetailMission] = useState<Mission | null>(null);
-  const [form, setForm] = useState({ employeeId: "", startDate: "", endDate: "", reason: "", location: "", hostStructure: "" });
+  const [form, setForm] = useState({
+    employeeId: "",
+    startDate: "",
+    endDate: "",
+    reason: "",
+    location: "",
+    hostStructure: "",
+    transport: "",
+    lodging: "",
+    expenses: "",
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
@@ -140,7 +156,17 @@ export default function MissionsPage() {
 
   const openCreate = () => {
     fetchEmployees();
-    setForm({ employeeId: "", startDate: "", endDate: "", reason: "", location: "", hostStructure: "" });
+    setForm({
+      employeeId: "",
+      startDate: "",
+      endDate: "",
+      reason: "",
+      location: "",
+      hostStructure: "",
+      transport: "",
+      lodging: "",
+      expenses: "",
+    });
     setErrors({});
     setModalOpen(true);
   };
@@ -822,6 +848,35 @@ export default function MissionsPage() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Transport</label>
+                  <input
+                    value={form.transport}
+                    onChange={(e) => setForm({ ...form, transport: e.target.value })}
+                    placeholder="Ex : Véhicule société, avion..."
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Hébergement</label>
+                  <input
+                    value={form.lodging}
+                    onChange={(e) => setForm({ ...form, lodging: e.target.value })}
+                    placeholder="Ex : Hôtel à charge SCPB..."
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Frais</label>
+                  <input
+                    value={form.expenses}
+                    onChange={(e) => setForm({ ...form, expenses: e.target.value })}
+                    placeholder="Ex : Per diem selon barème..."
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Motif</label>
                 <textarea
@@ -955,6 +1010,15 @@ export default function MissionsPage() {
                 {detailMission.hostStructure && (
                   <DetailRow label="Structure d'accueil" value={detailMission.hostStructure} />
                 )}
+                {detailMission.transport && (
+                  <DetailRow label="Transport" value={detailMission.transport} />
+                )}
+                {detailMission.lodging && (
+                  <DetailRow label="Hébergement" value={detailMission.lodging} />
+                )}
+                {detailMission.expenses && (
+                  <DetailRow label="Frais" value={detailMission.expenses} />
+                )}
                 {detailMission.location && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 flex items-center gap-1.5">
@@ -994,26 +1058,147 @@ export default function MissionsPage() {
               </div>
 
               {/* Actions */}
-              {detailMission.status === "PENDING" && (
-                <div className="flex gap-3 pt-2 border-t border-slate-100">
+              <div className="flex flex-col gap-3 pt-2 border-t border-slate-100">
+                {detailMission.status === "PENDING" && (
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => updateStatus(detailMission.id, "APPROVED")}
+                      disabled={actioningId === detailMission.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      <Check className="w-4 h-4" />
+                      Approuver
+                    </button>
+                    <button
+                      onClick={() => updateStatus(detailMission.id, "REJECTED")}
+                      disabled={actioningId === detailMission.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Refuser
+                    </button>
+                  </div>
+                )}
+                {detailMission.status === "APPROVED" && (
                   <button
-                    onClick={() => updateStatus(detailMission.id, "APPROVED")}
-                    disabled={actioningId === detailMission.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                    onClick={async () => {
+                      const { jsPDF } = await import("jspdf");
+                      const doc = new jsPDF();
+                      const m = detailMission;
+                      const today = new Date();
+                      const fmt = (d: string) =>
+                        new Date(d).toLocaleDateString("fr-FR", {
+                          day: "2-digit",
+                          month: "long",
+                          year: "numeric",
+                        });
+
+                      doc.setFontSize(14);
+                      doc.text("ORDRE DE MISSION", 105, 15, { align: "center" });
+
+                      doc.setFontSize(10);
+                      doc.text(
+                        `Date d'émission : ${today.toLocaleDateString("fr-FR")}`,
+                        14,
+                        25
+                      );
+
+                      doc.setFontSize(11);
+                      doc.text("MISSIONNAIRE", 14, 35);
+                      doc.setFontSize(10);
+                      doc.text(
+                        `Nom et prénom : ${m.employee.lastName} ${m.employee.firstName}`,
+                        14,
+                        42
+                      );
+                      doc.text(`Matricule : ${m.employee.matricule}`, 14, 48);
+                      doc.text(
+                        `Service : ${m.employee.service ?? "-"}`,
+                        14,
+                        54
+                      );
+                      doc.text(
+                        `Structure d'origine : ${m.originStructure ?? "-"}`,
+                        14,
+                        60
+                      );
+
+                      doc.setFontSize(11);
+                      doc.text("MISSION", 14, 72);
+                      doc.setFontSize(10);
+                      doc.text(`Objet : ${m.reason}`, 14, 79, { maxWidth: 180 });
+                      doc.text(`Lieu : ${m.location ?? "-"}`, 14, 88);
+                      doc.text(
+                        `Structure d'accueil : ${m.hostStructure ?? "-"}`,
+                        14,
+                        94
+                      );
+                      doc.text(
+                        `Période : du ${fmt(m.startDate)} au ${fmt(m.endDate)}`,
+                        14,
+                        100
+                      );
+                      doc.text(
+                        `Durée prévue : ${formatDuration(
+                          m.startDate,
+                          m.endDate
+                        )}`,
+                        14,
+                        106
+                      );
+                      doc.text(
+                        `Jours effectués (suivi) : ${m.daysCompleted} jour(s)`,
+                        14,
+                        112
+                      );
+
+                      let y = 124;
+                      doc.setFontSize(11);
+                      doc.text("MOYENS", 14, y);
+                      doc.setFontSize(10);
+                      y += 7;
+                      doc.text(`Transport : ${m.transport ?? "-"}`, 14, y);
+                      y += 6;
+                      doc.text(`Hébergement : ${m.lodging ?? "-"}`, 14, y);
+                      y += 6;
+                      doc.text(`Frais : ${m.expenses ?? "-"}`, 14, y);
+
+                      y += 12;
+                      doc.setFontSize(11);
+                      doc.text("VALIDATION", 14, y);
+                      y += 7;
+                      doc.setFontSize(10);
+                      doc.text(
+                        "Le présent ordre de mission est délivré pour servir et valoir ce que de droit.",
+                        14,
+                        y,
+                        { maxWidth: 180 }
+                      );
+
+                      y += 12;
+                      doc.text(
+                        `Fait à ____________________, le ${today.toLocaleDateString(
+                          "fr-FR"
+                        )}`,
+                        14,
+                        y
+                      );
+                      y += 20;
+                      doc.text("Signature et cachet", 150, y);
+
+                      doc.save(
+                        `ordre_mission_${m.employee.matricule}_${
+                          m.id.slice(0, 8)
+                        }.pdf`
+                      );
+                    }}
+                    className="inline-flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-medium text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
                   >
-                    <Check className="w-4 h-4" />
-                    Approuver
+                    <Download className="w-4 h-4" />
+                    Télécharger l'ordre de mission (PDF)
                   </button>
-                  <button
-                    onClick={() => updateStatus(detailMission.id, "REJECTED")}
-                    disabled={actioningId === detailMission.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    Refuser
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
