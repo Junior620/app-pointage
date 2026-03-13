@@ -91,6 +91,8 @@ export default function MissionsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [editingDays, setEditingDays] = useState<number | null>(null);
+  const [savingDays, setSavingDays] = useState(false);
   const perPage = 20;
 
   const fetchMissions = useCallback(async () => {
@@ -189,6 +191,239 @@ export default function MissionsPage() {
     }
   };
 
+  const updateDaysCompleted = async (id: string, days: number) => {
+    setSavingDays(true);
+    try {
+      const res = await fetch(`/api/missions/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daysCompleted: days }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setMissions((prev) => prev.map((m) => (m.id === id ? { ...m, daysCompleted: days } : m)));
+        if (detailMission?.id === id) {
+          setDetailMission({ ...detailMission, daysCompleted: days });
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingDays(false);
+      setEditingDays(null);
+    }
+  };
+
+  const fetchAllMissions = async (): Promise<Mission[]> => {
+    const params = new URLSearchParams({
+      page: "1",
+      limit: "10000",
+      ...(statusFilter && { status: statusFilter }),
+      ...(dateFrom && { startDate: dateFrom }),
+      ...(dateTo && { endDate: dateTo }),
+      ...(serviceFilter && { service: serviceFilter }),
+      ...(employeeFilter && { employeeId: employeeFilter }),
+    });
+    const res = await fetch(`/api/missions?${params}`);
+    const json = await res.json();
+    return json.data ?? [];
+  };
+
+  const exportExcel = async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const all = await fetchAllMissions();
+    const workbook = new ExcelJS.Workbook();
+
+    const addSheet = (name: string, data: Mission[]) => {
+      const ws = workbook.addWorksheet(name);
+      ws.columns = [
+        { header: "Employé", key: "employee", width: 22 },
+        { header: "Matricule", key: "matricule", width: 16 },
+        { header: "Service", key: "service", width: 12 },
+        { header: "Origine", key: "origin", width: 10 },
+        { header: "Accueil", key: "host", width: 10 },
+        { header: "Début", key: "start", width: 12 },
+        { header: "Fin", key: "end", width: 12 },
+        { header: "Durée (j)", key: "duration", width: 10 },
+        { header: "Jours effectués", key: "completed", width: 14 },
+        { header: "Lieu", key: "location", width: 18 },
+        { header: "Motif", key: "reason", width: 30 },
+        { header: "Statut", key: "status", width: 12 },
+      ];
+
+      ws.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
+        cell.alignment = { horizontal: "center" };
+      });
+
+      data.forEach((m) => {
+        ws.addRow({
+          employee: `${m.employee.lastName} ${m.employee.firstName}`,
+          matricule: m.employee.matricule,
+          service: m.employee.service ?? "—",
+          origin: m.originStructure ?? "—",
+          host: m.hostStructure ?? "—",
+          start: new Date(m.startDate).toLocaleDateString("fr-FR"),
+          end: new Date(m.endDate).toLocaleDateString("fr-FR"),
+          duration: getDurationDays(m.startDate, m.endDate),
+          completed: m.daysCompleted,
+          location: m.location ?? "—",
+          reason: m.reason,
+          status: statusBadge[m.status]?.label ?? m.status,
+        });
+      });
+    };
+
+    addSheet("Toutes les missions", all);
+
+    const approved = all.filter((m) => m.status === "APPROVED");
+    if (approved.length > 0) {
+      const wsPaie = workbook.addWorksheet("Récapitulatif paie");
+      wsPaie.columns = [
+        { header: "Employé", key: "employee", width: 22 },
+        { header: "Matricule", key: "matricule", width: 16 },
+        { header: "Structure origine", key: "origin", width: 16 },
+        { header: "Structure accueil", key: "host", width: 16 },
+        { header: "Durée totale (j)", key: "duration", width: 14 },
+        { header: "Jours effectués", key: "completed", width: 14 },
+        { header: "Nb missions", key: "count", width: 12 },
+      ];
+
+      wsPaie.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "059669" } };
+        cell.alignment = { horizontal: "center" };
+      });
+
+      const byEmployee = new Map<string, { emp: Mission["employee"]; origin: string; host: string; duration: number; completed: number; count: number }>();
+      approved.forEach((m) => {
+        const key = `${m.employee.id}-${m.originStructure ?? ""}-${m.hostStructure ?? ""}`;
+        const existing = byEmployee.get(key);
+        if (existing) {
+          existing.duration += getDurationDays(m.startDate, m.endDate);
+          existing.completed += m.daysCompleted;
+          existing.count++;
+        } else {
+          byEmployee.set(key, {
+            emp: m.employee,
+            origin: m.originStructure ?? "—",
+            host: m.hostStructure ?? "—",
+            duration: getDurationDays(m.startDate, m.endDate),
+            completed: m.daysCompleted,
+            count: 1,
+          });
+        }
+      });
+
+      byEmployee.forEach((v) => {
+        wsPaie.addRow({
+          employee: `${v.emp.lastName} ${v.emp.firstName}`,
+          matricule: v.emp.matricule,
+          origin: v.origin,
+          host: v.host,
+          duration: v.duration,
+          completed: v.completed,
+          count: v.count,
+        });
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `missions_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPdf = async () => {
+    const { jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const all = await fetchAllMissions();
+    const doc = new jsPDF({ orientation: "landscape" });
+    const now = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+    doc.setFontSize(16);
+    doc.text("Rapport des missions", 14, 18);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Généré le ${now} — ${all.length} mission(s)`, 14, 25);
+    doc.setTextColor(0);
+
+    const pending = all.filter((m) => m.status === "PENDING").length;
+    const approved = all.filter((m) => m.status === "APPROVED").length;
+    const rejected = all.filter((m) => m.status === "REJECTED").length;
+    doc.setFontSize(8);
+    doc.text(`En attente: ${pending}  |  Approuvées: ${approved}  |  Refusées: ${rejected}`, 14, 31);
+
+    autoTable(doc, {
+      startY: 35,
+      head: [["Employé", "Origine", "Accueil", "Début", "Fin", "Durée", "Eff.", "Lieu", "Statut"]],
+      body: all.map((m) => [
+        `${m.employee.lastName} ${m.employee.firstName}`,
+        m.originStructure ?? "—",
+        m.hostStructure ?? "—",
+        new Date(m.startDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+        new Date(m.endDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
+        `${getDurationDays(m.startDate, m.endDate)}j`,
+        `${m.daysCompleted}j`,
+        m.location ?? "—",
+        statusBadge[m.status]?.label ?? m.status,
+      ]),
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+
+    const approvedMissions = all.filter((m) => m.status === "APPROVED");
+    if (approvedMissions.length > 0) {
+      doc.addPage("a4", "landscape");
+      doc.setFontSize(14);
+      doc.text("Récapitulatif paie — Missions approuvées", 14, 18);
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+      doc.text(`${approvedMissions.length} mission(s) approuvée(s)`, 14, 25);
+      doc.setTextColor(0);
+
+      const byEmp = new Map<string, { name: string; matricule: string; origin: string; host: string; duration: number; completed: number; count: number }>();
+      approvedMissions.forEach((m) => {
+        const key = `${m.employee.id}-${m.originStructure ?? ""}-${m.hostStructure ?? ""}`;
+        const ex = byEmp.get(key);
+        if (ex) {
+          ex.duration += getDurationDays(m.startDate, m.endDate);
+          ex.completed += m.daysCompleted;
+          ex.count++;
+        } else {
+          byEmp.set(key, {
+            name: `${m.employee.lastName} ${m.employee.firstName}`,
+            matricule: m.employee.matricule,
+            origin: m.originStructure ?? "—",
+            host: m.hostStructure ?? "—",
+            duration: getDurationDays(m.startDate, m.endDate),
+            completed: m.daysCompleted,
+            count: 1,
+          });
+        }
+      });
+
+      autoTable(doc, {
+        startY: 30,
+        head: [["Employé", "Matricule", "Origine", "Accueil", "Durée totale", "Jours eff.", "Nb missions"]],
+        body: Array.from(byEmp.values()).map((v) => [
+          v.name, v.matricule, v.origin, v.host, `${v.duration}j`, `${v.completed}j`, v.count,
+        ]),
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+    }
+
+    doc.save(`missions_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
   const totalPages = Math.ceil(total / perPage);
   const durationPreview =
     form.startDate && form.endDate && new Date(form.endDate) >= new Date(form.startDate)
@@ -207,11 +442,18 @@ export default function MissionsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => window.open("/api/reports?type=missions&format=excel", "_blank")}
-            className="inline-flex items-center gap-2 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-medium"
+            onClick={exportExcel}
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-emerald-200 text-emerald-700 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-colors text-sm font-medium"
           >
             <Download className="w-4 h-4" />
-            Exporter
+            Excel
+          </button>
+          <button
+            onClick={exportPdf}
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-red-200 text-red-700 bg-red-50 rounded-xl hover:bg-red-100 transition-colors text-sm font-medium"
+          >
+            <Download className="w-4 h-4" />
+            PDF
           </button>
           <button
             onClick={openCreate}
@@ -295,6 +537,7 @@ export default function MissionsPage() {
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Fin</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Jours eff.</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Lieu</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
                 <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
@@ -304,14 +547,14 @@ export default function MissionsPage() {
               {loading ? (
                 [...Array(3)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={10} className="px-6 py-4">
+                    <td colSpan={11} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : missions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-16 text-center">
+                  <td colSpan={11} className="px-6 py-16 text-center">
                     <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">Aucune mission</p>
                     <p className="mt-1 text-sm text-slate-500">
@@ -391,6 +634,17 @@ export default function MissionsPage() {
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                           {formatDuration(mission.startDate, mission.endDate)}
+                        </span>
+                      </td>
+                      {/* Jours effectués */}
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-medium",
+                          mission.daysCompleted > 0
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
+                        )}>
+                          {mission.daysCompleted} / {getDurationDays(mission.startDate, mission.endDate)}
                         </span>
                       </td>
                       {/* Lieu */}
@@ -649,7 +903,52 @@ export default function MissionsPage() {
               <div className="rounded-xl bg-slate-50 p-4 space-y-3">
                 <DetailRow label="Date début" value={new Date(detailMission.startDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Date fin" value={new Date(detailMission.endDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
-                <DetailRow label="Durée" value={formatDuration(detailMission.startDate, detailMission.endDate)} />
+                <DetailRow label="Durée prévue" value={formatDuration(detailMission.startDate, detailMission.endDate)} />
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Jours effectués</span>
+                  {editingDays !== null ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={getDurationDays(detailMission.startDate, detailMission.endDate)}
+                        value={editingDays}
+                        onChange={(e) => setEditingDays(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        onClick={() => updateDaysCompleted(detailMission.id, editingDays)}
+                        disabled={savingDays}
+                        className="px-2 py-1 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {savingDays ? "…" : "OK"}
+                      </button>
+                      <button
+                        onClick={() => setEditingDays(null)}
+                        className="px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded-lg"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEditingDays(detailMission.daysCompleted)}
+                      className="font-medium text-slate-800 hover:text-blue-600 transition-colors cursor-pointer"
+                    >
+                      {detailMission.daysCompleted} / {getDurationDays(detailMission.startDate, detailMission.endDate)} jours
+                    </button>
+                  )}
+                </div>
+                {detailMission.daysCompleted > 0 && (
+                  <div className="mt-1">
+                    <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all"
+                        style={{ width: `${Math.min(100, (detailMission.daysCompleted / getDurationDays(detailMission.startDate, detailMission.endDate)) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
                 {detailMission.originStructure && (
                   <DetailRow label="Structure d'origine" value={detailMission.originStructure} />
                 )}
