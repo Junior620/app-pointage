@@ -41,6 +41,9 @@ interface DashboardData {
     late: number;
     mission: number;
     permission: number;
+    missionOngoing?: number;
+    permissionOngoing?: number;
+    isNonWorkingDay?: boolean;
   };
   byStructure: Record<string, { total: number; present: number; absent: number; late: number }>;
   trend30: { date: string; label: string; present: number; absent: number; late: number; presenceRate: number }[];
@@ -86,16 +89,19 @@ export default function DashboardClient({ userName }: { userName: string }) {
     return () => window.removeEventListener("focus", onFocus);
   }, [fetchDashboard]);
 
-  const today = data?.today ?? { totalEmployees: 0, present: 0, absent: 0, late: 0, mission: 0, permission: 0 };
+  const today = data?.today ?? { totalEmployees: 0, present: 0, absent: 0, late: 0, mission: 0, permission: 0, missionOngoing: 0, permissionOngoing: 0, isNonWorkingDay: false };
   const hasData = today.totalEmployees > 0;
+  const isNonWorkingDay = today.isNonWorkingDay ?? false;
 
-  const pieData = [
-    { name: "Présents", value: today.present },
-    { name: "Absents", value: today.absent },
-    { name: "Retards", value: today.late },
-    { name: "Missions", value: today.mission },
-    { name: "Permissions", value: today.permission },
-  ].filter((d) => d.value > 0);
+  const pieData = isNonWorkingDay
+    ? []
+    : [
+        { name: "Présents", value: today.present },
+        { name: "Absents", value: today.absent },
+        { name: "Retards", value: today.late },
+        { name: "Missions (en cours)", value: today.missionOngoing ?? today.mission },
+        { name: "Permissions (en cours)", value: today.permissionOngoing ?? today.permission },
+      ].filter((d) => d.value > 0);
 
   const structureBarData = data?.byStructure
     ? Object.entries(data.byStructure).map(([struct, stats]) => ({
@@ -134,6 +140,11 @@ export default function DashboardClient({ userName }: { userName: string }) {
                 {today.totalEmployees} employe{today.totalEmployees > 1 ? "s" : ""} actif{today.totalEmployees > 1 ? "s" : ""}.
               </span>
             )}
+            {hasData && isNonWorkingDay && (
+              <span className="ml-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Samedi / Dimanche — pas de pointage
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -163,16 +174,25 @@ export default function DashboardClient({ userName }: { userName: string }) {
         </div>
       </div>
 
+      {/* Jour non ouvré : message clair */}
+      {hasData && isNonWorkingDay && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
+          <p className="text-sm font-medium text-slate-700">
+            Jour non ouvré (samedi ou dimanche) — pas de pointage. Les indicateurs du jour ne comptent pas d&apos;absences.
+          </p>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KpiCard icon={UserCheck} label="Presents" value={today.present} color="emerald"
-          sub={today.totalEmployees > 0 ? `${Math.round((today.present / today.totalEmployees) * 100)}%` : undefined} />
+          sub={!isNonWorkingDay && today.totalEmployees > 0 ? `${Math.round((today.present / today.totalEmployees) * 100)}%` : undefined} />
         <KpiCard icon={UserX} label="Absents" value={today.absent} color="red"
           sub={today.absent > 0 ? `${today.absent} non justifie${today.absent > 1 ? "s" : ""}` : undefined} />
         <KpiCard icon={Clock} label="Retards" value={today.late} color="amber"
           sub={today.present > 0 ? `${Math.round((today.late / today.present) * 100)}% des presents` : undefined} />
-        <KpiCard icon={Briefcase} label="Missions" value={today.mission} color="purple" />
-        <KpiCard icon={Shield} label="Permissions" value={today.permission} color="blue" />
+        <KpiCard icon={Briefcase} label="Missions" value={today.missionOngoing ?? today.mission} color="purple" sub={(today.missionOngoing ?? today.mission) > 0 ? "en cours" : undefined} />
+        <KpiCard icon={Shield} label="Permissions" value={today.permissionOngoing ?? today.permission} color="blue" sub={(today.permissionOngoing ?? today.permission) > 0 ? "en cours" : undefined} />
       </div>
 
       {/* Alerts */}
@@ -244,7 +264,9 @@ export default function DashboardClient({ userName }: { userName: string }) {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-slate-400 text-center py-16">Aucune donnee</p>
+              <p className="text-sm text-slate-400 text-center py-16">
+                {isNonWorkingDay ? "Pas de pointage (jour non ouvré)" : "Aucune donnee"}
+              </p>
             )}
           </div>
         </div>

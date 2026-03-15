@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Structure } from "@prisma/client";
+import { isWorkingDay } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,11 +38,34 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const isTodayWorking = isWorkingDay(today);
     const presentToday = todayRecords.filter((r) => r.finalStatus === "PRESENT" || r.finalStatus === "PERMISSION" || r.finalStatus === "MISSION").length;
-    const absentToday = allEmployees.length - todayRecords.length + todayRecords.filter((r) => r.finalStatus === "ABSENT").length;
+    const absentToday = isTodayWorking
+      ? allEmployees.length - todayRecords.length + todayRecords.filter((r) => r.finalStatus === "ABSENT").length
+      : 0;
     const lateToday = todayRecords.filter((r) => r.checkInStatus === "LATE").length;
     const missionToday = todayRecords.filter((r) => r.finalStatus === "MISSION").length;
     const permissionToday = todayRecords.filter((r) => r.finalStatus === "PERMISSION").length;
+
+    // Missions et permissions « en cours » : période inclut aujourd'hui, statut approuvé
+    const [missionOngoingCount, permissionOngoingCount] = await Promise.all([
+      prisma.mission.count({
+        where: {
+          employeeId: { in: employeeIds },
+          status: "APPROVED",
+          startDate: { lte: today },
+          endDate: { gte: today },
+        },
+      }),
+      prisma.leaveRequest.count({
+        where: {
+          employeeId: { in: employeeIds },
+          status: "APPROVED",
+          startDate: { lte: today },
+          endDate: { gte: today },
+        },
+      }),
+    ]);
 
     const byStructure: Record<string, { total: number; present: number; absent: number; late: number }> = {};
     for (const struct of ["SCPB", "AFREXIA"] as const) {
@@ -52,7 +76,7 @@ export async function GET(request: NextRequest) {
       byStructure[struct] = {
         total: structEmployees.length,
         present: structPresent,
-        absent: structEmployees.length - structPresent,
+        absent: isTodayWorking ? structEmployees.length - structPresent : 0,
         late: structRecords.filter((r) => r.checkInStatus === "LATE").length,
       };
     }
@@ -157,6 +181,9 @@ export async function GET(request: NextRequest) {
         late: lateToday,
         mission: missionToday,
         permission: permissionToday,
+        missionOngoing: missionOngoingCount,
+        permissionOngoing: permissionOngoingCount,
+        isNonWorkingDay: !isTodayWorking,
       },
       byStructure,
       trend30,
@@ -168,6 +195,7 @@ export async function GET(request: NextRequest) {
       recentCheckIns,
     });
   } catch (error) {
+    console.error("[API dashboard]", error);
     if (error instanceof Error) {
       if (error.message === "Non authentifié")
         return NextResponse.json({ error: error.message }, { status: 401 });
