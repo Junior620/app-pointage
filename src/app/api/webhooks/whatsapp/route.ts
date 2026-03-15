@@ -433,7 +433,10 @@ async function handleMyOvertime(
       employeeId,
       date: { gte: startOfMonth },
       overtimeMinutes: { gt: 0 },
-      overtimeStatus: { in: ["APPROVED", null] },
+      OR: [
+        { overtimeStatus: "APPROVED" },
+        { overtimeStatus: null },
+      ],
     },
     orderBy: { date: "desc" },
   });
