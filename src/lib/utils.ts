@@ -84,6 +84,12 @@ export function isWeekend(date: Date): boolean {
   return date.getDay() === 0;
 }
 
+/** Lundi à vendredi uniquement (samedi/dimanche = pas un jour ouvré pour les absences). */
+export function isWorkingDay(date: Date): boolean {
+  const d = date.getDay();
+  return d >= 1 && d <= 5;
+}
+
 export function todayDate(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());

@@ -73,6 +73,7 @@ export default async function EmployeeDetailPage({
     checkOutStatus: string | null;
     totalMinutes: number | null;
     overtimeMinutes: number | null;
+    overtimeStatus: string | null;
     finalStatus: string;
   };
 
@@ -88,6 +89,7 @@ export default async function EmployeeDetailPage({
           checkOutStatus: rec.checkOutStatus,
           totalMinutes: rec.totalMinutes,
           overtimeMinutes: rec.overtimeMinutes,
+          overtimeStatus: rec.overtimeStatus ?? null,
           finalStatus: rec.finalStatus,
         };
       }
@@ -99,6 +101,7 @@ export default async function EmployeeDetailPage({
         checkOutStatus: null,
         totalMinutes: null,
         overtimeMinutes: null,
+        overtimeStatus: null,
         finalStatus: "ABSENT",
       };
     })
@@ -108,7 +111,14 @@ export default async function EmployeeDetailPage({
   const onTimeDays = rows.filter((r) => r.checkInStatus === "ON_TIME").length;
   const lateDays = rows.filter((r) => r.checkInStatus === "LATE").length;
   const absentDays = rows.filter((r) => r.finalStatus === "ABSENT").length;
-  const totalOvertimeMin = rows.reduce((sum, r) => sum + (r.overtimeMinutes ?? 0), 0);
+  const totalOvertimeMin = rows.reduce(
+    (sum, r) =>
+      sum +
+      (["APPROVED", null].includes(r.overtimeStatus ?? null)
+        ? r.overtimeMinutes ?? 0
+        : 0),
+    0
+  );
   const punctualityRate =
     onTimeDays + lateDays > 0
       ? Math.round((onTimeDays / (onTimeDays + lateDays)) * 100)
@@ -269,9 +279,27 @@ export default async function EmployeeDetailPage({
                         : "—"}
                     </td>
                     <td className="py-2.5 text-slate-600">
-                      {a.overtimeMinutes && a.overtimeMinutes > 0
-                        ? <span className="text-violet-600 font-medium">{`${Math.floor(a.overtimeMinutes / 60)}h${(a.overtimeMinutes % 60).toString().padStart(2, "0")}`}</span>
-                        : "—"}
+                      {a.overtimeMinutes && a.overtimeMinutes > 0 ? (
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-medium text-violet-600">
+                            {`${Math.floor(a.overtimeMinutes / 60)}h${(a.overtimeMinutes % 60).toString().padStart(2, "0")}`}
+                          </span>
+                          {a.overtimeStatus && (
+                            <span
+                              className={cn(
+                                "inline-flex px-1.5 py-0.5 rounded text-xs",
+                                a.overtimeStatus === "APPROVED" && "bg-emerald-100 text-emerald-700",
+                                a.overtimeStatus === "PENDING" && "bg-amber-100 text-amber-700",
+                                a.overtimeStatus === "REJECTED" && "bg-red-100 text-red-700"
+                              )}
+                            >
+                              {a.overtimeStatus === "APPROVED" ? "✓" : a.overtimeStatus === "PENDING" ? "⏳" : "✗"}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2.5">
                       <span

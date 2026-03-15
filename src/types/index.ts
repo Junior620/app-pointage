@@ -47,6 +47,8 @@ export type Intent =
   | "MY_ATTENDANCE"
   | "MY_ABSENCES"
   | "MY_OVERTIME"
+  | "MY_OVERTIME_PENDING"
+  | "DAY_DETAIL"
   | "MY_MISSIONS"
   | "UNKNOWN";
 

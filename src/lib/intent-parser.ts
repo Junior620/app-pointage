@@ -62,6 +62,23 @@ const MY_OVERTIME_KEYWORDS = [
   "heure sup",
 ];
 
+const MY_OVERTIME_PENDING_KEYWORDS = [
+  "mes heures sup en attente",
+  "heures sup en attente",
+  "heures supplementaires en attente",
+  "heures supplémentaires en attente",
+  "overtime en attente",
+];
+
+const DAY_DETAIL_KEYWORDS = [
+  "detail jour",
+  "détail jour",
+  "detail du",
+  "détail du",
+  "detail",
+  "détail",
+];
+
 const MY_MISSIONS_KEYWORDS = [
   "mes missions",
   "mission en cours",
@@ -95,8 +112,6 @@ export function parseIntent(message: string): {
   if (normalized === "7") return { intent: "MY_MISSIONS" };
 
   const parts = normalized.split(/\s+/);
-  const firstWord = parts[0];
-  const rest = parts.slice(1).join(" ").trim() || undefined;
 
   for (const keyword of GREETING_KEYWORDS) {
     const normalizedKeyword = keyword
@@ -141,6 +156,13 @@ export function parseIntent(message: string): {
     }
   }
 
+  for (const keyword of MY_OVERTIME_PENDING_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_OVERTIME_PENDING" };
+    }
+  }
+
   for (const keyword of MY_OVERTIME_KEYWORDS) {
     const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     if (normalized.includes(nk)) {
@@ -152,6 +174,15 @@ export function parseIntent(message: string): {
     const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     if (normalized.includes(nk)) {
       return { intent: "MY_MISSIONS" };
+    }
+  }
+
+  // Détail jour JJ/MM ou JJ/MM/AAAA
+  for (const keyword of DAY_DETAIL_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.startsWith(nk)) {
+      const raw = message.slice(keyword.length).trim();
+      return { intent: "DAY_DETAIL", comment: raw || undefined };
     }
   }
 
@@ -177,8 +208,10 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 3️⃣ *Statut* — Pointage du jour
 4️⃣ *Mes pointages* — Historique du mois
 5️⃣ *Mes absences* — Voir vos absences
-6️⃣ *Mes heures sup* — Heures supplémentaires
+6️⃣ *Mes heures sup* — Heures supplémentaires validées
 7️⃣ *Mes missions* — Missions et permissions
+🅿️ *Mes heures sup en attente*
+📅 *Détail jour JJ/MM* — Détail complet d'un jour
 
 Répondez par le *numéro* ou tapez la commande.`;
 
@@ -194,6 +227,8 @@ Que souhaitez-vous faire ?
 5️⃣ Mes absences
 6️⃣ Mes heures sup
 7️⃣ Mes missions
+🅿️ Mes heures sup en attente
+📅 Détail jour JJ/MM
 
 Répondez par le *numéro* correspondant.`;
 }

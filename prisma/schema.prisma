@@ -42,6 +42,12 @@ enum Structure {
   AFREXIA
 }
 
+enum OvertimeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
   id              String     @id @default(cuid())
   supabaseAuthId  String     @unique @map("supabase_auth_id")
@@ -126,9 +132,13 @@ model AttendanceRecord {
   checkOutComment String?         @map("check_out_comment")
   checkOutLat     Float?          @map("check_out_lat")
   checkOutLng     Float?          @map("check_out_lng")
-  totalMinutes    Int?            @map("total_minutes")
-  overtimeMinutes Int?            @default(0) @map("overtime_minutes")
-  finalStatus     FinalStatus     @default(PRESENT) @map("final_status")
+  totalMinutes       Int?            @map("total_minutes")
+  overtimeMinutes    Int?            @default(0) @map("overtime_minutes")
+  overtimeStatus     OvertimeStatus? @map("overtime_status")
+  overtimeReason     String?         @map("overtime_reason")
+  overtimeValidatedBy String?        @map("overtime_validated_by")
+  overtimeValidatedAt DateTime?      @map("overtime_validated_at")
+  finalStatus        FinalStatus     @default(PRESENT) @map("final_status")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 

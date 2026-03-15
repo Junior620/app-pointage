@@ -37,6 +37,7 @@ interface AttendanceRecord {
   checkOutComment: string | null;
   totalMinutes: number | null;
   overtimeMinutes: number | null;
+  overtimeStatus: string | null;
   finalStatus: string;
 }
 
@@ -49,6 +50,9 @@ const statusColors: Record<string, string> = {
   MISSION: "bg-violet-50 text-violet-700",
   AUTO: "bg-slate-100 text-slate-600",
   MANUAL: "bg-slate-100 text-slate-600",
+  Validé: "bg-emerald-100 text-emerald-700",
+  "En attente": "bg-amber-100 text-amber-700",
+  Refusé: "bg-red-100 text-red-700",
 };
 
 const statusLabels: Record<string, string> = {
@@ -60,7 +64,25 @@ const statusLabels: Record<string, string> = {
   MISSION: "Mission",
   AUTO: "Auto",
   MANUAL: "Manuel",
+  Validé: "Validé",
+  "En attente": "En attente",
+  Refusé: "Refusé",
 };
+
+function isSaturday(dateStr: string): boolean {
+  return new Date(dateStr).getDay() === 6;
+}
+
+function displayStatus(record: AttendanceRecord): { label: string; colorClass: string } {
+  const saturdayAbsent = isSaturday(record.date) && record.finalStatus === "ABSENT" && !record.checkInTime;
+  if (saturdayAbsent) {
+    return { label: "Non travaillé", colorClass: "bg-slate-100 text-slate-500" };
+  }
+  return {
+    label: statusLabels[record.finalStatus] ?? record.finalStatus,
+    colorClass: statusColors[record.finalStatus] ?? "bg-slate-100 text-slate-500",
+  };
+}
 
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -110,9 +132,11 @@ export default function AttendancePage() {
 
   const totalPages = Math.ceil(total / perPage);
 
-  // KPI from current page
+  // KPI from current page (samedi sans pointage = pas compté comme absent)
   const presentCount = records.filter((r) => r.finalStatus === "PRESENT").length;
-  const absentCount = records.filter((r) => r.finalStatus === "ABSENT").length;
+  const absentCount = records.filter(
+    (r) => r.finalStatus === "ABSENT" && !(isSaturday(r.date) && !r.checkInTime)
+  ).length;
   const lateCount = records.filter((r) => r.checkInStatus === "LATE").length;
   const missionPermCount = records.filter(
     (r) => r.finalStatus === "MISSION" || r.finalStatus === "PERMISSION"
@@ -406,8 +430,29 @@ export default function AttendancePage() {
                         {formatDuration(r.totalMinutes)}
                       </span>
                       {r.overtimeMinutes && r.overtimeMinutes > 0 ? (
-                        <span className="ml-1 text-xs text-blue-600">
-                          +{formatDuration(r.overtimeMinutes)}
+                        <span className="ml-1 flex items-center gap-1">
+                          <span className="text-xs text-blue-600">
+                            +{formatDuration(r.overtimeMinutes)}
+                          </span>
+                          {r.overtimeStatus && (
+                            <span
+                              className={cn(
+                                "inline-flex px-1.5 py-0.5 rounded text-xs",
+                                r.overtimeStatus === "APPROVED" && "bg-emerald-100 text-emerald-700",
+                                r.overtimeStatus === "PENDING" && "bg-amber-100 text-amber-700",
+                                r.overtimeStatus === "REJECTED" && "bg-red-100 text-red-700"
+                              )}
+                              title={
+                                r.overtimeStatus === "APPROVED"
+                                  ? "Validé"
+                                  : r.overtimeStatus === "PENDING"
+                                    ? "En attente"
+                                    : "Refusé"
+                              }
+                            >
+                              {r.overtimeStatus === "APPROVED" ? "✓" : r.overtimeStatus === "PENDING" ? "⏳" : "✗"}
+                            </span>
+                          )}
                         </span>
                       ) : null}
                     </td>
@@ -416,10 +461,10 @@ export default function AttendancePage() {
                       <span
                         className={cn(
                           "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                          statusColors[r.finalStatus] ?? "bg-slate-100 text-slate-500"
+                          displayStatus(r).colorClass
                         )}
                       >
-                        {statusLabels[r.finalStatus] ?? r.finalStatus}
+                        {displayStatus(r).label}
                       </span>
                     </td>
                     {/* Actions */}
@@ -550,9 +595,13 @@ export default function AttendancePage() {
                 <div
                   className={cn(
                     "h-12 w-12 rounded-full flex items-center justify-center text-sm font-bold",
-                    detailRecord.finalStatus === "ABSENT"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-blue-100 text-blue-700"
+                    isSaturday(detailRecord.date) &&
+                      detailRecord.finalStatus === "ABSENT" &&
+                      !detailRecord.checkInTime
+                      ? "bg-slate-100 text-slate-600"
+                      : detailRecord.finalStatus === "ABSENT"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-blue-100 text-blue-700"
                   )}
                 >
                   {detailRecord.employee.firstName[0]}
@@ -570,10 +619,10 @@ export default function AttendancePage() {
                 <span
                   className={cn(
                     "ml-auto inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
-                    statusColors[detailRecord.finalStatus]
+                    displayStatus(detailRecord).colorClass
                   )}
                 >
-                  {statusLabels[detailRecord.finalStatus]}
+                  {displayStatus(detailRecord).label}
                 </span>
               </div>
 
@@ -614,6 +663,15 @@ export default function AttendancePage() {
                     icon={Timer}
                     label="Heures sup."
                     value={formatDuration(detailRecord.overtimeMinutes)}
+                    badge={
+                      detailRecord.overtimeStatus === "APPROVED"
+                        ? "Validé"
+                        : detailRecord.overtimeStatus === "PENDING"
+                          ? "En attente"
+                          : detailRecord.overtimeStatus === "REJECTED"
+                            ? "Refusé"
+                            : null
+                    }
                     highlight
                   />
                 )}

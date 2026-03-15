@@ -55,6 +55,27 @@ export async function POST(request: NextRequest) {
       await sendWhatsAppMessage(toPhone, result.message);
     }
 
+    // Notification RH / manager quand des heures sup sont générées
+    if (result.success && (result.overtimeMinutes ?? 0) > 0) {
+      const hrPhone = process.env.WHATSAPP_HR_PHONE;
+      if (hrPhone) {
+        const ot = result.overtimeMinutes ?? 0;
+        const h = Math.floor(ot / 60);
+        const m = ot % 60;
+        const todayLabel = new Date().toLocaleDateString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+        await sendWhatsAppMessage(
+          hrPhone,
+          `🕒 Nouvelle heure supplémentaire à valider\n\nEmployé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\nDate : ${todayLabel}\nDurée : ${h}h${m
+            .toString()
+            .padStart(2, "0")}\n\nVous pouvez la traiter dans le module *Heures supplémentaires* du dashboard.`
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         data: {

@@ -74,6 +74,9 @@ export async function GET(request: NextRequest) {
       punctualityRate: number;
     }> = [];
 
+    // Pour analytics heures sup
+    const overtimeByServiceMinutes = new Map<string, number>();
+
     for (const emp of employees) {
       let empPresent = 0;
       let empAbsent = 0;
@@ -98,7 +101,8 @@ export async function GET(request: NextRequest) {
         if (att.checkInStatus === "LATE") { empLate++; day.late++; }
         if (att.checkInStatus === "ON_TIME") empOnTime++;
         if (att.totalMinutes) empMinutes += att.totalMinutes;
-        if (att.overtimeMinutes) empOvertime += att.overtimeMinutes;
+        if (att.overtimeMinutes && (att.overtimeStatus === "APPROVED" || att.overtimeStatus === null))
+          empOvertime += att.overtimeMinutes;
 
         dayMap.set(dayKey, day);
       }
@@ -134,12 +138,23 @@ export async function GET(request: NextRequest) {
         punctualityRate: empPunctuality,
       });
 
-      const svc = serviceMap.get(emp.service) || { present: 0, absent: 0, late: 0, totalMinutes: 0 };
+      const svc = serviceMap.get(emp.service) || {
+        present: 0,
+        absent: 0,
+        late: 0,
+        totalMinutes: 0,
+      };
       svc.present += empPresent + empPermission + empMission;
       svc.absent += empAbsent;
       svc.late += empLate;
       svc.totalMinutes += empMinutes;
       serviceMap.set(emp.service, svc);
+
+      const prevOt = overtimeByServiceMinutes.get(emp.service) ?? 0;
+      overtimeByServiceMinutes.set(
+        emp.service,
+        prevOt + Math.round(empOvertime)
+      );
     }
 
     const totalRecords = totalPresent + totalAbsent + totalPermission + totalMission;
@@ -182,6 +197,67 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.retards - a.retards)
       .slice(0, 5);
 
+    const topOvertime = [...byEmployee]
+      .filter((e) => e.overtimeHours > 0)
+      .sort((a, b) => b.overtimeHours - a.overtimeHours)
+      .slice(0, 5);
+
+    const overtimeIssuesRaw = await prisma.attendanceRecord.groupBy({
+      by: ["employeeId"],
+      where: {
+        date: { gte: new Date(startDate), lte: new Date(endDate) },
+        overtimeMinutes: { gt: 0 },
+        overtimeStatus: { in: ["PENDING", "REJECTED"] },
+      },
+      _sum: { overtimeMinutes: true },
+      _count: { id: true },
+      orderBy: { _sum: { overtimeMinutes: "desc" } },
+      take: 5,
+    });
+
+    const overtimeIssueEmployeeIds = overtimeIssuesRaw.map((r) => r.employeeId);
+    const overtimeIssueEmployees =
+      overtimeIssueEmployeeIds.length > 0
+        ? await prisma.employee.findMany({
+            where: { id: { in: overtimeIssueEmployeeIds } },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              matricule: true,
+              service: true,
+              structure: true,
+            },
+          })
+        : [];
+    const issueEmpMap = new Map(
+      overtimeIssueEmployees.map((e) => [e.id, e])
+    );
+
+    const topOvertimeIssues = overtimeIssuesRaw
+      .map((r) => {
+        const emp = issueEmpMap.get(r.employeeId);
+        if (!emp) return null;
+        const minutes = r._sum.overtimeMinutes ?? 0;
+        return {
+          id: emp.id,
+          matricule: emp.matricule,
+          name: `${emp.lastName} ${emp.firstName}`,
+          service: emp.service,
+          structure: emp.structure,
+          requests: r._count.id,
+          overtimeHours: Math.round((minutes / 60) * 10) / 10,
+        };
+      })
+      .filter(Boolean);
+
+    const overtimeByService = Array.from(
+      overtimeByServiceMinutes.entries()
+    ).map(([svc, minutes]) => ({
+      service: svc,
+      overtimeHours: Math.round((minutes / 60) * 10) / 10,
+    }));
+
     const services = await prisma.employee.findMany({
       where: { active: true },
       select: { service: true },
@@ -202,7 +278,8 @@ export async function GET(request: NextRequest) {
       },
       data: byEmployee,
       charts: { byDay, byService },
-      rankings: { topPresents, topRetards },
+      rankings: { topPresents, topRetards, topOvertime, topOvertimeIssues },
+      overtimeByService,
       services: services.map((s) => s.service).filter(Boolean),
     });
   } catch (error) {

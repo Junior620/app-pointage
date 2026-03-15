@@ -47,7 +47,14 @@ export async function GET(request: NextRequest) {
       const late = records.filter((r) => r.checkInStatus === "LATE").length;
       const onTime = records.filter((r) => r.checkInStatus === "ON_TIME").length;
       const autoCheckouts = records.filter((r) => r.checkOutStatus === "AUTO").length;
-      const totalOT = records.reduce((s, r) => s + (r.overtimeMinutes ?? 0), 0);
+      const totalOT = records.reduce(
+        (s, r) =>
+          s +
+          (["APPROVED", null].includes(r.overtimeStatus as string | null)
+            ? r.overtimeMinutes ?? 0
+            : 0),
+        0
+      );
       const totalMinutes = records.reduce((s, r) => s + (r.totalMinutes ?? 0), 0);
 
       const mondayStr = monday.toLocaleDateString("fr-FR", {

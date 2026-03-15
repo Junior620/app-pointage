@@ -63,6 +63,21 @@ interface ServiceData {
   heures: number;
 }
 
+interface OvertimeByServiceData {
+  service: string;
+  overtimeHours: number;
+}
+
+interface OvertimeIssueRow {
+  id: string;
+  matricule: string;
+  name: string;
+  service: string;
+  structure: string;
+  requests: number;
+  overtimeHours: number;
+}
+
 interface Summary {
   totalEmployees: number;
   presenceRate: number;
@@ -121,6 +136,9 @@ export default function ReportsPage() {
   const [byService, setByService] = useState<ServiceData[]>([]);
   const [topPresents, setTopPresents] = useState<ReportRow[]>([]);
   const [topRetards, setTopRetards] = useState<ReportRow[]>([]);
+  const [topOvertime, setTopOvertime] = useState<ReportRow[]>([]);
+  const [topOvertimeIssues, setTopOvertimeIssues] = useState<OvertimeIssueRow[]>([]);
+  const [overtimeByService, setOvertimeByService] = useState<OvertimeByServiceData[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [generated, setGenerated] = useState(false);
   const [sortField, setSortField] = useState<keyof ReportRow>("name");
@@ -192,6 +210,9 @@ export default function ReportsPage() {
       setByService(json.charts?.byService ?? []);
       setTopPresents(json.rankings?.topPresents ?? []);
       setTopRetards(json.rankings?.topRetards ?? []);
+      setTopOvertime(json.rankings?.topOvertime ?? []);
+      setTopOvertimeIssues(json.rankings?.topOvertimeIssues ?? []);
+      setOvertimeByService(json.overtimeByService ?? []);
       setServices(json.services ?? []);
       setGenerated(true);
     } catch (e) {
@@ -514,7 +535,7 @@ export default function ReportsPage() {
           )}
 
           {/* Graphiques */}
-          {(byDay.length > 0 || byService.length > 0) && (
+          {(byDay.length > 0 || byService.length > 0 || overtimeByService.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Présence par jour */}
               {byDay.length > 0 && (
@@ -611,11 +632,50 @@ export default function ReportsPage() {
                   </ResponsiveContainer>
                 </div>
               )}
+
+              {/* Heures sup par service */}
+              {overtimeByService.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-violet-500" />
+                    Heures supplémentaires par service
+                  </h3>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={overtimeByService} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 11, fill: "#94a3b8" }}
+                        tickFormatter={(v) => `${v}h`}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="service"
+                        tick={{ fontSize: 11, fill: "#94a3b8" }}
+                        width={100}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: "12px",
+                          border: "1px solid #e2e8f0",
+                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                        }}
+                        formatter={(value: number) => [`${value}h`, "H. sup"]}
+                      />
+                      <Bar dataKey="overtimeHours" radius={[0, 6, 6, 0]}>
+                        {overtimeByService.map((_, i) => (
+                          <Cell key={i} fill={SERVICE_COLORS[i % SERVICE_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           )}
 
           {/* Classements */}
-          {(topPresents.length > 0 || topRetards.length > 0) && (
+          {(topPresents.length > 0 || topRetards.length > 0 || topOvertime.length > 0 || topOvertimeIssues.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Top Présents */}
               {topPresents.length > 0 && (
@@ -674,6 +734,101 @@ export default function ReportsPage() {
                         <div className="text-right">
                           <p className="text-sm font-bold text-amber-600">{emp.retards} retard{emp.retards > 1 ? "s" : ""}</p>
                           <p className="text-xs text-slate-400">Ponctualité {emp.punctualityRate}%</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Top Heures sup (validées) */}
+              {topOvertime.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-violet-500" />
+                    Top heures supplémentaires (validées)
+                  </h3>
+                  <div className="space-y-3">
+                    {topOvertime.map((emp, i) => (
+                      <div key={emp.id} className="flex items-center gap-3">
+                        <span
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                            i === 0
+                              ? "bg-violet-100 text-violet-700"
+                              : i === 1
+                                ? "bg-slate-200 text-slate-600"
+                                : i === 2
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {i + 1}
+                        </span>
+                        <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-xs font-bold">
+                          {emp.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .slice(0, 2)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">
+                            {emp.name}
+                          </p>
+                          <p className="text-xs text-slate-400">{emp.service}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-violet-600">
+                            {emp.overtimeHours}h
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Heures sup à problème (non validées / refusées) */}
+              {topOvertimeIssues.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                    Heures sup non validées / refusées
+                  </h3>
+                  <div className="space-y-3">
+                    {topOvertimeIssues.map((emp, i) => (
+                      <div key={emp.id} className="flex items-center gap-3">
+                        <span
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                            i === 0
+                              ? "bg-red-100 text-red-700"
+                              : i === 1
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {i + 1}
+                        </span>
+                        <div className="w-8 h-8 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">
+                          {emp.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .slice(0, 2)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">
+                            {emp.name}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {emp.service} — {emp.requests} demande
+                            {emp.requests > 1 ? "s" : ""} problématique(s)
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-red-600">
+                            {emp.overtimeHours}h
+                          </p>
                         </div>
                       </div>
                     ))}

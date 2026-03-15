@@ -168,9 +168,21 @@ async function handleMessage(
       if (!record || !rawComment) {
         // Pas de pointage aujourd'hui ou message vide : on retombera sur les
         // commandes par défaut plus bas.
+      } else if (
+        record.checkOutTime &&
+        (record.overtimeMinutes ?? 0) > 0 &&
+        !record.overtimeReason
+      ) {
+        await prisma.attendanceRecord.update({
+          where: { id: record.id },
+          data: { overtimeReason: rawComment },
+        });
+        await sendWhatsAppMessage(
+          phone,
+          `Motif des heures sup enregistré : "${rawComment}". Merci. La RH validera vos heures.`
+        );
+        return;
       } else if (record.checkOutTime && !record.checkOutComment) {
-        // Priorité au départ (le plus récent) : si l'employé vient de partir,
-        // c'est probablement pour ça qu'il répond.
         await prisma.attendanceRecord.update({
           where: { id: record.id },
           data: { checkOutComment: rawComment },
@@ -259,6 +271,19 @@ async function handleMessage(
         await handleMyOvertime(phone, employee.id, employee.firstName);
         break;
 
+      case "MY_OVERTIME_PENDING":
+        await handleMyOvertimePending(phone, employee.id, employee.firstName);
+        break;
+
+      case "DAY_DETAIL":
+        await handleDayDetail(
+          phone,
+          employee.id,
+          employee.firstName,
+          comment || ""
+        );
+        break;
+
       case "MY_MISSIONS":
         await handleMyMissions(phone, employee.id, employee.firstName);
         break;
@@ -298,7 +323,14 @@ async function handleMyAttendance(
   const absent = records.filter((r) => r.finalStatus === "ABSENT").length;
   const late = records.filter((r) => r.checkInStatus === "LATE").length;
   const onTime = records.filter((r) => r.checkInStatus === "ON_TIME").length;
-  const totalOT = records.reduce((s, r) => s + (r.overtimeMinutes ?? 0), 0);
+  const totalOT = records.reduce(
+    (s, r) =>
+      s +
+      (["APPROVED", null].includes(r.overtimeStatus as string | null)
+        ? r.overtimeMinutes ?? 0
+        : 0),
+    0
+  );
 
   const monthName = now.toLocaleDateString("fr-FR", {
     month: "long",
@@ -401,6 +433,7 @@ async function handleMyOvertime(
       employeeId,
       date: { gte: startOfMonth },
       overtimeMinutes: { gt: 0 },
+      overtimeStatus: { in: ["APPROVED", null] },
     },
     orderBy: { date: "desc" },
   });
@@ -414,14 +447,14 @@ async function handleMyOvertime(
   if (records.length === 0 || totalOT === 0) {
     await sendWhatsAppMessage(
       phone,
-      `⏰ *${firstName}*, aucune heure supplémentaire enregistrée en ${monthName}.`
+      `⏰ *${firstName}*, aucune heure supplémentaire validée en ${monthName}.`
     );
     return;
   }
 
-  let msg = `⏰ *Heures supplémentaires — ${monthName}*\n\n`;
+  let msg = `⏰ *Heures supplémentaires validées — ${monthName}*\n\n`;
   msg += `Total : *${Math.floor(totalOT / 60)}h${(totalOT % 60).toString().padStart(2, "0")}*\n`;
-  msg += `Jours avec heures sup : ${records.length}\n\n`;
+  msg += `Jours : ${records.length}\n\n`;
 
   for (const r of records.slice(0, 8)) {
     const dateStr = r.date.toLocaleDateString("fr-FR", {
@@ -431,6 +464,178 @@ async function handleMyOvertime(
     });
     const ot = r.overtimeMinutes ?? 0;
     msg += `💪 ${dateStr} : +${Math.floor(ot / 60)}h${(ot % 60).toString().padStart(2, "0")}\n`;
+  }
+
+  await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleMyOvertimePending(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const now = new Date();
+  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+
+  const records = await prisma.attendanceRecord.findMany({
+    where: {
+      employeeId,
+      date: { gte: threeMonthsAgo },
+      overtimeMinutes: { gt: 0 },
+      overtimeStatus: "PENDING",
+    },
+    orderBy: { date: "desc" },
+  });
+
+  if (records.length === 0) {
+    await sendWhatsAppMessage(
+      phone,
+      `⏳ *${firstName}*, aucune heure supplémentaire en attente de validation sur les 3 derniers mois.`
+    );
+    return;
+  }
+
+  let msg = `⏳ *Heures sup en attente (3 derniers mois)*\n\n`;
+  msg += `Total : ${records.length} jour(s)\n\n`;
+
+  for (const r of records.slice(0, 10)) {
+    const dateStr = r.date.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const ot = r.overtimeMinutes ?? 0;
+    msg += `• ${dateStr} : +${Math.floor(ot / 60)}h${(ot % 60)
+      .toString()
+      .padStart(2, "0")}\n`;
+  }
+
+  if (records.length > 10) {
+    msg += `\n… et ${records.length - 10} autre(s) jour(s) en attente.`;
+  }
+
+  await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleDayDetail(
+  phone: string,
+  employeeId: string,
+  firstName: string,
+  rawDate: string
+) {
+  const cleaned = rawDate.trim();
+  if (!cleaned) {
+    await sendWhatsAppMessage(
+      phone,
+      `📅 *${firstName}*, merci de préciser une date au format JJ/MM.\n\nExemple :\n_détail jour 15/03_`
+    );
+    return;
+  }
+
+  const match = cleaned.match(/(\d{1,2})[\/\-](\d{1,2})([\/\-](\d{2,4}))?/);
+  if (!match) {
+    await sendWhatsAppMessage(
+      phone,
+      `📅 Format invalide. Utilisez : JJ/MM ou JJ/MM/AAAA.\nExemple : _détail jour 15/03_`
+    );
+    return;
+  }
+
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10) - 1;
+  const year =
+    match[4] != null ? parseInt(match[4], 10) : new Date().getFullYear();
+
+  const target = new Date(year, month, day);
+  target.setHours(0, 0, 0, 0);
+
+  const record = await prisma.attendanceRecord.findUnique({
+    where: {
+      employeeId_date: { employeeId, date: target },
+    },
+  });
+
+  if (!record) {
+    await sendWhatsAppMessage(
+      phone,
+      `📅 Aucun pointage trouvé pour le ${target.toLocaleDateString(
+        "fr-FR"
+      )}.`
+    );
+    return;
+  }
+
+  let msg = `📅 *Détail du ${target.toLocaleDateString("fr-FR")}* — ${firstName}\n\n`;
+
+  if (record.checkInTime) {
+    const inStr = record.checkInTime.toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    msg += `✅ Arrivée : ${inStr} ${
+      record.checkInStatus === "LATE" ? "(en retard)" : ""
+    }\n`;
+  } else {
+    msg += `✅ Arrivée : —\n`;
+  }
+
+  if (record.checkOutTime) {
+    const outStr = record.checkOutTime.toLocaleTimeString("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    msg += `🚪 Départ : ${outStr} ${
+      record.checkOutStatus === "AUTO" ? "(auto)" : "(manuel)"
+    }\n`;
+  } else {
+    msg += `🚪 Départ : —\n`;
+  }
+
+  if (record.totalMinutes != null) {
+    const h = Math.floor(record.totalMinutes / 60);
+    const m = record.totalMinutes % 60;
+    msg += `⏱️ Durée : ${h}h${m.toString().padStart(2, "0")}\n`;
+  }
+
+  const ot = record.overtimeMinutes ?? 0;
+  if (ot > 0) {
+    const h = Math.floor(ot / 60);
+    const m = ot % 60;
+    const statusIcon =
+      record.overtimeStatus === "APPROVED"
+        ? "✅"
+        : record.overtimeStatus === "PENDING"
+        ? "⏳"
+        : record.overtimeStatus === "REJECTED"
+        ? "❌"
+        : "•";
+    const statusLabel =
+      record.overtimeStatus === "APPROVED"
+        ? "Validée"
+        : record.overtimeStatus === "PENDING"
+        ? "En attente"
+        : record.overtimeStatus === "REJECTED"
+        ? "Refusée"
+        : "—";
+    msg += `\n💪 Heures sup : ${h}h${m
+      .toString()
+      .padStart(2, "0")} ${statusIcon} (${statusLabel})\n`;
+  } else {
+    msg += `\n💪 Heures sup : 0\n`;
+  }
+
+  if (record.overtimeReason) {
+    msg += `📝 Motif OT : ${record.overtimeReason}\n`;
+  }
+
+  // Mission / permission liée (via finalStatus)
+  if (record.finalStatus === "MISSION") {
+    msg += `🌍 Statut journée : Mission\n`;
+  } else if (record.finalStatus === "PERMISSION") {
+    msg += `📋 Statut journée : Permission\n`;
+  } else {
+    msg += `📋 Statut journée : ${record.finalStatus}\n`;
   }
 
   await sendWhatsAppMessage(phone, msg);
