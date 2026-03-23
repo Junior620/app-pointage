@@ -71,7 +71,7 @@ const MAX_MONTHLY_OT_MIN =
 const OVERTIME_START_HOUR =
   parseInt(process.env.OVERTIME_START_HOUR || "", 10) || 18;
 const OVERTIME_START_MINUTE =
-  parseInt(process.env.OVERTIME_START_MINUTE || "", 10) || 30;
+  parseInt(process.env.OVERTIME_START_MINUTE || "", 10) || 0;
 
 // Heure limite au‑delà de laquelle les heures sup ne sont plus comptabilisées (ex: 21h)
 const OVERTIME_END_HOUR =

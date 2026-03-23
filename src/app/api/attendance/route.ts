@@ -31,10 +31,18 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {};
 
+    const parseDateOnlyUTC = (dateStr: string): Date => {
+      const base = dateStr.split("T")[0];
+      const [y, m, d] = base.split("-").map((n) => parseInt(n, 10));
+      if (!y || !m || !d) return new Date(dateStr);
+      // Date-only column: on évite le décalage de jour en fixant l'heure à 12:00 UTC.
+      return new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0));
+    };
+
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate);
-      if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate);
+      if (startDate) (where.date as Record<string, unknown>).gte = parseDateOnlyUTC(startDate);
+      if (endDate) (where.date as Record<string, unknown>).lte = parseDateOnlyUTC(endDate);
     }
     if (employeeId) where.employeeId = employeeId;
     if (finalStatus) where.finalStatus = finalStatus;
@@ -81,6 +89,7 @@ export async function GET(request: NextRequest) {
       services: servicesList,
     });
   } catch (error) {
+    console.error("[API attendance GET]", error);
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
@@ -131,6 +140,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ data: record });
   } catch (error) {
+    console.error("[API attendance PUT]", error);
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });

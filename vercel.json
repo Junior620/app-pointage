@@ -2,15 +2,15 @@
   "crons": [
     {
       "path": "/api/cron/checkout-reminder",
-      "schedule": "0 17 * * 1-6"
+      "schedule": "30 16 * * 1-6"
     },
     {
       "path": "/api/cron/auto-checkout",
-      "schedule": "0 21 * * 1-6"
+      "schedule": "0 17 * * 1-6"
     },
     {
       "path": "/api/cron/mark-absent",
-      "schedule": "5 21 * * 1-6"
+      "schedule": "5 17 * * 1-6"
     },
     {
       "path": "/api/cron/weekly-summary",

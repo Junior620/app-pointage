@@ -82,14 +82,19 @@ async function main() {
   // Créer un horaire par défaut
   await prisma.schedule.upsert({
     where: { id: "default-schedule" },
-    update: {},
+    update: {
+      startTime: "08:00",
+      endTime: "17:30",
+      closureTime: "18:00",
+      lateGraceMin: 30,
+    },
     create: {
       id: "default-schedule",
       siteId: site.id,
-      startTime: "08:30",
-      endTime: "18:00",
-      closureTime: "22:00",
-      lateGraceMin: 15,
+      startTime: "08:00",
+      endTime: "17:30",
+      closureTime: "18:00",
+      lateGraceMin: 30,
     },
   });
 
