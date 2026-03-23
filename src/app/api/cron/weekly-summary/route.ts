@@ -34,6 +34,12 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    console.log("[Weekly summary] run", {
+      monday: monday.toISOString().slice(0, 10),
+      saturday: saturday.toISOString().slice(0, 10),
+      employees: employees.length,
+    });
+
     let count = 0;
     let failed = 0;
     for (const emp of employees) {
@@ -110,7 +116,12 @@ export async function GET(request: NextRequest) {
         count++;
       } catch (e) {
         failed++;
-        console.error("[Weekly summary] Envoi échoué pour", emp.whatsappPhone, e);
+        console.error("[Weekly summary] Envoi échoué pour", {
+          phone: emp.whatsappPhone,
+          employeeId: emp.id,
+          name: `${emp.firstName} ${emp.lastName}`,
+          error: e,
+        });
       }
     }
 

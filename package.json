@@ -17,36 +17,37 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "next": "16.1.6",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
     "@prisma/client": "^6",
-    "@supabase/supabase-js": "^2",
     "@supabase/ssr": "^0",
-    "zod": "^3",
+    "@supabase/supabase-js": "^2",
+    "clsx": "^2",
     "date-fns": "^4",
-    "recharts": "^2",
+    "docx": "^9.6.1",
     "exceljs": "^4",
     "jspdf": "^3",
     "jspdf-autotable": "^5",
+    "lucide-react": "^0.475",
+    "next": "16.1.6",
     "qrcode": "^1",
-    "uuid": "^11",
-    "clsx": "^2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^2",
     "tailwind-merge": "^3",
-    "lucide-react": "^0.475"
+    "uuid": "^11",
+    "zod": "^3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/qrcode": "^1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/qrcode": "^1",
     "@types/uuid": "^10",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "prisma": "^6",
-    "tsx": "^4",
     "tailwindcss": "^4",
+    "tsx": "^4",
     "typescript": "^5"
   }
 }
