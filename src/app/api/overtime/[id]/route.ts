@@ -66,6 +66,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         where: {
           employeeId: record.employeeId,
           status: "APPROVED",
+          cancelledAt: null,
           startDate: { lte: record.date },
           endDate: { gte: record.date },
         },

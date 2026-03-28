@@ -51,6 +51,13 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Mission non trouvée" }, { status: 404 });
     }
 
+    if (before.cancelledAt) {
+      return NextResponse.json(
+        { error: "Cette mission a été annulée et ne peut plus être modifiée." },
+        { status: 400 }
+      );
+    }
+
     const updateData: Record<string, unknown> = {};
 
     if (parsed.data.status) {
@@ -87,6 +94,48 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     });
 
     return NextResponse.json({ data: mission });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
+      if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}
+
+export async function DELETE(_request: NextRequest, context: RouteContext) {
+  try {
+    const session = await requireRole(["HR", "ADMIN", "DG"]);
+    const { id } = await context.params;
+
+    const before = await prisma.mission.findUnique({ where: { id } });
+    if (!before) {
+      return NextResponse.json({ error: "Mission non trouvée" }, { status: 404 });
+    }
+
+    if (before.cancelledAt) {
+      return NextResponse.json({ error: "Cette mission est déjà annulée." }, { status: 400 });
+    }
+
+    const mission = await prisma.mission.update({
+      where: { id },
+      data: {
+        cancelledAt: new Date(),
+        cancelledBy: session.name,
+      },
+      include: { employee: true },
+    });
+
+    await createAuditLog({
+      actorId: session.id,
+      action: "CANCEL",
+      entity: "Mission",
+      entityId: id,
+      before,
+      after: mission,
+    });
+
+    return NextResponse.json({ ok: true, data: mission });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });

@@ -547,7 +547,7 @@ async function handleMyWeekSummary(
       },
     }),
     prisma.leaveRequest.count({
-      where: { employeeId, status: "PENDING" },
+      where: { employeeId, status: "PENDING", cancelledAt: null },
     }),
   ]);
   const msg = buildWeeklySummaryWhatsAppMessage(
@@ -572,7 +572,7 @@ async function handleMyPermissions(
 
   const [pending, approvedActive] = await Promise.all([
     prisma.leaveRequest.findMany({
-      where: { employeeId, status: "PENDING" },
+      where: { employeeId, status: "PENDING", cancelledAt: null },
       orderBy: { createdAt: "desc" },
       take: 12,
     }),
@@ -580,6 +580,7 @@ async function handleMyPermissions(
       where: {
         employeeId,
         status: "APPROVED",
+        cancelledAt: null,
         startDate: { lte: today },
         endDate: { gte: today },
       },
@@ -807,7 +808,8 @@ async function handleMyMissions(
       });
       const statusIcon =
         m.status === "APPROVED" ? "✅" : m.status === "PENDING" ? "⏳" : "❌";
-      msg += `${statusIcon} ${from} → ${to} : ${m.reason}${m.location ? ` (${m.location})` : ""}\n`;
+      const ann = m.cancelledAt ? " 🚫 *annulée*" : "";
+      msg += `${statusIcon} ${from} → ${to} : ${m.reason}${m.location ? ` (${m.location})` : ""}${ann}\n`;
     }
   }
 
@@ -824,7 +826,8 @@ async function handleMyMissions(
       });
       const statusIcon =
         l.status === "APPROVED" ? "✅" : l.status === "PENDING" ? "⏳" : "❌";
-      msg += `${statusIcon} ${from} → ${to} : ${l.reason}\n`;
+      const ann = l.cancelledAt ? " 🚫 *annulée*" : "";
+      msg += `${statusIcon} ${from} → ${to} : ${l.reason}${ann}\n`;
     }
   }
 

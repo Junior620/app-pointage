@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
+          cancelledAt: null,
           startDate: { lte: today },
           endDate: { gte: today },
         },
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
+          cancelledAt: null,
           startDate: { lte: today },
           endDate: { gte: today },
         },

@@ -40,6 +40,7 @@ async function hasApprovedLeaveOrMission(
     where: {
       employeeId,
       status: "APPROVED",
+      cancelledAt: null,
       startDate: { lte: d },
       endDate: { gte: d },
     },
@@ -50,6 +51,7 @@ async function hasApprovedLeaveOrMission(
     where: {
       employeeId,
       status: "APPROVED",
+      cancelledAt: null,
       startDate: { lte: d },
       endDate: { gte: d },
     },

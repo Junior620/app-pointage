@@ -17,6 +17,7 @@ import {
   Download,
   Eye,
   Trash2,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
@@ -36,6 +37,8 @@ interface LeaveRequest {
   status: "PENDING" | "APPROVED" | "REJECTED";
   document: string | null;
   approvedBy: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -83,7 +86,13 @@ export default function LeavesPage() {
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [services, setServices] = useState<string[]>([]);
   const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; service?: string }[]>([]);
-  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    cancelled: 0,
+  });
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
@@ -186,7 +195,7 @@ export default function LeavesPage() {
   const deleteLeave = async (id: string) => {
     if (
       !window.confirm(
-        "Supprimer définitivement cette demande en attente ? Cette action est irréversible."
+        "Annuler cette demande ? Elle restera visible dans l’historique (marquée « annulée ») mais ne sera plus prise en compte pour le pointage."
       )
     ) {
       return;
@@ -261,11 +270,12 @@ export default function LeavesPage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard icon={ClipboardList} label="Demandes" value={stats.total} color="slate" />
         <KpiCard icon={Clock} label="En attente" value={stats.pending} color="amber" />
         <KpiCard icon={UserCheck} label="Approuvées" value={stats.approved} color="green" />
         <KpiCard icon={UserX} label="Refusées" value={stats.rejected} color="red" />
+        <KpiCard icon={Archive} label="Annulées" value={stats.cancelled ?? 0} color="slate" />
       </div>
 
       {/* Table card */}
@@ -366,11 +376,15 @@ export default function LeavesPage() {
               ) : (
                 leaves.map((leave) => {
                   const badge = statusBadge[leave.status];
+                  const isOff = Boolean(leave.cancelledAt);
                   return (
                     <tr
                       key={leave.id}
                       onClick={() => setDetailLeave(leave)}
-                      className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition-colors"
+                      className={cn(
+                        "border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition-colors",
+                        isOff && "opacity-70"
+                      )}
                     >
                       {/* Employé */}
                       <td className="px-6 py-4">
@@ -422,14 +436,21 @@ export default function LeavesPage() {
                       </td>
                       {/* Statut */}
                       <td className="px-6 py-4">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                            badge.bg
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+                              badge.bg
+                            )}
+                          >
+                            {badge.label}
+                          </span>
+                          {isOff && (
+                            <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-slate-200 text-slate-700">
+                              Annulée
+                            </span>
                           )}
-                        >
-                          {badge.label}
-                        </span>
+                        </div>
                       </td>
                       {/* Actions */}
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -441,7 +462,7 @@ export default function LeavesPage() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {leave.status === "PENDING" && (
+                          {leave.status === "PENDING" && !isOff && (
                             <>
                               <button
                                 onClick={() => updateStatus(leave.id, "APPROVED")}
@@ -459,15 +480,17 @@ export default function LeavesPage() {
                               >
                                 <XCircle className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={() => deleteLeave(leave.id)}
-                                disabled={deletingId === leave.id || actioningId === leave.id}
-                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
-                                title="Supprimer la demande"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
                             </>
+                          )}
+                          {!isOff && (
+                            <button
+                              onClick={() => deleteLeave(leave.id)}
+                              disabled={deletingId === leave.id || actioningId === leave.id}
+                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                              title="Annuler (conserver l’historique)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -698,8 +721,22 @@ export default function LeavesPage() {
                   </p>
                 </div>
               )}
-              {detailLeave.status === "PENDING" && (
-                <div className="space-y-3 pt-2 border-t border-slate-100">
+              {detailLeave.cancelledAt && (
+                <div className="rounded-xl border border-slate-300 bg-slate-50 p-4">
+                  <p className="text-xs font-medium text-slate-600 mb-1">Annulation (historique conservé)</p>
+                  <p className="text-sm text-slate-700">
+                    Le {new Date(detailLeave.cancelledAt).toLocaleString("fr-FR")}
+                    {detailLeave.cancelledBy ? (
+                      <span>
+                        {" "}
+                        par <span className="font-medium">{detailLeave.cancelledBy}</span>
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              )}
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                {detailLeave.status === "PENDING" && !detailLeave.cancelledAt && (
                   <div className="flex gap-3">
                     <button
                       onClick={() => updateStatus(detailLeave.id, "APPROVED")}
@@ -718,6 +755,8 @@ export default function LeavesPage() {
                       Refuser
                     </button>
                   </div>
+                )}
+                {!detailLeave.cancelledAt && (
                   <button
                     type="button"
                     onClick={() => deleteLeave(detailLeave.id)}
@@ -725,10 +764,10 @@ export default function LeavesPage() {
                     className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-slate-700 bg-slate-100 hover:bg-red-50 hover:text-red-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" />
-                    {deletingId === detailLeave.id ? "Suppression…" : "Supprimer la demande"}
+                    {deletingId === detailLeave.id ? "Annulation…" : "Annuler (conserver l’historique)"}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>

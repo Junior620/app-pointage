@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { activeRequestFilter } from "@/lib/request-active";
 
 const createMissionSchema = z.object({
   employeeId: z.string().min(1),
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: missions,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      stats: { total, pending, approved, rejected },
+      stats: { total, pending, approved, rejected, cancelled },
       services: serviceRows.map((s) => s.service).filter(Boolean),
     });
   } catch (error) {

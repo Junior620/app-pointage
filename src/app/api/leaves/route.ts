@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { activeRequestFilter } from "@/lib/request-active";
 
 const createLeaveSchema = z.object({
   employeeId: z.string().min(1),
@@ -33,7 +34,9 @@ export async function GET(request: NextRequest) {
     if (endDate) where.endDate = { lte: new Date(endDate) };
     if (service) where.employee = { service };
 
-    const [leaves, total, pending, approved, rejected, services] = await Promise.all([
+    const activeWhere = { ...where, ...activeRequestFilter };
+
+    const [leaves, total, pending, approved, rejected, cancelled, services] = await Promise.all([
       prisma.leaveRequest.findMany({
         where,
         include: { employee: true },
@@ -42,9 +45,10 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: "desc" },
       }),
       prisma.leaveRequest.count({ where }),
-      prisma.leaveRequest.count({ where: { ...where, status: "PENDING" } }),
-      prisma.leaveRequest.count({ where: { ...where, status: "APPROVED" } }),
-      prisma.leaveRequest.count({ where: { ...where, status: "REJECTED" } }),
+      prisma.leaveRequest.count({ where: { ...activeWhere, status: "PENDING" } }),
+      prisma.leaveRequest.count({ where: { ...activeWhere, status: "APPROVED" } }),
+      prisma.leaveRequest.count({ where: { ...activeWhere, status: "REJECTED" } }),
+      prisma.leaveRequest.count({ where: { ...where, cancelledAt: { not: null } } }),
       prisma.employee.findMany({
         select: { service: true },
         distinct: ["service"],
@@ -57,7 +61,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: leaves,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      stats: { total, pending, approved, rejected },
+      stats: { total, pending, approved, rejected, cancelled },
       services: servicesList,
     });
   } catch (error) {

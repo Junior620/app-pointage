@@ -26,6 +26,13 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Demande de permission non trouvée" }, { status: 404 });
     }
 
+    if (before.cancelledAt) {
+      return NextResponse.json(
+        { error: "Cette demande a été annulée et ne peut plus être modifiée." },
+        { status: 400 }
+      );
+    }
+
     if (before.status !== "PENDING") {
       return NextResponse.json({ error: "Cette demande a déjà été traitée" }, { status: 400 });
     }
@@ -68,27 +75,29 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Demande de permission non trouvée" }, { status: 404 });
     }
 
-    if (before.status !== "PENDING") {
-      return NextResponse.json(
-        {
-          error:
-            "Seules les demandes encore en attente peuvent être supprimées. Les demandes approuvées ou refusées restent dans l'historique.",
-        },
-        { status: 400 }
-      );
+    if (before.cancelledAt) {
+      return NextResponse.json({ error: "Cette demande est déjà annulée." }, { status: 400 });
     }
 
-    await prisma.leaveRequest.delete({ where: { id } });
+    const leave = await prisma.leaveRequest.update({
+      where: { id },
+      data: {
+        cancelledAt: new Date(),
+        cancelledBy: session.name,
+      },
+      include: { employee: true },
+    });
 
     await createAuditLog({
       actorId: session.id,
-      action: "DELETE",
+      action: "CANCEL",
       entity: "LeaveRequest",
       entityId: id,
       before,
+      after: leave,
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, data: leave });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
