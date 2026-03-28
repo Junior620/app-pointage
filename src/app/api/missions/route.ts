@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
         };
         const startStr = mission.startDate.toLocaleDateString("fr-FR", opts);
         const endStr = mission.endDate.toLocaleDateString("fr-FR", opts);
-        let msg = `📋 *Nouvelle mission*\n\n`;
+        let msg = `🌍 *Nouvelle mission*\n\n`;
         msg += `Bonjour ${employee.firstName},\n\n`;
         msg += `Une mission a été enregistrée à votre nom.\n\n`;
         msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;

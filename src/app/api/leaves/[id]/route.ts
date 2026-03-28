@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { sendWhatsAppMessage } from "@/lib/whatsapp";
 
 const updateLeaveSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"]),
@@ -54,6 +55,39 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       before,
       after: leave,
     });
+
+    if (leave.employee.active && leave.employee.whatsappPhone?.trim()) {
+      try {
+        const opts: Intl.DateTimeFormatOptions = {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        };
+        const startStr = leave.startDate.toLocaleDateString("fr-FR", opts);
+        const endStr = leave.endDate.toLocaleDateString("fr-FR", opts);
+        let msg: string;
+        if (parsed.data.status === "APPROVED") {
+          msg =
+            `✅ *Permission approuvée*\n\n` +
+            `Bonjour ${leave.employee.firstName},\n\n` +
+            `Votre demande de permission a été *validée* par la RH.\n\n` +
+            `📅 *Période*\nDu ${startStr}\nau ${endStr}\n\n` +
+            `📝 *Motif*\n${leave.reason}\n\n` +
+            `💡 Répondez *11* pour *Mes permissions* (en cours).`;
+        } else {
+          msg =
+            `❌ *Permission non approuvée*\n\n` +
+            `Bonjour ${leave.employee.firstName},\n\n` +
+            `Votre demande de permission du ${startStr} au ${endStr} n'a *pas été approuvée*.\n\n` +
+            `📝 *Motif indiqué*\n${leave.reason}\n\n` +
+            `Pour plus d'informations, contactez les RH.`;
+        }
+        await sendWhatsAppMessage(leave.employee.whatsappPhone.trim(), msg);
+      } catch (e) {
+        console.error("[Permissions] Notification WhatsApp (validation) échouée:", e);
+      }
+    }
 
     return NextResponse.json({ data: leave });
   } catch (error) {

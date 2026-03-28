@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { sendWhatsAppMessage } from "@/lib/whatsapp";
 
 const updateMissionSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"]).optional(),
@@ -92,6 +93,50 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       before,
       after: mission,
     });
+
+    if (
+      parsed.data.status &&
+      mission.employee.active &&
+      mission.employee.whatsappPhone?.trim()
+    ) {
+      try {
+        const opts: Intl.DateTimeFormatOptions = {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        };
+        const startStr = mission.startDate.toLocaleDateString("fr-FR", opts);
+        const endStr = mission.endDate.toLocaleDateString("fr-FR", opts);
+        let msg: string;
+        if (parsed.data.status === "APPROVED") {
+          msg =
+            `✅ *Mission approuvée*\n\n` +
+            `Bonjour ${mission.employee.firstName},\n\n` +
+            `Votre mission a été *validée* par la RH.\n\n` +
+            `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
+          if (mission.location?.trim()) {
+            msg += `\n📍 *Lieu*\n${mission.location.trim()}\n`;
+          }
+          if (mission.hostStructure) {
+            msg += `\n🏢 *Structure d'accueil*\n${mission.hostStructure}\n`;
+          }
+          msg +=
+            `\n📝 *Motif*\n${mission.reason}\n\n` +
+            `💡 Répondez *7* pour *Mes missions* (historique récent).`;
+        } else {
+          msg =
+            `❌ *Mission non approuvée*\n\n` +
+            `Bonjour ${mission.employee.firstName},\n\n` +
+            `Votre demande de mission du ${startStr} au ${endStr} n'a *pas été approuvée*.\n\n` +
+            `📝 *Motif indiqué*\n${mission.reason}\n\n` +
+            `Pour plus d'informations, contactez les RH.`;
+        }
+        await sendWhatsAppMessage(mission.employee.whatsappPhone.trim(), msg);
+      } catch (e) {
+        console.error("[Missions] Notification WhatsApp (validation) échouée:", e);
+      }
+    }
 
     return NextResponse.json({ data: mission });
   } catch (error) {
