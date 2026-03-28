@@ -85,6 +85,16 @@ const MY_MISSIONS_KEYWORDS = [
   "mes permissions",
 ];
 
+const MY_WEEK_SUMMARY_KEYWORDS = [
+  "resume semaine",
+  "résumé semaine",
+  "resumé semaine",
+  "historique semaine",
+  "ma semaine",
+  "semaine en cours",
+  "pointages semaine",
+];
+
 const HELP_KEYWORDS = ["aide", "help", "menu", "commandes", "?"];
 
 export function parseIntent(message: string): {
@@ -102,7 +112,7 @@ export function parseIntent(message: string): {
     return { intent: "HELP" };
   }
 
-  // Réponse par numéro : 1 = Arrivée, 2 = Départ, 3 = Statut, … 9 = détail jour
+  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine
   if (normalized === "1") return { intent: "CHECK_IN" };
   if (normalized === "2") return { intent: "CHECK_OUT" };
   if (normalized === "3") return { intent: "STATUS" };
@@ -118,6 +128,7 @@ export function parseIntent(message: string): {
       .trim();
     return { intent: "DAY_DETAIL", comment: rest || undefined };
   }
+  if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
 
   const parts = normalized.split(/\s+/);
 
@@ -185,6 +196,13 @@ export function parseIntent(message: string): {
     }
   }
 
+  for (const keyword of MY_WEEK_SUMMARY_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_WEEK_SUMMARY" };
+    }
+  }
+
   // Détail jour JJ/MM ou JJ/MM/AAAA
   for (const keyword of DAY_DETAIL_KEYWORDS) {
     const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -220,8 +238,9 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 7️⃣ *Mes missions* — Missions et permissions
 *8* Mes heures sup en attente
 *9* Détail jour — tapez *9* puis JJ/MM (ex. *9 15/03*)
+*10* Résumé / historique de la semaine (lundi → samedi)
 
-Répondez par le *numéro* (1 à 9) ou tapez la commande.`;
+Répondez par le *numéro* (1 à 10) ou tapez la commande.`;
 
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
@@ -237,6 +256,7 @@ Que souhaitez-vous faire ?
 7️⃣ Mes missions
 *8* Mes heures sup en attente
 *9* Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
+*10* Résumé / historique de la semaine
 
-Répondez par le *numéro* (1 à 9) correspondant.`;
+Répondez par le *numéro* (1 à 10) correspondant.`;
 }
