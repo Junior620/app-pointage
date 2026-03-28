@@ -50,6 +50,7 @@ export type Intent =
   | "MY_OVERTIME_PENDING"
   | "DAY_DETAIL"
   | "MY_MISSIONS"
+  | "MY_WEEK_SUMMARY"
   | "UNKNOWN";
 
 export type GeoPoint = {

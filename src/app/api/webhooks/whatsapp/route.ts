@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
 import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
 import { parseIntent, getWelcomeMessage } from "@/lib/intent-parser";
+import {
+  buildWeeklySummaryWhatsAppMessage,
+  getCurrentWeekRangeUtc,
+} from "@/lib/weekly-summary-text";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -288,6 +292,10 @@ async function handleMessage(
         await handleMyMissions(phone, employee.id, employee.firstName);
         break;
 
+      case "MY_WEEK_SUMMARY":
+        await handleMyWeekSummary(phone, employee.id, employee.firstName);
+        break;
+
       case "GREETING":
       case "HELP":
         await sendWhatsAppMessage(phone, getWelcomeMessage(employee.firstName));
@@ -518,6 +526,27 @@ async function handleMyOvertimePending(
     msg += `\n… et ${records.length - 10} autre(s) jour(s) en attente.`;
   }
 
+  await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleMyWeekSummary(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const { monday, saturday } = getCurrentWeekRangeUtc();
+  const records = await prisma.attendanceRecord.findMany({
+    where: {
+      employeeId,
+      date: { gte: monday, lte: saturday },
+    },
+  });
+  const msg = buildWeeklySummaryWhatsAppMessage(
+    firstName,
+    monday,
+    saturday,
+    records
+  );
   await sendWhatsAppMessage(phone, msg);
 }
 
