@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { sendWhatsAppMessage } from "@/lib/whatsapp";
 
 const createLeaveSchema = z.object({
   employeeId: z.string().min(1),
@@ -100,6 +101,28 @@ export async function POST(request: NextRequest) {
       entityId: leave.id,
       after: leave,
     });
+
+    if (employee.active && employee.whatsappPhone?.trim()) {
+      try {
+        const opts: Intl.DateTimeFormatOptions = {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        };
+        const startStr = leave.startDate.toLocaleDateString("fr-FR", opts);
+        const endStr = leave.endDate.toLocaleDateString("fr-FR", opts);
+        let msg = `📋 *Nouvelle demande de permission*\n\n`;
+        msg += `Bonjour ${employee.firstName},\n\n`;
+        msg += `Une permission a été enregistrée à votre nom.\n\n`;
+        msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
+        msg += `\n📝 *Motif*\n${leave.reason}\n`;
+        msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
+        await sendWhatsAppMessage(employee.whatsappPhone.trim(), msg);
+      } catch (e) {
+        console.error("[Permissions] Notification WhatsApp (création) échouée:", e);
+      }
+    }
 
     return NextResponse.json({ data: leave }, { status: 201 });
   } catch (error) {
