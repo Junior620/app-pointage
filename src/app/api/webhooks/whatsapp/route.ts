@@ -7,6 +7,7 @@ import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
 } from "@/lib/weekly-summary-text";
+import { utcCalendarDayBounds } from "@/lib/utils";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -566,9 +567,7 @@ async function handleMyPermissions(
   firstName: string
 ) {
   const now = new Date();
-  const today = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0)
-  );
+  const { dayStart, dayEnd } = utcCalendarDayBounds(now);
 
   const [pending, approvedActive] = await Promise.all([
     prisma.leaveRequest.findMany({
@@ -581,8 +580,8 @@ async function handleMyPermissions(
         employeeId,
         status: "APPROVED",
         cancelledAt: null,
-        startDate: { lte: today },
-        endDate: { gte: today },
+        startDate: { lte: dayEnd },
+        endDate: { gte: dayStart },
       },
       orderBy: { endDate: "asc" },
       take: 12,

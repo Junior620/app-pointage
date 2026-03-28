@@ -1,6 +1,13 @@
 import { prisma } from "./prisma";
 import { isWithinZone, haversineDistance } from "./geofence";
-import { parseTimeString, minutesBetween, isWeekend, isWorkingDay, todayDate } from "./utils";
+import {
+  parseTimeString,
+  minutesBetween,
+  isWeekend,
+  isWorkingDay,
+  todayDate,
+  localCalendarDayBounds,
+} from "./utils";
 import type { GeoPoint } from "@/types";
 import type { CheckInStatus } from "@prisma/client";
 
@@ -34,15 +41,15 @@ async function hasApprovedLeaveOrMission(
   employeeId: string,
   date: Date
 ): Promise<{ type: "PERMISSION" | "MISSION" | null }> {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const { dayStart, dayEnd } = localCalendarDayBounds(date);
 
   const leave = await prisma.leaveRequest.findFirst({
     where: {
       employeeId,
       status: "APPROVED",
       cancelledAt: null,
-      startDate: { lte: d },
-      endDate: { gte: d },
+      startDate: { lte: dayEnd },
+      endDate: { gte: dayStart },
     },
   });
   if (leave) return { type: "PERMISSION" };
@@ -52,8 +59,8 @@ async function hasApprovedLeaveOrMission(
       employeeId,
       status: "APPROVED",
       cancelledAt: null,
-      startDate: { lte: d },
-      endDate: { gte: d },
+      startDate: { lte: dayEnd },
+      endDate: { gte: dayStart },
     },
   });
   if (mission) return { type: "MISSION" };

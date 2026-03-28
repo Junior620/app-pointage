@@ -94,3 +94,30 @@ export function todayDate(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
+
+/**
+ * Pour champs Prisma `@db.Date` (minuit UTC par jour civil) : une période
+ * [startDate, endDate] inclusive intersecte ce jour civil UTC ssi
+ * `startDate <= dayEnd` et `endDate >= dayStart`.
+ * (Comparer avec « midi UTC » faisait disparaître le dernier jour et les permissions d'un jour.)
+ */
+export function utcCalendarDayBounds(ref: Date): { dayStart: Date; dayEnd: Date } {
+  const y = ref.getUTCFullYear();
+  const m = ref.getUTCMonth();
+  const d = ref.getUTCDate();
+  return {
+    dayStart: new Date(Date.UTC(y, m, d, 0, 0, 0, 0)),
+    dayEnd: new Date(Date.UTC(y, m, d, 23, 59, 59, 999)),
+  };
+}
+
+/** Même idée que utcCalendarDayBounds mais jour civil selon le fuseau du processus (ex. todayDate()). */
+export function localCalendarDayBounds(ref: Date): { dayStart: Date; dayEnd: Date } {
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
+  const d = ref.getDate();
+  return {
+    dayStart: new Date(y, m, d, 0, 0, 0, 0),
+    dayEnd: new Date(y, m, d, 23, 59, 59, 999),
+  };
+}
