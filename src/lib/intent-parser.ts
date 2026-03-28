@@ -218,10 +218,10 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 5️⃣ *Mes absences* — Voir vos absences
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
 7️⃣ *Mes missions* — Missions et permissions
-8️⃣ *Mes heures sup en attente*
-9️⃣ *Détail jour* — Envoyez *9* puis la date JJ/MM (ex. *9 15/03*)
+*8* Mes heures sup en attente
+*9* Détail jour — tapez *9* puis JJ/MM (ex. *9 15/03*)
 
-Répondez par le *numéro* ou tapez la commande.`;
+Répondez par le *numéro* (1 à 9) ou tapez la commande.`;
 
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
@@ -235,8 +235,8 @@ Que souhaitez-vous faire ?
 5️⃣ Mes absences
 6️⃣ Mes heures sup
 7️⃣ Mes missions
-8️⃣ Mes heures sup en attente
-9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
+*8* Mes heures sup en attente
+*9* Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
 
-Répondez par le *numéro* correspondant.`;
+Répondez par le *numéro* (1 à 9) correspondant.`;
 }

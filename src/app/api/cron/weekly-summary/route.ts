@@ -86,8 +86,12 @@ export async function GET(request: NextRequest) {
 
       if (late > 0) msg += `⏰ Retards : ${late}\n`;
       if (absent > 0) msg += `❌ Absences : ${absent}\n`;
-      if (permission > 0) msg += `📋 Permissions : ${permission}\n`;
-      if (mission > 0) msg += `🌍 Missions : ${mission}\n`;
+      if (permission > 0) {
+        msg += `📋 ${permission} jour${permission > 1 ? "s" : ""} en permission\n`;
+      }
+      if (mission > 0) {
+        msg += `🌍 ${mission} jour${mission > 1 ? "s" : ""} en mission\n`;
+      }
 
       if (totalMinutes > 0) {
         const h = Math.floor(totalMinutes / 60);
