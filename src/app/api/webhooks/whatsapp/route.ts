@@ -292,6 +292,10 @@ async function handleMessage(
         await handleMyMissions(phone, employee.id, employee.firstName);
         break;
 
+      case "MY_PERMISSIONS":
+        await handleMyPermissions(phone, employee.id, employee.firstName);
+        break;
+
       case "MY_WEEK_SUMMARY":
         await handleMyWeekSummary(phone, employee.id, employee.firstName);
         break;
@@ -535,19 +539,102 @@ async function handleMyWeekSummary(
   firstName: string
 ) {
   const { monday, saturday } = getCurrentWeekRangeUtc();
-  const records = await prisma.attendanceRecord.findMany({
-    where: {
-      employeeId,
-      date: { gte: monday, lte: saturday },
-    },
-  });
+  const [records, pendingLeaveRequests] = await Promise.all([
+    prisma.attendanceRecord.findMany({
+      where: {
+        employeeId,
+        date: { gte: monday, lte: saturday },
+      },
+    }),
+    prisma.leaveRequest.count({
+      where: { employeeId, status: "PENDING" },
+    }),
+  ]);
   const msg = buildWeeklySummaryWhatsAppMessage(
     firstName,
     monday,
     saturday,
-    records
+    records,
+    { pendingLeaveRequests }
   );
   await sendWhatsAppMessage(phone, msg);
+}
+
+async function handleMyPermissions(
+  phone: string,
+  employeeId: string,
+  firstName: string
+) {
+  const now = new Date();
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0)
+  );
+
+  const [pending, approvedActive] = await Promise.all([
+    prisma.leaveRequest.findMany({
+      where: { employeeId, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+      take: 12,
+    }),
+    prisma.leaveRequest.findMany({
+      where: {
+        employeeId,
+        status: "APPROVED",
+        startDate: { lte: today },
+        endDate: { gte: today },
+      },
+      orderBy: { endDate: "asc" },
+      take: 12,
+    }),
+  ]);
+
+  const seen = new Set<string>();
+  const rows: typeof pending = [];
+  for (const l of pending) {
+    if (!seen.has(l.id)) {
+      seen.add(l.id);
+      rows.push(l);
+    }
+  }
+  for (const l of approvedActive) {
+    if (!seen.has(l.id)) {
+      seen.add(l.id);
+      rows.push(l);
+    }
+  }
+
+  if (rows.length === 0) {
+    await sendWhatsAppMessage(
+      phone,
+      `📋 *${firstName}*, aucune permission en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + permissions), répondez *7*.`
+    );
+    return;
+  }
+
+  let msg = `📋 *Mes permissions en cours — ${firstName}*\n\n`;
+  msg += `⏳ = en attente de validation • ✅ = approuvée (période en cours)\n\n`;
+
+  for (const l of rows.slice(0, 10)) {
+    const from = l.startDate.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const to = l.endDate.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const icon = l.status === "PENDING" ? "⏳" : "✅";
+    const label = l.status === "PENDING" ? "En attente" : "Approuvée";
+    msg += `${icon} *${label}* ${from} → ${to}\n${l.reason}\n\n`;
+  }
+
+  if (rows.length > 10) {
+    msg += `… et ${rows.length - 10} autre(s) demande(s). Consultez l'app RH pour le détail.`;
+  }
+
+  await sendWhatsAppMessage(phone, msg.trimEnd());
 }
 
 async function handleDayDetail(

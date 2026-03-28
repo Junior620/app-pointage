@@ -23,11 +23,17 @@ export function getCurrentWeekRangeUtc(now: Date = new Date()): {
   return { monday, saturday };
 }
 
+export type WeeklySummaryExtras = {
+  /** Demandes LeaveRequest encore PENDING (RH pas encore traité). */
+  pendingLeaveRequests?: number;
+};
+
 export function buildWeeklySummaryWhatsAppMessage(
   firstName: string,
   monday: Date,
   saturday: Date,
-  records: WeeklySummaryRecord[]
+  records: WeeklySummaryRecord[],
+  extras?: WeeklySummaryExtras
 ): string {
   const present = records.filter((r) => r.finalStatus === "PRESENT").length;
   const absent = records.filter((r) => r.finalStatus === "ABSENT").length;
@@ -87,6 +93,13 @@ export function buildWeeklySummaryWhatsAppMessage(
   if (autoCheckouts > 0) {
     msg += `\n⚠️ ${autoCheckouts} départ(s) automatique(s) — pensez à pointer votre sortie.\n`;
   }
+
+  const pendingLeaves = extras?.pendingLeaveRequests ?? 0;
+  if (pendingLeaves > 0) {
+    msg += `\n📬 *Demandes de permission* : ${pendingLeaves} en attente de validation par la RH.\n`;
+  }
+
+  msg += `\n💡 Répondez *11* pour *Mes permissions* (en attente ou période en cours).\n`;
 
   if (late === 0 && absent === 0) {
     msg += `\n🎉 Semaine parfaite ! Continuez comme ça.`;

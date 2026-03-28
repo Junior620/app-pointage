@@ -79,11 +79,16 @@ const DAY_DETAIL_KEYWORDS = [
   "détail",
 ];
 
-const MY_MISSIONS_KEYWORDS = [
-  "mes missions",
-  "mission en cours",
+const MY_PERMISSIONS_KEYWORDS = [
   "mes permissions",
+  "permissions en cours",
+  "ma permission",
+  "mes demandes de permission",
+  "demandes de permission",
+  "permission en cours",
 ];
+
+const MY_MISSIONS_KEYWORDS = ["mes missions", "mission en cours"];
 
 const MY_WEEK_SUMMARY_KEYWORDS = [
   "resume semaine",
@@ -112,7 +117,7 @@ export function parseIntent(message: string): {
     return { intent: "HELP" };
   }
 
-  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine
+  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 permissions en cours
   if (normalized === "1") return { intent: "CHECK_IN" };
   if (normalized === "2") return { intent: "CHECK_OUT" };
   if (normalized === "3") return { intent: "STATUS" };
@@ -129,6 +134,7 @@ export function parseIntent(message: string): {
     return { intent: "DAY_DETAIL", comment: rest || undefined };
   }
   if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
+  if (normalized === "11") return { intent: "MY_PERMISSIONS" };
 
   const parts = normalized.split(/\s+/);
 
@@ -196,6 +202,13 @@ export function parseIntent(message: string): {
     }
   }
 
+  for (const keyword of MY_PERMISSIONS_KEYWORDS) {
+    const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (normalized.includes(nk)) {
+      return { intent: "MY_PERMISSIONS" };
+    }
+  }
+
   for (const keyword of MY_WEEK_SUMMARY_KEYWORDS) {
     const nk = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     if (normalized.includes(nk)) {
@@ -235,12 +248,13 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 4️⃣ *Mes pointages* — Historique du mois
 5️⃣ *Mes absences* — Voir vos absences
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
-7️⃣ *Mes missions* — Missions et permissions
+7️⃣ *Mes missions* — Missions et permissions (historique récent)
 8️⃣ *Heures sup en attente* — Heures sup à valider par la RH
 9️⃣ *Détail jour* — Tapez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 *Résumé semaine* — Historique lundi → samedi
+1️⃣1️⃣ *Mes permissions* — En attente ou période approuvée en cours
 
-Répondez par le *numéro* (1 à 10) ou tapez la commande.`;
+Répondez par le *numéro* (1 à 11) ou tapez la commande.`;
 
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
@@ -257,6 +271,7 @@ Que souhaitez-vous faire ?
 8️⃣ Mes heures sup en attente
 9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 Résumé / historique de la semaine
+1️⃣1️⃣ Mes permissions en cours
 
-Répondez par le *numéro* (1 à 10) correspondant.`;
+Répondez par le *numéro* (1 à 11) correspondant.`;
 }
