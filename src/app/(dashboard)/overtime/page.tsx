@@ -423,7 +423,8 @@ export default function OvertimePage() {
                                   [r.id]: e.target.value,
                                 }))
                               }
-                              className="w-32 px-2 py-1 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              autoComplete="off"
+                              className="w-40 min-w-[10rem] px-2 py-1.5 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                             <button
                               onClick={() => validate(r.id, "APPROVED")}

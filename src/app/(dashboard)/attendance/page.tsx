@@ -17,7 +17,7 @@ import {
   MapPin,
   Timer,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, todayDate } from "@/lib/utils";
 
 interface AttendanceRecord {
   id: string;
@@ -39,6 +39,39 @@ interface AttendanceRecord {
   overtimeMinutes: number | null;
   overtimeStatus: string | null;
   finalStatus: string;
+}
+
+interface DayAttendanceRow {
+  id: string;
+  matricule: string;
+  firstName: string;
+  lastName: string;
+  service: string;
+  structure: string;
+}
+
+interface DayAttendancePayload {
+  date: string;
+  isNonWorkingDay: boolean;
+  counts: {
+    present: number;
+    absent: number;
+    late: number;
+    missionPerm: number;
+  };
+  absents: DayAttendanceRow[];
+}
+
+interface AttendanceHistoryRow {
+  date: string;
+  label: string;
+  isNonWorkingDay: boolean;
+  counts: {
+    present: number;
+    absent: number;
+    late: number;
+    missionPerm: number;
+  };
 }
 
 const statusColors: Record<string, string> = {
@@ -70,7 +103,22 @@ const statusLabels: Record<string, string> = {
 };
 
 function isSaturday(dateStr: string): boolean {
-  return new Date(dateStr).getDay() === 6;
+  const d = parseDateOnly(dateStr);
+  return d.getDay() === 6;
+}
+
+function parseDateOnly(dateStr: string): Date {
+  // Prisma renvoie souvent les dates @db.Date sous forme "YYYY-MM-DD".
+  // En JS, `new Date("YYYY-MM-DD")` est interprété en UTC et peut décaler le jour selon le fuseau.
+  // On force donc la création en "date locale" (midday) pour stabiliser l'affichage (weekday/KPI).
+  try {
+    const base = dateStr.split("T")[0];
+    const [y, m, d] = base.split("-").map((n) => parseInt(n, 10));
+    if (!y || !m || !d) return new Date(dateStr);
+    return new Date(y, m - 1, d, 12, 0, 0, 0);
+  } catch {
+    return new Date(dateStr);
+  }
 }
 
 function displayStatus(record: AttendanceRecord): { label: string; colorClass: string } {
@@ -84,12 +132,20 @@ function displayStatus(record: AttendanceRecord): { label: string; colorClass: s
   };
 }
 
+function toDateInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const todayStr = toDateInputValue(todayDate());
+  const [dateFrom, setDateFrom] = useState(() => todayStr);
+  const [dateTo, setDateTo] = useState(() => todayStr);
   const [serviceFilter, setServiceFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [services, setServices] = useState<string[]>([]);
@@ -101,6 +157,11 @@ export default function AttendancePage() {
   const [editFinalStatus, setEditFinalStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const perPage = 20;
+  const isSingleDay = !!dateFrom && !!dateTo && dateFrom === dateTo;
+
+  const [dayPayload, setDayPayload] = useState<DayAttendancePayload | null>(null);
+  const [history, setHistory] = useState<AttendanceHistoryRow[] | null>(null);
+  const [returnToRange, setReturnToRange] = useState<{ dateFrom: string; dateTo: string } | null>(null);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -130,17 +191,66 @@ export default function AttendancePage() {
     fetchRecords();
   }, [fetchRecords]);
 
+  const fetchDayPayload = useCallback(async () => {
+    if (!isSingleDay) return;
+    try {
+      const params = new URLSearchParams({ date: dateFrom });
+      if (serviceFilter) params.set("service", serviceFilter);
+      const res = await fetch(`/api/attendance/day?${params}`);
+      const json = (await res.json()) as DayAttendancePayload;
+      setDayPayload(json);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [isSingleDay, dateFrom, serviceFilter]);
+
+  useEffect(() => {
+    if (!isSingleDay) {
+      setDayPayload(null);
+      return;
+    }
+    fetchDayPayload();
+  }, [isSingleDay, fetchDayPayload]);
+
+  const fetchHistory = useCallback(async () => {
+    if (!isSingleDay) return;
+    try {
+      const params = new URLSearchParams({ date: dateFrom, days: "7" });
+      if (serviceFilter) params.set("service", serviceFilter);
+      const res = await fetch(`/api/attendance/history?${params}`);
+      const json = await res.json();
+      setHistory(json.data ?? []);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [isSingleDay, dateFrom, serviceFilter]);
+
+  useEffect(() => {
+    if (!isSingleDay) {
+      setHistory(null);
+      return;
+    }
+    fetchHistory();
+  }, [isSingleDay, fetchHistory]);
+
   const totalPages = Math.ceil(total / perPage);
 
-  // KPI from current page (samedi sans pointage = pas compté comme absent)
-  const presentCount = records.filter((r) => r.finalStatus === "PRESENT").length;
-  const absentCount = records.filter(
-    (r) => r.finalStatus === "ABSENT" && !(isSaturday(r.date) && !r.checkInTime)
-  ).length;
-  const lateCount = records.filter((r) => r.checkInStatus === "LATE").length;
-  const missionPermCount = records.filter(
-    (r) => r.finalStatus === "MISSION" || r.finalStatus === "PERMISSION"
-  ).length;
+  const presentCount = dayPayload
+    ? dayPayload.counts.present
+    : records.filter((r) => r.finalStatus === "PRESENT").length;
+  const absentCount = dayPayload
+    ? dayPayload.counts.absent
+    : records.filter(
+        (r) => r.finalStatus === "ABSENT" && !(isSaturday(r.date) && !r.checkInTime)
+      ).length;
+  const lateCount = dayPayload
+    ? dayPayload.counts.late
+    : records.filter((r) => r.checkInStatus === "LATE").length;
+  const missionPermCount = dayPayload
+    ? dayPayload.counts.missionPerm
+    : records.filter(
+        (r) => r.finalStatus === "MISSION" || r.finalStatus === "PERMISSION"
+      ).length;
 
   const openDetail = (record: AttendanceRecord) => {
     setDetailRecord(record);
@@ -187,6 +297,7 @@ export default function AttendancePage() {
   };
 
   const dateRangeLabel = () => {
+    if (dateFrom === todayStr && dateTo === todayStr) return "Aujourd'hui";
     if (dateFrom && dateTo) return `${formatDateLabel(dateFrom)} → ${formatDateLabel(dateTo)}`;
     if (dateFrom) return `Depuis ${formatDateLabel(dateFrom)}`;
     if (dateTo) return `Jusqu'au ${formatDateLabel(dateTo)}`;
@@ -194,7 +305,7 @@ export default function AttendancePage() {
   };
 
   const formatDateLabel = (d: string) => {
-    return new Date(d).toLocaleDateString("fr-FR", {
+    return parseDateOnly(d).toLocaleDateString("fr-FR", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -228,6 +339,45 @@ export default function AttendancePage() {
         <KpiCard icon={Briefcase} label="Mission / Perm." value={missionPermCount} color="purple" />
       </div>
 
+      {/* Absents du jour (vue complète) */}
+      {dayPayload && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-900 mb-3">
+            {dayPayload.isNonWorkingDay ? "Jour non ouvré" : "Absents de la journée"}
+          </h3>
+          {dayPayload.isNonWorkingDay ? (
+            <p className="text-sm text-slate-500">
+              Aucune absence n&apos;est comptée sur ce jour.
+            </p>
+          ) : dayPayload.counts.absent === 0 ? (
+            <p className="text-sm text-slate-500">
+              Personne n&apos;est absent aujourd&apos;hui.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {dayPayload.absents.map((e) => (
+                <div
+                  key={e.id}
+                  className="flex items-center justify-between gap-3 border border-slate-100 rounded-xl px-3 py-2"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">
+                      {e.firstName} {e.lastName}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {e.matricule} — {e.service} — {e.structure}
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700">
+                    Absent
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Table Card */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         {/* Filters */}
@@ -243,7 +393,7 @@ export default function AttendancePage() {
                   setSearch(e.target.value);
                   setPage(1);
                 }}
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-slate-50 placeholder:text-slate-400"
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-slate-50 placeholder:text-slate-400"
               />
             </div>
             <input
@@ -251,6 +401,7 @@ export default function AttendancePage() {
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value);
+                setReturnToRange(null);
                 setPage(1);
               }}
               className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
@@ -260,6 +411,7 @@ export default function AttendancePage() {
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value);
+                setReturnToRange(null);
                 setPage(1);
               }}
               className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
@@ -355,7 +507,7 @@ export default function AttendancePage() {
                     {/* Date */}
                     <td className="px-6 py-4">
                       <span className="text-slate-700 font-medium">
-                        {new Date(r.date).toLocaleDateString("fr-FR", {
+                        {parseDateOnly(r.date).toLocaleDateString("fr-FR", {
                           weekday: "short",
                           day: "numeric",
                           month: "short",
@@ -569,6 +721,99 @@ export default function AttendancePage() {
         )}
       </div>
 
+      {/* Historique des journées précédentes */}
+      {history && history.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-900 mb-3">
+            Historique des journées précédentes (7 jours)
+          </h3>
+          {returnToRange && (
+            <div className="mb-3">
+              <button
+                className="text-sm font-medium text-blue-700 hover:text-blue-800"
+                onClick={() => {
+                  setDateFrom(returnToRange.dateFrom);
+                  setDateTo(returnToRange.dateTo);
+                  setPage(1);
+                  setReturnToRange(null);
+                }}
+              >
+                ← Retour à {formatDateLabel(returnToRange.dateFrom)}
+              </button>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Jour
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Présents
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Absents
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Retards
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Mission / Perm.
+                  </th>
+                  <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h) => (
+                  <tr key={h.date} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-700 font-medium">
+                          {h.label}
+                        </span>
+                        {h.isNonWorkingDay && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                            Non ouvré
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-emerald-600">{h.counts.present}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-red-600">{h.counts.absent}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-amber-600">{h.counts.late}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-violet-600">{h.counts.missionPerm}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                        onClick={() => {
+                          setReturnToRange({ dateFrom, dateTo });
+                          setDateFrom(h.date);
+                          setDateTo(h.date);
+                          setPage(1);
+                        }}
+                      >
+                        Voir
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Detail Drawer / Modal */}
       {detailRecord && (
         <div className="fixed inset-0 z-50 flex justify-end">
@@ -630,7 +875,7 @@ export default function AttendancePage() {
               <div className="rounded-xl bg-slate-50 p-4 flex items-center gap-3">
                 <CalendarDays className="h-5 w-5 text-slate-400" />
                 <span className="text-sm font-medium text-slate-700">
-                  {new Date(detailRecord.date).toLocaleDateString("fr-FR", {
+                  {parseDateOnly(detailRecord.date).toLocaleDateString("fr-FR", {
                     weekday: "long",
                     day: "numeric",
                     month: "long",

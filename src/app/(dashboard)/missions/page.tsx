@@ -969,7 +969,7 @@ export default function MissionsPage() {
                         max={getDurationDays(detailMission.startDate, detailMission.endDate)}
                         value={editingDays}
                         onChange={(e) => setEditingDays(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
                         onClick={() => updateDaysCompleted(detailMission.id, editingDays)}
@@ -1080,123 +1080,311 @@ export default function MissionsPage() {
                   </div>
                 )}
                 {detailMission.status === "APPROVED" && (
-                  <button
-                    onClick={async () => {
-                      const { jsPDF } = await import("jspdf");
-                      const doc = new jsPDF();
-                      const m = detailMission;
-                      const today = new Date();
-                      const fmt = (d: string) =>
-                        new Date(d).toLocaleDateString("fr-FR", {
-                          day: "2-digit",
-                          month: "long",
-                          year: "numeric",
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      onClick={async () => {
+                        const docxMod = (await import("docx")) as any;
+                        const {
+                          Document,
+                          Packer,
+                          Paragraph,
+                          TextRun,
+                          AlignmentType,
+                          Table,
+                          TableRow,
+                          TableCell,
+                          WidthType,
+                          BorderStyle,
+                        } = docxMod;
+
+                        const m = detailMission;
+                        const today = new Date();
+                        const fmt = (d: string) =>
+                          new Date(d).toLocaleDateString("fr-FR", {
+                            day: "2-digit",
+                            month: "long",
+                            year: "numeric",
+                          });
+
+                        const todayStr = today.toLocaleDateString("fr-FR");
+
+                        const clampText = (text: string | null | undefined, maxLines = 5) => {
+                          const safe = (text ?? "-").toString();
+                          const charsPerLine = 92; // approximation pour 10pt en A4
+                          const maxChars = maxLines * charsPerLine;
+                          if (safe.length <= maxChars) return safe;
+                          return safe.slice(0, Math.max(0, maxChars - 3)).trimEnd() + "...";
+                        };
+
+                        const missionnaireTable = new Table({
+                          width: { size: 100, type: WidthType.PERCENTAGE },
+                          rows: [
+                            new TableRow({
+                              children: [
+                                new TableCell({
+                                  width: { size: 50, type: WidthType.PERCENTAGE },
+                                  children: [
+                                    new Paragraph({
+                                      children: [
+                                        new TextRun({
+                                          bold: true,
+                                          text: "Nom et prénom : ",
+                                        }),
+                                        new TextRun({
+                                          text: `${m.employee.lastName} ${m.employee.firstName}`,
+                                        }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                                new TableCell({
+                                  width: { size: 50, type: WidthType.PERCENTAGE },
+                                  children: [
+                                    new Paragraph({
+                                      children: [
+                                        new TextRun({ bold: true, text: "Matricule : " }),
+                                        new TextRun({ text: m.employee.matricule }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                              ],
+                            }),
+                            new TableRow({
+                              children: [
+                                new TableCell({
+                                  width: { size: 50, type: WidthType.PERCENTAGE },
+                                  children: [
+                                    new Paragraph({
+                                      children: [
+                                        new TextRun({ bold: true, text: "Service : " }),
+                                        new TextRun({ text: m.employee.service ?? "-" }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                                new TableCell({
+                                  width: { size: 50, type: WidthType.PERCENTAGE },
+                                  children: [
+                                    new Paragraph({
+                                      children: [
+                                        new TextRun({ bold: true, text: "Structure d'origine : " }),
+                                        new TextRun({ text: m.originStructure ?? "-" }),
+                                      ],
+                                    }),
+                                  ],
+                                }),
+                              ],
+                            }),
+                          ],
                         });
 
-                      doc.setFontSize(14);
-                      doc.text("ORDRE DE MISSION", 105, 15, { align: "center" });
+                        const doc = new Document({
+                          sections: [
+                            {
+                              properties: {
+                                page: {
+                                  margin: { top: 720, bottom: 720, left: 720, right: 720 },
+                                },
+                              },
+                              children: [
+                                new Paragraph({
+                                  alignment: AlignmentType.CENTER,
+                                  text: "ORDRE DE MISSION",
+                                  heading: docxMod.HeadingLevel.HEADING_1,
+                                }),
+                                new Paragraph({
+                                  text: `Date d'émission : ${todayStr}`,
+                                  alignment: AlignmentType.LEFT,
+                                }),
 
-                      doc.setFontSize(10);
-                      doc.text(
-                        `Date d'émission : ${today.toLocaleDateString("fr-FR")}`,
-                        14,
-                        25
-                      );
+                                new Paragraph({ text: "MISSIONNAIRE", heading: docxMod.HeadingLevel.HEADING_2 }),
+                                missionnaireTable,
 
-                      doc.setFontSize(11);
-                      doc.text("MISSIONNAIRE", 14, 35);
-                      doc.setFontSize(10);
-                      doc.text(
-                        `Nom et prénom : ${m.employee.lastName} ${m.employee.firstName}`,
-                        14,
-                        42
-                      );
-                      doc.text(`Matricule : ${m.employee.matricule}`, 14, 48);
-                      doc.text(
-                        `Service : ${m.employee.service ?? "-"}`,
-                        14,
-                        54
-                      );
-                      doc.text(
-                        `Structure d'origine : ${m.originStructure ?? "-"}`,
-                        14,
-                        60
-                      );
+                                new Paragraph({ text: "MISSION", heading: docxMod.HeadingLevel.HEADING_2 }),
+                                new Paragraph({
+                                  children: [
+                                    new TextRun({ bold: true, text: "Objet : " }),
+                                    new TextRun({ text: clampText(m.reason, 5) }),
+                                  ],
+                                }),
+                                new Paragraph({ text: `Lieu : ${m.location ?? "-"}` }),
+                                new Paragraph({ text: `Structure d'accueil : ${m.hostStructure ?? "-"}` }),
+                                new Paragraph({
+                                  text: `Période : du ${fmt(m.startDate)} au ${fmt(m.endDate)}`,
+                                }),
+                                new Paragraph({
+                                  text: `Durée prévue : ${formatDuration(m.startDate, m.endDate)}`,
+                                }),
+                                new Paragraph({
+                                  text: `Jours effectués (suivi) : ${m.daysCompleted} jour(s)`,
+                                }),
 
-                      doc.setFontSize(11);
-                      doc.text("MISSION", 14, 72);
-                      doc.setFontSize(10);
-                      doc.text(`Objet : ${m.reason}`, 14, 79, { maxWidth: 180 });
-                      doc.text(`Lieu : ${m.location ?? "-"}`, 14, 88);
-                      doc.text(
-                        `Structure d'accueil : ${m.hostStructure ?? "-"}`,
-                        14,
-                        94
-                      );
-                      doc.text(
-                        `Période : du ${fmt(m.startDate)} au ${fmt(m.endDate)}`,
-                        14,
-                        100
-                      );
-                      doc.text(
-                        `Durée prévue : ${formatDuration(
-                          m.startDate,
-                          m.endDate
-                        )}`,
-                        14,
-                        106
-                      );
-                      doc.text(
-                        `Jours effectués (suivi) : ${m.daysCompleted} jour(s)`,
-                        14,
-                        112
-                      );
+                                new Paragraph({ text: "MOYENS", heading: docxMod.HeadingLevel.HEADING_2 }),
+                                new Paragraph({ text: `Transport : ${m.transport ?? "-"}` }),
+                                new Paragraph({
+                                  text: `Hébergement : ${clampText(m.lodging, 5)}`,
+                                }),
+                                new Paragraph({
+                                  text: `Frais : ${clampText(m.expenses, 5)}`,
+                                }),
 
-                      let y = 124;
-                      doc.setFontSize(11);
-                      doc.text("MOYENS", 14, y);
-                      doc.setFontSize(10);
-                      y += 7;
-                      doc.text(`Transport : ${m.transport ?? "-"}`, 14, y);
-                      y += 6;
-                      doc.text(`Hébergement : ${m.lodging ?? "-"}`, 14, y);
-                      y += 6;
-                      doc.text(`Frais : ${m.expenses ?? "-"}`, 14, y);
+                                new Paragraph({ text: "VALIDATION", heading: docxMod.HeadingLevel.HEADING_2 }),
+                                new Paragraph({
+                                  text: "Le présent ordre de mission est délivré pour servir et valoir ce que de droit.",
+                                }),
+                                new Paragraph({
+                                  text: `Fait à ____________________, le ${todayStr}`,
+                                  spacing: { before: 240 },
+                                }),
+                                new Paragraph({ text: "Signature et cachet", alignment: AlignmentType.RIGHT }),
+                              ],
+                            },
+                          ],
+                        });
 
-                      y += 12;
-                      doc.setFontSize(11);
-                      doc.text("VALIDATION", 14, y);
-                      y += 7;
-                      doc.setFontSize(10);
-                      doc.text(
-                        "Le présent ordre de mission est délivré pour servir et valoir ce que de droit.",
-                        14,
-                        y,
-                        { maxWidth: 180 }
-                      );
+                        const blob = await Packer.toBlob(doc);
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `ordre_mission_${m.employee.matricule}_${m.id.slice(0, 8)}.docx`;
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 1500);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-medium text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Télécharger l'ordre de mission (Word)
+                    </button>
 
-                      y += 12;
-                      doc.text(
-                        `Fait à ____________________, le ${today.toLocaleDateString(
-                          "fr-FR"
-                        )}`,
-                        14,
-                        y
-                      );
-                      y += 20;
-                      doc.text("Signature et cachet", 150, y);
+                    <button
+                      onClick={async () => {
+                        const { jsPDF } = await import("jspdf");
+                        const doc = new jsPDF();
+                        const m = detailMission;
+                        const today = new Date();
+                        const fmt = (d: string) =>
+                          new Date(d).toLocaleDateString("fr-FR", {
+                            day: "2-digit",
+                            month: "long",
+                            year: "numeric",
+                          });
 
-                      doc.save(
-                        `ordre_mission_${m.employee.matricule}_${
-                          m.id.slice(0, 8)
-                        }.pdf`
-                      );
-                    }}
-                    className="inline-flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-medium text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
-                  >
-                    <Download className="w-4 h-4" />
-                    Télécharger l'ordre de mission (PDF)
-                  </button>
+                        doc.setFontSize(14);
+                        doc.text("ORDRE DE MISSION", 105, 15, { align: "center" });
+
+                        doc.setFontSize(10);
+                        doc.text(
+                          `Date d'émission : ${today.toLocaleDateString("fr-FR")}`,
+                          14,
+                          25
+                        );
+
+                        doc.setFontSize(11);
+                        doc.text("MISSIONNAIRE", 14, 35);
+                        doc.setFontSize(10);
+                        doc.text(
+                          `Nom et prénom : ${m.employee.lastName} ${m.employee.firstName}`,
+                          14,
+                          42
+                        );
+                        doc.text(`Matricule : ${m.employee.matricule}`, 14, 48);
+                        doc.text(`Service : ${m.employee.service ?? "-"}`, 14, 54);
+                        doc.text(
+                          `Structure d'origine : ${m.originStructure ?? "-"}`,
+                          14,
+                          60
+                        );
+
+                        const maxWidth = 180;
+                        const maxLines = 5;
+                        const lineHeight = 4;
+
+                        const splitClamped = (text: string) => {
+                          const lines = doc.splitTextToSize(text, maxWidth) as string[];
+                          if (lines.length <= maxLines) return lines;
+                          const sliced = lines.slice(0, maxLines);
+                          sliced[maxLines - 1] =
+                            (sliced[maxLines - 1] || "").replace(/\.\.\.$/, "") + "...";
+                          return sliced;
+                        };
+
+                        let y = 72;
+                        doc.text("MISSION", 14, y);
+                        y += 7;
+                        doc.setFontSize(10);
+
+                        doc.text(splitClamped(`Objet : ${m.reason}`), 14, y);
+                        y += maxLines * lineHeight;
+                        doc.text(`Lieu : ${m.location ?? "-"}`, 14, y);
+                        y += lineHeight;
+                        doc.text(
+                          `Structure d'accueil : ${m.hostStructure ?? "-"}`,
+                          14,
+                          y
+                        );
+                        y += lineHeight;
+                        doc.text(
+                          `Période : du ${fmt(m.startDate)} au ${fmt(m.endDate)}`,
+                          14,
+                          y
+                        );
+                        y += lineHeight;
+                        doc.text(
+                          `Durée prévue : ${formatDuration(m.startDate, m.endDate)}`,
+                          14,
+                          y
+                        );
+                        y += lineHeight;
+                        doc.text(
+                          `Jours effectués (suivi) : ${m.daysCompleted} jour(s)`,
+                          14,
+                          y
+                        );
+                        y += lineHeight + 2;
+
+                        doc.setFontSize(11);
+                        doc.text("MOYENS", 14, y);
+                        y += 7;
+                        doc.setFontSize(10);
+
+                        doc.text(`Transport : ${m.transport ?? "-"}`, 14, y);
+                        y += lineHeight;
+
+                        doc.text(splitClamped(`Hébergement : ${m.lodging ?? "-"}`), 14, y);
+                        y += maxLines * lineHeight;
+                        doc.text(splitClamped(`Frais : ${m.expenses ?? "-"}`), 14, y);
+                        y += maxLines * lineHeight;
+
+                        doc.setFontSize(11);
+                        doc.text("VALIDATION", 14, y);
+                        y += 7;
+                        doc.setFontSize(10);
+                        doc.text(
+                          "Le présent ordre de mission est délivré pour servir et valoir ce que de droit.",
+                          14,
+                          y,
+                          { maxWidth: 180 }
+                        );
+                        y += 12;
+                        doc.text(
+                          `Fait à ____________________, le ${today.toLocaleDateString("fr-FR")}`,
+                          14,
+                          y
+                        );
+                        y += 20;
+                        doc.text("Signature et cachet", 150, y);
+
+                        doc.save(
+                          `ordre_mission_${m.employee.matricule}_${m.id.slice(0, 8)}.pdf`
+                        );
+                      }}
+                      className="inline-flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-medium text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Télécharger l'ordre de mission (PDF)
+                    </button>
+                  </div>
                 )}
               </div>
             </div>

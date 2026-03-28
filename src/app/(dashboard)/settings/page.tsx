@@ -170,7 +170,7 @@ export default function SettingsPage() {
   // Schedule
   const openScheduleCreate = () => {
     setEditingSchedule(null);
-    setScheduleForm({ siteId: sites[0]?.id ?? "", startTime: "08:00", endTime: "17:00", closureTime: "18:00", lateGraceMin: "10" });
+    setScheduleForm({ siteId: sites[0]?.id ?? "", startTime: "08:00", endTime: "17:30", closureTime: "18:00", lateGraceMin: "30" });
     setScheduleModal(true);
   };
   const openScheduleEdit = (sch: Schedule) => {

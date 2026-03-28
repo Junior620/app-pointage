@@ -13,13 +13,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // On calcule une "date-only" stable en UTC (champ `@db.Date`).
     const now = new Date();
-    const saturday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const saturday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0)
+    );
 
     const monday = new Date(saturday);
-    const dayOfWeek = saturday.getDay();
+    const dayOfWeek = saturday.getUTCDay(); // 0=dim ... 6=sam
     const daysBack = dayOfWeek === 6 ? 5 : dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    monday.setDate(saturday.getDate() - daysBack);
+    monday.setUTCDate(saturday.getUTCDate() - daysBack);
 
     const employees = await prisma.employee.findMany({
       where: { active: true, whatsappPhone: { not: null } },
@@ -31,7 +34,14 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    console.log("[Weekly summary] run", {
+      monday: monday.toISOString().slice(0, 10),
+      saturday: saturday.toISOString().slice(0, 10),
+      employees: employees.length,
+    });
+
     let count = 0;
+    let failed = 0;
     for (const emp of employees) {
       const records = await prisma.attendanceRecord.findMany({
         where: {
@@ -101,14 +111,25 @@ export async function GET(request: NextRequest) {
         msg += `\n⚠️ Attention : ${late} retards cette semaine. Merci d'être vigilant.`;
       }
 
-      await sendWhatsAppMessage(emp.whatsappPhone!, msg);
-      count++;
+      try {
+        await sendWhatsAppMessage(emp.whatsappPhone!, msg);
+        count++;
+      } catch (e) {
+        failed++;
+        console.error("[Weekly summary] Envoi échoué pour", {
+          phone: emp.whatsappPhone,
+          employeeId: emp.id,
+          name: `${emp.firstName} ${emp.lastName}`,
+          error: e,
+        });
+      }
     }
 
     return NextResponse.json({
       success: true,
       message: `Résumé hebdomadaire envoyé à ${count} employé(s)`,
       count,
+      failed,
     });
   } catch (error) {
     console.error("Weekly summary error:", error);

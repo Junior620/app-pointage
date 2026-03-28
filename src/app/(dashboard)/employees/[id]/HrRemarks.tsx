@@ -322,7 +322,7 @@ export default function HrRemarks({
                 if (!DISCIPLINARY_CATEGORIES.includes(e.target.value))
                   setLevel(null);
               }}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {Object.entries(CATEGORIES).map(([key, { label }]) => (
                 <option key={key} value={key}>
@@ -337,7 +337,7 @@ export default function HrRemarks({
                 onChange={(e) =>
                   setLevel(e.target.value ? parseInt(e.target.value) : null)
                 }
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 <option value="">-- Niveau disciplinaire --</option>
                 {Object.entries(LEVEL_LABELS).map(([val, { label }]) => (
@@ -353,7 +353,7 @@ export default function HrRemarks({
               onChange={(e) => setContent(e.target.value)}
               placeholder="Décrivez la situation, les faits, la décision prise..."
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
             <div className="flex justify-end">
               <button
