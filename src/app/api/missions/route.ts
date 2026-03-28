@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { sendWhatsAppMessage } from "@/lib/whatsapp";
 
 const createMissionSchema = z.object({
   employeeId: z.string().min(1),
@@ -113,6 +114,34 @@ export async function POST(request: NextRequest) {
       entityId: mission.id,
       after: mission,
     });
+
+    if (employee.active && employee.whatsappPhone?.trim()) {
+      try {
+        const opts: Intl.DateTimeFormatOptions = {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        };
+        const startStr = mission.startDate.toLocaleDateString("fr-FR", opts);
+        const endStr = mission.endDate.toLocaleDateString("fr-FR", opts);
+        let msg = `📋 *Nouvelle mission*\n\n`;
+        msg += `Bonjour ${employee.firstName},\n\n`;
+        msg += `Une mission a été enregistrée à votre nom.\n\n`;
+        msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
+        if (mission.location?.trim()) {
+          msg += `\n📍 *Lieu*\n${mission.location.trim()}\n`;
+        }
+        if (mission.hostStructure) {
+          msg += `\n🏢 *Structure d'accueil*\n${mission.hostStructure}\n`;
+        }
+        msg += `\n📝 *Motif*\n${mission.reason}\n`;
+        msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
+        await sendWhatsAppMessage(employee.whatsappPhone.trim(), msg);
+      } catch (e) {
+        console.error("[Missions] Notification WhatsApp (création mission) échouée:", e);
+      }
+    }
 
     return NextResponse.json({ data: mission }, { status: 201 });
   } catch (error) {
