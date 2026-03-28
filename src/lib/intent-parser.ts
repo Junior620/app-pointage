@@ -102,7 +102,7 @@ export function parseIntent(message: string): {
     return { intent: "HELP" };
   }
 
-  // Réponse par numéro : 1 = Arrivée, 2 = Départ, 3 = Statut
+  // Réponse par numéro : 1 = Arrivée, 2 = Départ, 3 = Statut, … 9 = détail jour
   if (normalized === "1") return { intent: "CHECK_IN" };
   if (normalized === "2") return { intent: "CHECK_OUT" };
   if (normalized === "3") return { intent: "STATUS" };
@@ -110,6 +110,14 @@ export function parseIntent(message: string): {
   if (normalized === "5") return { intent: "MY_ABSENCES" };
   if (normalized === "6") return { intent: "MY_OVERTIME" };
   if (normalized === "7") return { intent: "MY_MISSIONS" };
+  if (normalized === "8") return { intent: "MY_OVERTIME_PENDING" };
+  if (normalized === "9" || normalized.startsWith("9 ")) {
+    const rest = message
+      .trim()
+      .replace(/^9\s*/i, "")
+      .trim();
+    return { intent: "DAY_DETAIL", comment: rest || undefined };
+  }
 
   const parts = normalized.split(/\s+/);
 
@@ -210,8 +218,8 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 5️⃣ *Mes absences* — Voir vos absences
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
 7️⃣ *Mes missions* — Missions et permissions
-🅿️ *Mes heures sup en attente*
-📅 *Détail jour JJ/MM* — Détail complet d'un jour
+8️⃣ *Mes heures sup en attente*
+9️⃣ *Détail jour* — Envoyez *9* puis la date JJ/MM (ex. *9 15/03*)
 
 Répondez par le *numéro* ou tapez la commande.`;
 
@@ -227,8 +235,8 @@ Que souhaitez-vous faire ?
 5️⃣ Mes absences
 6️⃣ Mes heures sup
 7️⃣ Mes missions
-🅿️ Mes heures sup en attente
-📅 Détail jour JJ/MM
+8️⃣ Mes heures sup en attente
+9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
 
 Répondez par le *numéro* correspondant.`;
 }

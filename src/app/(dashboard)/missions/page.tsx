@@ -969,7 +969,7 @@ export default function MissionsPage() {
                         max={getDurationDays(detailMission.startDate, detailMission.endDate)}
                         value={editingDays}
                         onChange={(e) => setEditingDays(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
                         onClick={() => updateDaysCompleted(detailMission.id, editingDays)}

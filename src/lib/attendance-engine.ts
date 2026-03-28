@@ -60,8 +60,6 @@ async function hasApprovedLeaveOrMission(
 }
 
 // Limites d'heures supplémentaires (configurables via variables d'environnement)
-const MAX_DAILY_OT_MIN =
-  parseInt(process.env.MAX_DAILY_OVERTIME_MIN || "", 10) || 120; // 2h / jour
 const MAX_WEEKLY_OT_MIN =
   parseInt(process.env.MAX_WEEKLY_OVERTIME_MIN || "", 10) || 600; // 10h / semaine
 const MAX_MONTHLY_OT_MIN =
@@ -306,10 +304,7 @@ export async function processCheckOut(
     overtime = Math.max(0, totalForOvertime);
   }
 
-  // 2) Plafond journalier
-  overtime = Math.min(overtime, MAX_DAILY_OT_MIN);
-
-  // 3) Plafond hebdomadaire et mensuel (on tient compte des heures déjà comptabilisées)
+  // 2) Plafond hebdomadaire et mensuel (on tient compte des heures déjà comptabilisées)
   if (overtime > 0) {
     const weekStart = startOfWeek(today);
     const monthStart = startOfMonth(today);

@@ -24,7 +24,9 @@ export default async function DashboardLayout({
 
       <div className="lg:pl-64">
         <Header userName={session.name} userRole={session.role} />
-        <main className="p-6 lg:p-8">{children}</main>
+        <main className="p-6 lg:p-8 text-slate-900">
+          {children}
+        </main>
       </div>
     </div>
   );
