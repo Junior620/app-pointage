@@ -59,25 +59,27 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Règle métier : une heure sup doit être liée à une mission/projet approuvé
-    // (mission couvrant la date du pointage). Sans mission → refus automatique.
-    const hasApprovedMission = await prisma.mission.findFirst({
-      where: {
-        employeeId: record.employeeId,
-        status: "APPROVED",
-        startDate: { lte: record.date },
-        endDate: { gte: record.date },
-      },
-    });
-
-    if (!hasApprovedMission && parsed.data.status === "APPROVED") {
-      return NextResponse.json(
-        {
-          error:
-            "Impossible d'approuver ces heures supplémentaires : aucune mission/projet approuvé ne couvre cette date.",
+    // Optionnel : exiger une mission approuvée sur la date (stricte RH).
+    // Par défaut désactivé — activer avec REQUIRE_MISSION_FOR_OVERTIME_APPROVAL=true
+    if (process.env.REQUIRE_MISSION_FOR_OVERTIME_APPROVAL === "true") {
+      const hasApprovedMission = await prisma.mission.findFirst({
+        where: {
+          employeeId: record.employeeId,
+          status: "APPROVED",
+          startDate: { lte: record.date },
+          endDate: { gte: record.date },
         },
-        { status: 400 }
-      );
+      });
+
+      if (!hasApprovedMission && parsed.data.status === "APPROVED") {
+        return NextResponse.json(
+          {
+            error:
+              "Impossible d'approuver ces heures supplémentaires : aucune mission/projet approuvé ne couvre cette date.",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const updated = await prisma.attendanceRecord.update({

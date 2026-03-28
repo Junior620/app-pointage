@@ -59,6 +59,7 @@ export default function OvertimePage() {
   const [page, setPage] = useState(1);
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<Record<string, string>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
   const perPage = 25;
 
   const fetchOvertime = useCallback(async () => {
@@ -90,6 +91,7 @@ export default function OvertimePage() {
 
   const validate = async (id: string, status: "APPROVED" | "REJECTED") => {
     setActioningId(id);
+    setActionError(null);
     try {
       const res = await fetch(`/api/overtime/${id}`, {
         method: "PATCH",
@@ -101,12 +103,20 @@ export default function OvertimePage() {
           }),
         }),
       });
-      if (res.ok) {
-        fetchOvertime();
-        setRejectReason((prev) => ({ ...prev, [id]: "" }));
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof json.error === "string"
+            ? json.error
+            : "Impossible d'enregistrer la validation. Réessayez.";
+        setActionError(msg);
+        return;
       }
+      fetchOvertime();
+      setRejectReason((prev) => ({ ...prev, [id]: "" }));
     } catch (e) {
       console.error(e);
+      setActionError("Erreur réseau. Vérifiez votre connexion.");
     } finally {
       setActioningId(null);
     }
@@ -246,6 +256,22 @@ export default function OvertimePage() {
           </div>
         </div>
       </div>
+
+      {actionError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-start justify-between gap-3"
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="shrink-0 font-medium text-red-700 hover:text-red-900 underline-offset-2 hover:underline"
+          >
+            Fermer
+          </button>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-100">
