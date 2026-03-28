@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Download,
   Eye,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
@@ -90,7 +91,9 @@ export default function LeavesPage() {
   const [form, setForm] = useState({ employeeId: "", startDate: "", endDate: "", reason: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const perPage = 20;
 
   const fetchLeaves = useCallback(async () => {
@@ -140,6 +143,7 @@ export default function LeavesPage() {
     fetchEmployees();
     setForm({ employeeId: "", startDate: "", endDate: "", reason: "" });
     setErrors({});
+    setSubmitError("");
     setModalOpen(true);
   };
 
@@ -155,20 +159,53 @@ export default function LeavesPage() {
       return;
     }
     setSubmitting(true);
+    setSubmitError("");
     try {
       const res = await fetch("/api/leaves", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result.data),
       });
+      const json = await res.json().catch(() => ({}));
       if (res.ok) {
         setModalOpen(false);
         fetchLeaves();
+      } else {
+        setSubmitError(
+          typeof json.error === "string" ? json.error : "Impossible d'enregistrer la demande."
+        );
       }
     } catch (e) {
       console.error(e);
+      setSubmitError("Erreur réseau. Réessayez.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const deleteLeave = async (id: string) => {
+    if (
+      !window.confirm(
+        "Supprimer définitivement cette demande en attente ? Cette action est irréversible."
+      )
+    ) {
+      return;
+    }
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/leaves/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setDetailLeave(null);
+        fetchLeaves();
+      } else {
+        window.alert(typeof json.error === "string" ? json.error : "Suppression impossible.");
+      }
+    } catch (e) {
+      console.error(e);
+      window.alert("Erreur réseau.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -408,7 +445,7 @@ export default function LeavesPage() {
                             <>
                               <button
                                 onClick={() => updateStatus(leave.id, "APPROVED")}
-                                disabled={actioningId === leave.id}
+                                disabled={actioningId === leave.id || deletingId === leave.id}
                                 className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-50"
                                 title="Approuver"
                               >
@@ -416,11 +453,19 @@ export default function LeavesPage() {
                               </button>
                               <button
                                 onClick={() => updateStatus(leave.id, "REJECTED")}
-                                disabled={actioningId === leave.id}
+                                disabled={actioningId === leave.id || deletingId === leave.id}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
                                 title="Refuser"
                               >
                                 <XCircle className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteLeave(leave.id)}
+                                disabled={deletingId === leave.id || actioningId === leave.id}
+                                className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                                title="Supprimer la demande"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </>
                           )}
@@ -475,6 +520,11 @@ export default function LeavesPage() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {submitError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {submitError}
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Employé</label>
                 <select
@@ -649,22 +699,33 @@ export default function LeavesPage() {
                 </div>
               )}
               {detailLeave.status === "PENDING" && (
-                <div className="flex gap-3 pt-2 border-t border-slate-100">
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => updateStatus(detailLeave.id, "APPROVED")}
+                      disabled={actioningId === detailLeave.id || deletingId === detailLeave.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      <Check className="w-4 h-4" />
+                      Approuver
+                    </button>
+                    <button
+                      onClick={() => updateStatus(detailLeave.id, "REJECTED")}
+                      disabled={actioningId === detailLeave.id || deletingId === detailLeave.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Refuser
+                    </button>
+                  </div>
                   <button
-                    onClick={() => updateStatus(detailLeave.id, "APPROVED")}
-                    disabled={actioningId === detailLeave.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                    type="button"
+                    onClick={() => deleteLeave(detailLeave.id)}
+                    disabled={deletingId === detailLeave.id || actioningId === detailLeave.id}
+                    className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-slate-700 bg-slate-100 hover:bg-red-50 hover:text-red-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                   >
-                    <Check className="w-4 h-4" />
-                    Approuver
-                  </button>
-                  <button
-                    onClick={() => updateStatus(detailLeave.id, "REJECTED")}
-                    disabled={actioningId === detailLeave.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    Refuser
+                    <Trash2 className="w-4 h-4" />
+                    {deletingId === detailLeave.id ? "Suppression…" : "Supprimer la demande"}
                   </button>
                 </div>
               )}

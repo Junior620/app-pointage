@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const session = await requireRole(["HR", "ADMIN", "DG"]);
     const body = await request.json();
 
     const parsed = createLeaveSchema.safeParse(body);

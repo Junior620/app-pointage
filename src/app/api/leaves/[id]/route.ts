@@ -57,3 +57,43 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
+
+export async function DELETE(_request: NextRequest, context: RouteContext) {
+  try {
+    const session = await requireRole(["HR", "ADMIN", "DG"]);
+    const { id } = await context.params;
+
+    const before = await prisma.leaveRequest.findUnique({ where: { id } });
+    if (!before) {
+      return NextResponse.json({ error: "Demande de permission non trouvée" }, { status: 404 });
+    }
+
+    if (before.status !== "PENDING") {
+      return NextResponse.json(
+        {
+          error:
+            "Seules les demandes encore en attente peuvent être supprimées. Les demandes approuvées ou refusées restent dans l'historique.",
+        },
+        { status: 400 }
+      );
+    }
+
+    await prisma.leaveRequest.delete({ where: { id } });
+
+    await createAuditLog({
+      actorId: session.id,
+      action: "DELETE",
+      entity: "LeaveRequest",
+      entityId: id,
+      before,
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
+      if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}
