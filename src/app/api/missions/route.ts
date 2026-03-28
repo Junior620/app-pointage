@@ -41,7 +41,9 @@ export async function GET(request: NextRequest) {
     const structure = searchParams.get("structure");
     if (structure) where.originStructure = structure;
 
-    const [missions, total, pending, approved, rejected, serviceRows] = await Promise.all([
+    const activeWhere = { ...where, ...activeRequestFilter };
+
+    const [missions, total, pending, approved, rejected, cancelled, serviceRows] = await Promise.all([
       prisma.mission.findMany({
         where,
         include: { employee: true },
@@ -50,9 +52,10 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: "desc" },
       }),
       prisma.mission.count({ where }),
-      prisma.mission.count({ where: { ...where, status: "PENDING" } }),
-      prisma.mission.count({ where: { ...where, status: "APPROVED" } }),
-      prisma.mission.count({ where: { ...where, status: "REJECTED" } }),
+      prisma.mission.count({ where: { ...activeWhere, status: "PENDING" } }),
+      prisma.mission.count({ where: { ...activeWhere, status: "APPROVED" } }),
+      prisma.mission.count({ where: { ...activeWhere, status: "REJECTED" } }),
+      prisma.mission.count({ where: { ...where, cancelledAt: { not: null } } }),
       prisma.employee.findMany({
         select: { service: true },
         distinct: ["service"],
