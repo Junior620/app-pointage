@@ -236,9 +236,9 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 5️⃣ *Mes absences* — Voir vos absences
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
 7️⃣ *Mes missions* — Missions et permissions
-*8* Mes heures sup en attente
-*9* Détail jour — tapez *9* puis JJ/MM (ex. *9 15/03*)
-*10* Résumé / historique de la semaine (lundi → samedi)
+8️⃣ *Heures sup en attente* — Heures sup à valider par la RH
+9️⃣ *Détail jour* — Tapez *9* puis JJ/MM (ex. *9 15/03*)
+🔟 *Résumé semaine* — Historique lundi → samedi
 
 Répondez par le *numéro* (1 à 10) ou tapez la commande.`;
 
@@ -254,9 +254,9 @@ Que souhaitez-vous faire ?
 5️⃣ Mes absences
 6️⃣ Mes heures sup
 7️⃣ Mes missions
-*8* Mes heures sup en attente
-*9* Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
-*10* Résumé / historique de la semaine
+8️⃣ Mes heures sup en attente
+9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
+🔟 Résumé / historique de la semaine
 
 Répondez par le *numéro* (1 à 10) correspondant.`;
 }
