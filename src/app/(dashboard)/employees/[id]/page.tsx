@@ -19,7 +19,16 @@ function getWorkingDays(from: Date, to: Date): Date[] {
   return days;
 }
 
-function dateKey(d: Date): string {
+/** Date civile locale (jours ouvrés affichés) — évite le décalage UTC de toISOString(). */
+function dateKeyLocalCalendar(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Date stockée @db.Date (minuit UTC) → même YYYY-MM-DD que le calendrier. */
+function dateKeyFromDbDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
@@ -55,14 +64,14 @@ export default async function EmployeeDetailPage({
   const holidays = await prisma.holiday.findMany({
     where: { date: { gte: thirtyDaysAgo, lte: today } },
   });
-  const holidaySet = new Set(holidays.map((h) => dateKey(h.date)));
+  const holidaySet = new Set(holidays.map((h) => dateKeyFromDbDate(h.date)));
 
   const workingDays = getWorkingDays(thirtyDaysAgo, today).filter(
-    (d) => !holidaySet.has(dateKey(d))
+    (d) => !holidaySet.has(dateKeyLocalCalendar(d))
   );
 
   const recordMap = new Map(
-    employee.attendances.map((a) => [dateKey(a.date), a])
+    employee.attendances.map((a) => [dateKeyFromDbDate(a.date), a])
   );
 
   type DayRow = {
@@ -79,7 +88,7 @@ export default async function EmployeeDetailPage({
 
   const rows: DayRow[] = workingDays
     .map((d) => {
-      const rec = recordMap.get(dateKey(d));
+      const rec = recordMap.get(dateKeyLocalCalendar(d));
       if (rec) {
         return {
           date: d,
@@ -240,7 +249,7 @@ export default async function EmployeeDetailPage({
                 </tr>
               ) : (
                 rows.map((a) => (
-                  <tr key={dateKey(a.date)} className={cn(
+                  <tr key={dateKeyLocalCalendar(a.date)} className={cn(
                     "border-b border-slate-50 hover:bg-slate-50",
                     a.finalStatus === "ABSENT" && !a.checkInTime && "bg-red-50/40"
                   )}>
