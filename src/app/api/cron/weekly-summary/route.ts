@@ -39,18 +39,24 @@ export async function GET(request: NextRequest) {
     let count = 0;
     let failed = 0;
     for (const emp of employees) {
-      const records = await prisma.attendanceRecord.findMany({
-        where: {
-          employeeId: emp.id,
-          date: { gte: monday, lte: saturday },
-        },
-      });
+      const [records, pendingLeaveRequests] = await Promise.all([
+        prisma.attendanceRecord.findMany({
+          where: {
+            employeeId: emp.id,
+            date: { gte: monday, lte: saturday },
+          },
+        }),
+        prisma.leaveRequest.count({
+          where: { employeeId: emp.id, status: "PENDING" },
+        }),
+      ]);
 
       const msg = buildWeeklySummaryWhatsAppMessage(
         emp.firstName,
         monday,
         saturday,
-        records
+        records,
+        { pendingLeaveRequests }
       );
 
       try {
