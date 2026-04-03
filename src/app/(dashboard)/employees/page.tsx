@@ -771,7 +771,7 @@ export default function EmployeesPage() {
                         onChange={(e) =>
                           setForm({ ...form, matricule: e.target.value })
                         }
-                        placeholder="SCPB-IT-0001"
+                        placeholder="SCPB-IT-4829"
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
                       />
                       {errors.matricule && (
@@ -782,8 +782,10 @@ export default function EmployeesPage() {
                     </>
                   ) : (
                     <div className="w-full px-3 py-2.5 border border-dashed border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50">
-                      Sera généré automatiquement à l&apos;enregistrement
-                      (ex.&nbsp;SCPB-IT-0001).
+                      Généré à l&apos;enregistrement :{" "}
+                      <span className="font-mono text-slate-600">STRUCTURE-SERVICE-XXXX</span> avec{" "}
+                      <span className="font-mono text-slate-600">XXXX</span> aléatoire et unique (ex.&nbsp;SCPB-IT-4829
+                      ou AFREXIA-RH-1204).
                     </div>
                   )}
                 </div>
