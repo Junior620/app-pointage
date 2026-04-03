@@ -67,6 +67,28 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       }
       updateData.status = parsed.data.status;
       updateData.approvedBy = session.name;
+
+      // Quand la mission est approuvée, on considère par défaut qu'elle couvre
+      // toute la durée prévue (afin d'afficher directement "jours effectués").
+      // L'édition reste possible après, pour corriger si l'employé a fait
+      // plus ou moins de jours.
+      if (parsed.data.status === "APPROVED" && parsed.data.daysCompleted === undefined) {
+        const durationDays = (() => {
+          const s = Date.UTC(
+            before.startDate.getUTCFullYear(),
+            before.startDate.getUTCMonth(),
+            before.startDate.getUTCDate()
+          );
+          const e = Date.UTC(
+            before.endDate.getUTCFullYear(),
+            before.endDate.getUTCMonth(),
+            before.endDate.getUTCDate()
+          );
+          const diffDays = Math.floor((e - s) / (24 * 60 * 60 * 1000));
+          return Math.max(0, diffDays + 1);
+        })();
+        updateData.daysCompleted = durationDays;
+      }
     }
 
     if (parsed.data.daysCompleted !== undefined) {
