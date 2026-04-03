@@ -396,7 +396,8 @@ export async function processCheckOut(
       const otM = overtime % 60;
       msg += `\n💪 Heures supplémentaires: ${otH}h${otM.toString().padStart(2, "0")} (en attente de validation)`;
       if (!comment) {
-        msg += `\n\n⚠️ Merci d'indiquer le motif par message :\n1️⃣ Travail urgent\n2️⃣ Réunion\n3️⃣ Mission\n4️⃣ Autre (précisez)`;
+        msg +=
+          "\n\n⚠️ Merci d'indiquer *en une phrase* le motif de ces heures supplémentaires (ex. réunion client, urgence production, mission exceptionnelle…).";
       }
     }
   }

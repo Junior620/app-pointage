@@ -156,20 +156,30 @@ async function handleMessage(
 
   // Message texte
   if (message.type === "text" && message.text) {
-    const { intent, comment } = parseIntent(message.text.body);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayRecord = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId: employee.id, date: today } },
+    });
+    const rawTrimmed = message.text.body.trim();
+    const awaitingOvertimeReason =
+      todayRecord &&
+      todayRecord.checkOutTime &&
+      (todayRecord.overtimeMinutes ?? 0) > 0 &&
+      !todayRecord.overtimeReason;
+
+    const { intent, comment } = parseIntent(message.text.body, {
+      skipNumericMenuShortcuts: Boolean(awaitingOvertimeReason && rawTrimmed),
+    });
     console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
     // Si le message ne correspond à aucune commande connue, on l'interprète
     // éventuellement comme un *motif* pour le pointage du jour (retard à l'arrivée
     // ou départ anticipé).
     if (intent === "UNKNOWN") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const record = await prisma.attendanceRecord.findUnique({
-        where: { employeeId_date: { employeeId: employee.id, date: today } },
-      });
+      const record = todayRecord;
 
-      const rawComment = message.text.body.trim();
+      const rawComment = rawTrimmed;
       if (!record || !rawComment) {
         // Pas de pointage aujourd'hui ou message vide : on retombera sur les
         // commandes par défaut plus bas.

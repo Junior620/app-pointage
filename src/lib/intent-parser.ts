@@ -102,7 +102,15 @@ const MY_WEEK_SUMMARY_KEYWORDS = [
 
 const HELP_KEYWORDS = ["aide", "help", "menu", "commandes", "?"];
 
-export function parseIntent(message: string): {
+export type ParseIntentOptions = {
+  /** Quand l'employé doit saisir un motif d'heures sup : ne pas interpréter 1–11 comme le menu (évite que « 2 » = Départ au lieu du motif). */
+  skipNumericMenuShortcuts?: boolean;
+};
+
+export function parseIntent(
+  message: string,
+  options?: ParseIntentOptions
+): {
   intent: Intent;
   comment?: string;
 } {
@@ -118,23 +126,25 @@ export function parseIntent(message: string): {
   }
 
   // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 permissions en cours
-  if (normalized === "1") return { intent: "CHECK_IN" };
-  if (normalized === "2") return { intent: "CHECK_OUT" };
-  if (normalized === "3") return { intent: "STATUS" };
-  if (normalized === "4") return { intent: "MY_ATTENDANCE" };
-  if (normalized === "5") return { intent: "MY_ABSENCES" };
-  if (normalized === "6") return { intent: "MY_OVERTIME" };
-  if (normalized === "7") return { intent: "MY_MISSIONS" };
-  if (normalized === "8") return { intent: "MY_OVERTIME_PENDING" };
-  if (normalized === "9" || normalized.startsWith("9 ")) {
-    const rest = message
-      .trim()
-      .replace(/^9\s*/i, "")
-      .trim();
-    return { intent: "DAY_DETAIL", comment: rest || undefined };
+  if (!options?.skipNumericMenuShortcuts) {
+    if (normalized === "1") return { intent: "CHECK_IN" };
+    if (normalized === "2") return { intent: "CHECK_OUT" };
+    if (normalized === "3") return { intent: "STATUS" };
+    if (normalized === "4") return { intent: "MY_ATTENDANCE" };
+    if (normalized === "5") return { intent: "MY_ABSENCES" };
+    if (normalized === "6") return { intent: "MY_OVERTIME" };
+    if (normalized === "7") return { intent: "MY_MISSIONS" };
+    if (normalized === "8") return { intent: "MY_OVERTIME_PENDING" };
+    if (normalized === "9" || normalized.startsWith("9 ")) {
+      const rest = message
+        .trim()
+        .replace(/^9\s*/i, "")
+        .trim();
+      return { intent: "DAY_DETAIL", comment: rest || undefined };
+    }
+    if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
+    if (normalized === "11") return { intent: "MY_PERMISSIONS" };
   }
-  if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
-  if (normalized === "11") return { intent: "MY_PERMISSIONS" };
 
   const parts = normalized.split(/\s+/);
 
