@@ -103,6 +103,7 @@ export default function LeavesPage() {
   const [submitError, setSubmitError] = useState("");
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const perPage = 20;
 
   const fetchLeaves = useCallback(async () => {
@@ -218,6 +219,88 @@ export default function LeavesPage() {
     }
   };
 
+  const fetchAllLeaves = useCallback(async (): Promise<LeaveRequest[]> => {
+    const pageSize = 100;
+    const out: LeaveRequest[] = [];
+    let p = 1;
+    const base = new URLSearchParams({
+      limit: String(pageSize),
+      ...(statusFilter && { status: statusFilter }),
+      ...(dateFrom && { startDate: dateFrom }),
+      ...(dateTo && { endDate: dateTo }),
+      ...(serviceFilter && { service: serviceFilter }),
+      ...(employeeFilter && { employeeId: employeeFilter }),
+    });
+    for (;;) {
+      const params = new URLSearchParams(base);
+      params.set("page", String(p));
+      const res = await fetch(`/api/leaves?${params}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Export impossible");
+      const batch: LeaveRequest[] = json.data ?? [];
+      out.push(...batch);
+      if (batch.length < pageSize) break;
+      p++;
+    }
+    return out;
+  }, [statusFilter, dateFrom, dateTo, serviceFilter, employeeFilter]);
+
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const all = await fetchAllLeaves();
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet("Permissions");
+      ws.columns = [
+        { header: "Employé", key: "employee", width: 24 },
+        { header: "Matricule", key: "matricule", width: 18 },
+        { header: "Service", key: "service", width: 14 },
+        { header: "Début", key: "start", width: 12 },
+        { header: "Fin", key: "end", width: 12 },
+        { header: "Durée", key: "duration", width: 10 },
+        { header: "Motif", key: "reason", width: 36 },
+        { header: "Statut", key: "status", width: 22 },
+        { header: "Créée le", key: "created", width: 14 },
+      ];
+      ws.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
+        cell.alignment = { horizontal: "center" };
+      });
+      all.forEach((leave) => {
+        const badge = statusBadge[leave.status];
+        const cancelled = Boolean(leave.cancelledAt);
+        ws.addRow({
+          employee: `${leave.employee.lastName} ${leave.employee.firstName}`,
+          matricule: leave.employee.matricule,
+          service: leave.employee.service ?? "—",
+          start: new Date(leave.startDate).toLocaleDateString("fr-FR"),
+          end: new Date(leave.endDate).toLocaleDateString("fr-FR"),
+          duration: formatDuration(leave.startDate, leave.endDate),
+          reason: leave.reason,
+          status: `${badge?.label ?? leave.status}${cancelled ? " — annulée" : ""}`,
+          created: new Date(leave.createdAt).toLocaleDateString("fr-FR"),
+        });
+      });
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `permissions_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      window.alert(e instanceof Error ? e.message : "Export impossible.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const updateStatus = async (id: string, status: "APPROVED" | "REJECTED") => {
     setActioningId(id);
     try {
@@ -253,11 +336,13 @@ export default function LeavesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => window.open(`/api/reports?type=leaves&format=excel`, "_blank")}
-            className="inline-flex items-center gap-2 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-medium"
+            type="button"
+            onClick={() => void exportExcel()}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-medium disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
-            Exporter
+            {exporting ? "Export…" : "Exporter"}
           </button>
           <button
             onClick={openCreate}
@@ -502,31 +587,47 @@ export default function LeavesPage() {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
+        {/* Pagination : toujours visible après chargement (résumé), navigation si > 1 page */}
+        {!loading && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-100">
             <p className="text-sm text-slate-500">
-              <span className="font-medium text-slate-700">
-                {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
-              </span>{" "}
-              sur <span className="font-medium text-slate-700">{total}</span> demandes
+              {total > 0 ? (
+                <>
+                  <span className="font-medium text-slate-700">
+                    {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
+                  </span>{" "}
+                  sur <span className="font-medium text-slate-700">{total}</span> demande
+                  {total > 1 ? "s" : ""}
+                  {totalPages > 1 && (
+                    <span className="text-slate-400"> — page {page} / {totalPages}</span>
+                  )}
+                </>
+              ) : (
+                "Aucune demande sur cette sélection"
+              )}
             </p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Précédent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                >
+                  Suivant
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

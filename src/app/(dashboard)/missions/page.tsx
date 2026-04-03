@@ -794,31 +794,47 @@ export default function MissionsPage() {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
+        {/* Pagination : toujours visible après chargement (résumé), navigation si > 1 page */}
+        {!loading && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-100">
             <p className="text-sm text-slate-500">
-              <span className="font-medium text-slate-700">
-                {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
-              </span>{" "}
-              sur <span className="font-medium text-slate-700">{total}</span> missions
+              {total > 0 ? (
+                <>
+                  <span className="font-medium text-slate-700">
+                    {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
+                  </span>{" "}
+                  sur <span className="font-medium text-slate-700">{total}</span> mission
+                  {total > 1 ? "s" : ""}
+                  {totalPages > 1 && (
+                    <span className="text-slate-400"> — page {page} / {totalPages}</span>
+                  )}
+                </>
+              ) : (
+                "Aucune mission sur cette sélection"
+              )}
             </p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Précédent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                >
+                  Suivant
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
