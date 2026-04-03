@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
 
     if (employee.active && employee.whatsappPhone?.trim()) {
       try {
+        const rawPhone = employee.whatsappPhone.trim();
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
           day: "numeric",
@@ -122,7 +123,8 @@ export async function POST(request: NextRequest) {
         msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
         msg += `\n📝 *Motif*\n${leave.reason}\n`;
         msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
-        await sendWhatsAppMessage(employee.whatsappPhone.trim(), msg);
+        console.log("[Permissions] Envoi WhatsApp vers:", rawPhone);
+        await sendWhatsAppMessage(rawPhone, msg);
       } catch (e) {
         console.error("[Permissions] Notification WhatsApp (création) échouée:", e);
       }
