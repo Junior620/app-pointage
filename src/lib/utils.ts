@@ -127,3 +127,40 @@ export function localCalendarDayBounds(ref: Date): { dayStart: Date; dayEnd: Dat
     dayEnd: new Date(y, m, d, 23, 59, 59, 999),
   };
 }
+
+/**
+ * Paramètre `YYYY-MM-DD` (input date HTML) → Date pour colonnes Prisma `@db.Date`.
+ * Midi UTC évite les décalages de jour selon le fuseau du serveur.
+ */
+export function parseDateInputForDbDate(dateStr: string): Date {
+  const base = dateStr.split("T")[0];
+  const [y, m, d] = base.split("-").map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return new Date(dateStr);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0));
+}
+
+/**
+ * Filtre « période affichée » : garde les enregistrements dont l’intervalle
+ * [startDate, endDate] **chevauche** [filterFrom, filterTo] (bornes inclusives).
+ * - les deux dates : start <= finFiltre ET end >= débutFiltre
+ * - seulement début : fin de période >= débutFiltre (encore pertinentes après cette date)
+ * - seulement fin : début de période <= finFiltre
+ */
+export function prismaPeriodOverlapAnd(
+  filterFromStr: string | null | undefined,
+  filterToStr: string | null | undefined,
+  fieldStart: "startDate" | "date",
+  fieldEnd: "endDate" | "date"
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const from = filterFromStr ? parseDateInputForDbDate(filterFromStr) : undefined;
+  const to = filterToStr ? parseDateInputForDbDate(filterToStr) : undefined;
+  if (from && to) {
+    out.push({ [fieldStart]: { lte: to } }, { [fieldEnd]: { gte: from } });
+  } else if (from) {
+    out.push({ [fieldEnd]: { gte: from } });
+  } else if (to) {
+    out.push({ [fieldStart]: { lte: to } });
+  }
+  return out;
+}

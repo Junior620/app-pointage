@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { activeRequestFilter } from "@/lib/request-active";
+import { prismaPeriodOverlapAnd } from "@/lib/utils";
 
 const createLeaveSchema = z.object({
   employeeId: z.string().min(1),
@@ -30,8 +31,10 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (employeeId) where.employeeId = employeeId;
-    if (startDate) where.startDate = { gte: new Date(startDate) };
-    if (endDate) where.endDate = { lte: new Date(endDate) };
+    const dateOverlap = prismaPeriodOverlapAnd(startDate, endDate, "startDate", "endDate");
+    if (dateOverlap.length) {
+      where.AND = dateOverlap;
+    }
     if (service) where.employee = { service };
 
     const activeWhere = { ...where, ...activeRequestFilter };

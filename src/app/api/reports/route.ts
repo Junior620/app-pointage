@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Structure } from "@prisma/client";
+import { parseDateInputForDbDate, utcCalendarDayBounds } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,8 +19,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "dateFrom et dateTo sont requis" }, { status: 400 });
     }
 
+    const rangeFrom = parseDateInputForDbDate(startDate);
+    const rangeTo = parseDateInputForDbDate(endDate);
+    const fraudFrom = utcCalendarDayBounds(rangeFrom).dayStart;
+    const fraudTo = utcCalendarDayBounds(rangeTo).dayEnd;
+
     const dateFilter = {
-      date: { gte: new Date(startDate), lte: new Date(endDate) },
+      date: { gte: rangeFrom, lte: rangeTo },
     };
 
     const employeeWhere = {
@@ -40,7 +46,7 @@ export async function GET(request: NextRequest) {
       include: {
         attendances: { where: dateFilter },
         fraudAttempts: {
-          where: { timestamp: { gte: new Date(startDate), lte: new Date(endDate) } },
+          where: { timestamp: { gte: fraudFrom, lte: fraudTo } },
         },
       },
     });
@@ -205,7 +211,7 @@ export async function GET(request: NextRequest) {
     const overtimeIssuesRaw = await prisma.attendanceRecord.groupBy({
       by: ["employeeId"],
       where: {
-        date: { gte: new Date(startDate), lte: new Date(endDate) },
+        date: { gte: rangeFrom, lte: rangeTo },
         overtimeMinutes: { gt: 0 },
         overtimeStatus: { in: ["PENDING", "REJECTED"] },
       },
