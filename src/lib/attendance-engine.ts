@@ -3,7 +3,7 @@ import { isWithinZone, haversineDistance } from "./geofence";
 import {
   parseTimeString,
   minutesBetween,
-  isWeekend,
+  isSaturdayOrSunday,
   isWorkingDay,
   todayDate,
   localCalendarDayBounds,
@@ -74,11 +74,12 @@ const MAX_WEEKLY_OT_MIN =
 const MAX_MONTHLY_OT_MIN =
   parseInt(process.env.MAX_MONTHLY_OVERTIME_MIN || "", 10) || 2400; // 40h / mois
 
-// Heure à partir de laquelle on commence à compter les heures sup (ex: 18h30)
+// Heure à partir de laquelle la fenêtre « heures sup » peut commencer (défaut 18h30).
+// En semaine, le comptage effectif démarre au plus tard entre fin de planning et cette heure : max(scheduleEnd, 18h30).
 const OVERTIME_START_HOUR =
   parseInt(process.env.OVERTIME_START_HOUR || "", 10) || 18;
 const OVERTIME_START_MINUTE =
-  parseInt(process.env.OVERTIME_START_MINUTE || "", 10) || 0;
+  parseInt(process.env.OVERTIME_START_MINUTE || "", 10) || 30;
 
 // Heure limite au‑delà de laquelle les heures sup ne sont plus comptabilisées (ex: 21h)
 const OVERTIME_END_HOUR =
@@ -151,10 +152,6 @@ export async function processCheckIn(
   const now = new Date();
   const today = todayDate();
 
-  if (isWeekend(today)) {
-    return { success: false, message: "Pas de pointage le dimanche." };
-  }
-
   if (await isHoliday(today)) {
     return { success: false, message: "Aujourd'hui est un jour férié." };
   }
@@ -193,8 +190,10 @@ export async function processCheckIn(
     scheduleStart.getTime() + data.schedule.lateGraceMin * 60 * 1000
   );
 
+  const weekendOptionalWork = isSaturdayOrSunday(today);
+  // Lun–ven : retard vs début de journée. Samedi/dimanche : travail volontaire, pas de « retard » métier.
   let status: CheckInStatus = "ON_TIME";
-  if (now > graceEnd) {
+  if (!weekendOptionalWork && now > graceEnd) {
     status = "LATE";
   }
 
@@ -236,7 +235,9 @@ export async function processCheckIn(
 
   return {
     success: true,
-    message: `Arrivée enregistrée à ${timeStr}. Bonne journée ! ✅`,
+    message: weekendOptionalWork
+      ? `Arrivée enregistrée à ${timeStr}. 📅 Week-end : travail volontaire — pas de retard sur les horaires de semaine. Les heures sup. seront calculées au départ. ✅`
+      : `Arrivée enregistrée à ${timeStr}. Bonne journée ! ✅`,
     status: "ON_TIME",
   };
 }
@@ -296,16 +297,16 @@ export async function processCheckOut(
   otWindowEnd.setHours(OVERTIME_END_HOUR, 0, 0, 0);
   const effectiveCheckoutForOvertime = now > otWindowEnd ? otWindowEnd : now;
 
-  const isSaturday = today.getDay() === 6;
+  const weekendOptionalWork = isSaturdayOrSunday(today);
 
   let overtime: number;
-  if (isSaturday) {
-    // Samedi = pas un jour ouvré officiel : toute la durée travaillée compte en heures sup
+  if (weekendOptionalWork) {
+    // Samedi / dimanche : journée hors planning semaine — toute la durée travaillée compte en heures sup
     const overtimeStart = record.checkInTime;
     const totalForOvertime = minutesBetween(overtimeStart, effectiveCheckoutForOvertime);
     overtime = Math.max(0, totalForOvertime);
   } else {
-    // Lun–ven : heures sup uniquement après fin de journée + 18h30
+    // Lun–ven : heures sup après max(fin de journée site, début fenêtre OT — défaut 18h30)
     const overtimeStart = new Date(
       Math.max(scheduleEnd.getTime(), otWindowStart.getTime())
     );
@@ -376,7 +377,7 @@ export async function processCheckOut(
   });
   const hours = Math.floor(total / 60);
   const mins = total % 60;
-  const leftEarly = !isSaturday && now < scheduleEnd;
+  const leftEarly = !weekendOptionalWork && now < scheduleEnd;
 
   let msg: string;
   if (leftEarly) {
@@ -388,8 +389,8 @@ export async function processCheckOut(
     msg = `Départ enregistré à ${timeStr}. Durée: ${hours}h${mins
       .toString()
       .padStart(2, "0")}. ✅`;
-    if (isSaturday && overtime > 0) {
-      msg += `\n📅 Samedi : toute la durée est comptée en heures supplémentaires.`;
+    if (weekendOptionalWork && overtime > 0) {
+      msg += `\n📅 Week-end : toute la durée travaillée est comptée en heures supplémentaires.`;
     }
     if (overtime > 0) {
       const otH = Math.floor(overtime / 60);

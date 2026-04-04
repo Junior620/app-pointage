@@ -178,7 +178,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
       {hasData && isNonWorkingDay && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
           <p className="text-sm font-medium text-slate-700">
-            Jour non ouvré (samedi ou dimanche) — pas de pointage. Les indicateurs du jour ne comptent pas d&apos;absences.
+            Jour non ouvré (samedi ou dimanche) — pas de planning « jour de semaine ». Le pointage reste possible pour un travail volontaire (heures sup. au départ) ; les indicateurs ci-dessous ne comptent pas d&apos;absences pour cette journée.
           </p>
         </div>
       )}

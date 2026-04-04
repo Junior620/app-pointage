@@ -84,6 +84,12 @@ export function isWeekend(date: Date): boolean {
   return date.getDay() === 0;
 }
 
+/** Samedi ou dimanche : travail volontaire, hors horaires « lundi–vendredi » (pas de retard à l’arrivée, heures sup. au départ). */
+export function isSaturdayOrSunday(date: Date): boolean {
+  const d = date.getDay();
+  return d === 0 || d === 6;
+}
+
 /** Lundi à vendredi uniquement (samedi/dimanche = pas un jour ouvré pour les absences). */
 export function isWorkingDay(date: Date): boolean {
   const d = date.getDay();
