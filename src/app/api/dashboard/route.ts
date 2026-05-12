@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Structure } from "@prisma/client";
-import { isWorkingDay } from "@/lib/utils";
+import { isWorkingDay, utcCalendarDayBounds } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     // en construisant une "date-only" stable à midi UTC.
     const now = new Date();
     const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0));
+    const { dayStart: todayStart, dayEnd: todayEnd } = utcCalendarDayBounds(today);
     const thirtyDaysAgo = new Date(today);
     thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
     const sevenDaysAgo = new Date(today);
@@ -54,22 +55,24 @@ export async function GET(request: NextRequest) {
     const missionToday = todayRecords.filter((r) => r.finalStatus === "MISSION").length;
     const permissionToday = todayRecords.filter((r) => r.finalStatus === "PERMISSION").length;
 
-    // Missions et permissions « en cours » : période inclut aujourd'hui, statut approuvé
+    // Missions et autorisations d'absence « en cours » : période inclut aujourd'hui, statut approuvé
     const [missionOngoingCount, permissionOngoingCount] = await Promise.all([
       prisma.mission.count({
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
-          startDate: { lte: today },
-          endDate: { gte: today },
+          cancelledAt: null,
+          startDate: { lte: todayEnd },
+          endDate: { gte: todayStart },
         },
       }),
       prisma.leaveRequest.count({
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
-          startDate: { lte: today },
-          endDate: { gte: today },
+          cancelledAt: null,
+          startDate: { lte: todayEnd },
+          endDate: { gte: todayStart },
         },
       }),
     ]);

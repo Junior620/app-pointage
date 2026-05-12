@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { isWorkingDay } from "@/lib/utils";
+import { isWorkingDay, utcCalendarDayBounds } from "@/lib/utils";
 
 function parseDateOnlyUTC(dateStr: string): Date {
   const base = dateStr.split("T")[0];
@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
       d.setUTCDate(d.getUTCDate() - i);
 
       const isWorking = isWorkingDay(d);
+      const { dayStart, dayEnd } = utcCalendarDayBounds(d);
 
       const [attendanceRecords, leaveRequests, missions] = await Promise.all([
         prisma.attendanceRecord.findMany({
@@ -78,8 +79,9 @@ export async function GET(request: NextRequest) {
           where: {
             employeeId: { in: employeeIds },
             status: "APPROVED",
-            startDate: { lte: d },
-            endDate: { gte: d },
+            cancelledAt: null,
+            startDate: { lte: dayEnd },
+            endDate: { gte: dayStart },
           },
           select: { employeeId: true },
         }),
@@ -87,8 +89,9 @@ export async function GET(request: NextRequest) {
           where: {
             employeeId: { in: employeeIds },
             status: "APPROVED",
-            startDate: { lte: d },
-            endDate: { gte: d },
+            cancelledAt: null,
+            startDate: { lte: dayEnd },
+            endDate: { gte: dayStart },
           },
           select: { employeeId: true },
         }),

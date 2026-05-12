@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { activeRequestFilter } from "@/lib/request-active";
+import { prismaPeriodOverlapAnd } from "@/lib/utils";
 
 const createMissionSchema = z.object({
   employeeId: z.string().min(1),
@@ -34,13 +36,17 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (employeeId) where.employeeId = employeeId;
-    if (startDate) where.startDate = { gte: new Date(startDate) };
-    if (endDate) where.endDate = { lte: new Date(endDate) };
+    const dateOverlap = prismaPeriodOverlapAnd(startDate, endDate, "startDate", "endDate");
+    if (dateOverlap.length) {
+      where.AND = dateOverlap;
+    }
     if (service) where.employee = { service };
     const structure = searchParams.get("structure");
     if (structure) where.originStructure = structure;
 
-    const [missions, total, pending, approved, rejected, serviceRows] = await Promise.all([
+    const activeWhere = { ...where, ...activeRequestFilter };
+
+    const [missions, total, pending, approved, rejected, cancelled, serviceRows] = await Promise.all([
       prisma.mission.findMany({
         where,
         include: { employee: true },
@@ -49,9 +55,10 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: "desc" },
       }),
       prisma.mission.count({ where }),
-      prisma.mission.count({ where: { ...where, status: "PENDING" } }),
-      prisma.mission.count({ where: { ...where, status: "APPROVED" } }),
-      prisma.mission.count({ where: { ...where, status: "REJECTED" } }),
+      prisma.mission.count({ where: { ...activeWhere, status: "PENDING" } }),
+      prisma.mission.count({ where: { ...activeWhere, status: "APPROVED" } }),
+      prisma.mission.count({ where: { ...activeWhere, status: "REJECTED" } }),
+      prisma.mission.count({ where: { ...where, cancelledAt: { not: null } } }),
       prisma.employee.findMany({
         select: { service: true },
         distinct: ["service"],
@@ -62,7 +69,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: missions,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      stats: { total, pending, approved, rejected },
+      stats: { total, pending, approved, rejected, cancelled },
       services: serviceRows.map((s) => s.service).filter(Boolean),
     });
   } catch (error) {
@@ -125,7 +132,7 @@ export async function POST(request: NextRequest) {
         };
         const startStr = mission.startDate.toLocaleDateString("fr-FR", opts);
         const endStr = mission.endDate.toLocaleDateString("fr-FR", opts);
-        let msg = `📋 *Nouvelle mission*\n\n`;
+        let msg = `🌍 *Nouvelle mission*\n\n`;
         msg += `Bonjour ${employee.firstName},\n\n`;
         msg += `Une mission a été enregistrée à votre nom.\n\n`;
         msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;

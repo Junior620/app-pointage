@@ -7,6 +7,7 @@ import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
 } from "@/lib/weekly-summary-text";
+import { utcCalendarDayBounds } from "@/lib/utils";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -155,20 +156,30 @@ async function handleMessage(
 
   // Message texte
   if (message.type === "text" && message.text) {
-    const { intent, comment } = parseIntent(message.text.body);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayRecord = await prisma.attendanceRecord.findUnique({
+      where: { employeeId_date: { employeeId: employee.id, date: today } },
+    });
+    const rawTrimmed = message.text.body.trim();
+    const awaitingOvertimeReason =
+      todayRecord &&
+      todayRecord.checkOutTime &&
+      (todayRecord.overtimeMinutes ?? 0) > 0 &&
+      !todayRecord.overtimeReason;
+
+    const { intent, comment } = parseIntent(message.text.body, {
+      skipNumericMenuShortcuts: Boolean(awaitingOvertimeReason && rawTrimmed),
+    });
     console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
     // Si le message ne correspond à aucune commande connue, on l'interprète
     // éventuellement comme un *motif* pour le pointage du jour (retard à l'arrivée
     // ou départ anticipé).
     if (intent === "UNKNOWN") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const record = await prisma.attendanceRecord.findUnique({
-        where: { employeeId_date: { employeeId: employee.id, date: today } },
-      });
+      const record = todayRecord;
 
-      const rawComment = message.text.body.trim();
+      const rawComment = rawTrimmed;
       if (!record || !rawComment) {
         // Pas de pointage aujourd'hui ou message vide : on retombera sur les
         // commandes par défaut plus bas.
@@ -547,7 +558,7 @@ async function handleMyWeekSummary(
       },
     }),
     prisma.leaveRequest.count({
-      where: { employeeId, status: "PENDING" },
+      where: { employeeId, status: "PENDING", cancelledAt: null },
     }),
   ]);
   const msg = buildWeeklySummaryWhatsAppMessage(
@@ -566,13 +577,11 @@ async function handleMyPermissions(
   firstName: string
 ) {
   const now = new Date();
-  const today = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0)
-  );
+  const { dayStart, dayEnd } = utcCalendarDayBounds(now);
 
   const [pending, approvedActive] = await Promise.all([
     prisma.leaveRequest.findMany({
-      where: { employeeId, status: "PENDING" },
+      where: { employeeId, status: "PENDING", cancelledAt: null },
       orderBy: { createdAt: "desc" },
       take: 12,
     }),
@@ -580,8 +589,9 @@ async function handleMyPermissions(
       where: {
         employeeId,
         status: "APPROVED",
-        startDate: { lte: today },
-        endDate: { gte: today },
+        cancelledAt: null,
+        startDate: { lte: dayEnd },
+        endDate: { gte: dayStart },
       },
       orderBy: { endDate: "asc" },
       take: 12,
@@ -606,12 +616,12 @@ async function handleMyPermissions(
   if (rows.length === 0) {
     await sendWhatsAppMessage(
       phone,
-      `📋 *${firstName}*, aucune permission en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + permissions), répondez *7*.`
+      `📋 *${firstName}*, aucune autorisation d'absence en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + autorisations d'absence), répondez *7*.`
     );
     return;
   }
 
-  let msg = `📋 *Mes permissions en cours — ${firstName}*\n\n`;
+  let msg = `📋 *Mes autorisations d'absence en cours — ${firstName}*\n\n`;
   msg += `⏳ = en attente de validation • ✅ = approuvée (période en cours)\n\n`;
 
   for (const l of rows.slice(0, 10)) {
@@ -748,11 +758,11 @@ async function handleDayDetail(
     msg += `📝 Motif OT : ${record.overtimeReason}\n`;
   }
 
-  // Mission / permission liée (via finalStatus)
+  // Mission / autorisation d'absence liée (via finalStatus)
   if (record.finalStatus === "MISSION") {
     msg += `🌍 Statut journée : Mission\n`;
   } else if (record.finalStatus === "PERMISSION") {
-    msg += `📋 Statut journée : Permission\n`;
+    msg += `📋 Statut journée : Autorisation d'absence\n`;
   } else {
     msg += `📋 Statut journée : ${record.finalStatus}\n`;
   }
@@ -787,12 +797,12 @@ async function handleMyMissions(
   if (missions.length === 0 && leaves.length === 0) {
     await sendWhatsAppMessage(
       phone,
-      `🌍 *${firstName}*, aucune mission ni permission ces 3 derniers mois.`
+      `🌍 *${firstName}*, aucune mission ni autorisation d'absence ces 3 derniers mois.`
     );
     return;
   }
 
-  let msg = `🌍 *Missions & Permissions — ${firstName}*\n\n`;
+  let msg = `🌍 *Missions & autorisations d'absence — ${firstName}*\n\n`;
 
   if (missions.length > 0) {
     msg += `*Missions (${missions.length}) :*\n`;
@@ -807,12 +817,13 @@ async function handleMyMissions(
       });
       const statusIcon =
         m.status === "APPROVED" ? "✅" : m.status === "PENDING" ? "⏳" : "❌";
-      msg += `${statusIcon} ${from} → ${to} : ${m.reason}${m.location ? ` (${m.location})` : ""}\n`;
+      const ann = m.cancelledAt ? " 🚫 *annulée*" : "";
+      msg += `${statusIcon} ${from} → ${to} : ${m.reason}${m.location ? ` (${m.location})` : ""}${ann}\n`;
     }
   }
 
   if (leaves.length > 0) {
-    msg += `\n*Permissions (${leaves.length}) :*\n`;
+    msg += `\n*Autorisations d'absence (${leaves.length}) :*\n`;
     for (const l of leaves.slice(0, 5)) {
       const from = l.startDate.toLocaleDateString("fr-FR", {
         day: "2-digit",
@@ -824,7 +835,8 @@ async function handleMyMissions(
       });
       const statusIcon =
         l.status === "APPROVED" ? "✅" : l.status === "PENDING" ? "⏳" : "❌";
-      msg += `${statusIcon} ${from} → ${to} : ${l.reason}\n`;
+      const ann = l.cancelledAt ? " 🚫 *annulée*" : "";
+      msg += `${statusIcon} ${from} → ${to} : ${l.reason}${ann}\n`;
     }
   }
 

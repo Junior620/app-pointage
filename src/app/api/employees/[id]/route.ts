@@ -101,14 +101,20 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.hrRemark.deleteMany({ where: { employeeId: id } });
-      await tx.fraudAttempt.deleteMany({ where: { employeeId: id } });
-      await tx.attendanceRecord.deleteMany({ where: { employeeId: id } });
-      await tx.leaveRequest.deleteMany({ where: { employeeId: id } });
-      await tx.mission.deleteMany({ where: { employeeId: id } });
-      await tx.employee.delete({ where: { id } });
-    });
+    // Timeouts : (1) Prisma transaction interactive ~5 s par défaut ; (2) Postgres/Supabase
+    // impose souvent ~8–10 s par requête (statement_timeout). On élève les deux.
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SET LOCAL statement_timeout = '120s'`;
+        await tx.hrRemark.deleteMany({ where: { employeeId: id } });
+        await tx.fraudAttempt.deleteMany({ where: { employeeId: id } });
+        await tx.attendanceRecord.deleteMany({ where: { employeeId: id } });
+        await tx.leaveRequest.deleteMany({ where: { employeeId: id } });
+        await tx.mission.deleteMany({ where: { employeeId: id } });
+        await tx.employee.delete({ where: { id } });
+      },
+      { maxWait: 20000, timeout: 120000 }
+    );
 
     try {
       await createAuditLog({
@@ -125,10 +131,13 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ data: { id }, deleted: true });
   } catch (error) {
+    console.error("[DELETE employee]", error);
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    const details =
+      process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
+    return NextResponse.json({ error: "Erreur serveur", ...(details && { details }) }, { status: 500 });
   }
 }

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { activeRequestFilter } from "@/lib/request-active";
+import { prismaPeriodOverlapAnd } from "@/lib/utils";
 
 const createLeaveSchema = z.object({
   employeeId: z.string().min(1),
@@ -29,11 +31,15 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (employeeId) where.employeeId = employeeId;
-    if (startDate) where.startDate = { gte: new Date(startDate) };
-    if (endDate) where.endDate = { lte: new Date(endDate) };
+    const dateOverlap = prismaPeriodOverlapAnd(startDate, endDate, "startDate", "endDate");
+    if (dateOverlap.length) {
+      where.AND = dateOverlap;
+    }
     if (service) where.employee = { service };
 
-    const [leaves, total, pending, approved, rejected, services] = await Promise.all([
+    const activeWhere = { ...where, ...activeRequestFilter };
+
+    const [leaves, total, pending, approved, rejected, cancelled, services] = await Promise.all([
       prisma.leaveRequest.findMany({
         where,
         include: { employee: true },
@@ -42,9 +48,10 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: "desc" },
       }),
       prisma.leaveRequest.count({ where }),
-      prisma.leaveRequest.count({ where: { ...where, status: "PENDING" } }),
-      prisma.leaveRequest.count({ where: { ...where, status: "APPROVED" } }),
-      prisma.leaveRequest.count({ where: { ...where, status: "REJECTED" } }),
+      prisma.leaveRequest.count({ where: { ...activeWhere, status: "PENDING" } }),
+      prisma.leaveRequest.count({ where: { ...activeWhere, status: "APPROVED" } }),
+      prisma.leaveRequest.count({ where: { ...activeWhere, status: "REJECTED" } }),
+      prisma.leaveRequest.count({ where: { ...where, cancelledAt: { not: null } } }),
       prisma.employee.findMany({
         select: { service: true },
         distinct: ["service"],
@@ -57,7 +64,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       data: leaves,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      stats: { total, pending, approved, rejected },
+      stats: { total, pending, approved, rejected, cancelled },
       services: servicesList,
     });
   } catch (error) {
@@ -71,7 +78,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const session = await requireRole(["HR", "ADMIN", "DG"]);
     const body = await request.json();
 
     const parsed = createLeaveSchema.safeParse(body);
@@ -104,6 +111,7 @@ export async function POST(request: NextRequest) {
 
     if (employee.active && employee.whatsappPhone?.trim()) {
       try {
+        const rawPhone = employee.whatsappPhone.trim();
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
           day: "numeric",
@@ -112,15 +120,16 @@ export async function POST(request: NextRequest) {
         };
         const startStr = leave.startDate.toLocaleDateString("fr-FR", opts);
         const endStr = leave.endDate.toLocaleDateString("fr-FR", opts);
-        let msg = `📋 *Nouvelle demande de permission*\n\n`;
+        let msg = `📋 *Nouvelle demande d'autorisation d'absence*\n\n`;
         msg += `Bonjour ${employee.firstName},\n\n`;
-        msg += `Une permission a été enregistrée à votre nom.\n\n`;
+        msg += `Une demande d'autorisation d'absence a été enregistrée à votre nom.\n\n`;
         msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
         msg += `\n📝 *Motif*\n${leave.reason}\n`;
         msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
-        await sendWhatsAppMessage(employee.whatsappPhone.trim(), msg);
+        console.log("[Autorisations absence] Envoi WhatsApp vers:", rawPhone);
+        await sendWhatsAppMessage(rawPhone, msg);
       } catch (e) {
-        console.error("[Permissions] Notification WhatsApp (création) échouée:", e);
+        console.error("[Autorisations absence] Notification WhatsApp (création) échouée:", e);
       }
     }
 

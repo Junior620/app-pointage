@@ -1,6 +1,13 @@
 import { prisma } from "./prisma";
 import { isWithinZone, haversineDistance } from "./geofence";
-import { parseTimeString, minutesBetween, isWeekend, isWorkingDay, todayDate } from "./utils";
+import {
+  parseTimeString,
+  minutesBetween,
+  isSaturdayOrSunday,
+  isWorkingDay,
+  todayDate,
+  localCalendarDayBounds,
+} from "./utils";
 import type { GeoPoint } from "@/types";
 import type { CheckInStatus } from "@prisma/client";
 
@@ -34,14 +41,15 @@ async function hasApprovedLeaveOrMission(
   employeeId: string,
   date: Date
 ): Promise<{ type: "PERMISSION" | "MISSION" | null }> {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const { dayStart, dayEnd } = localCalendarDayBounds(date);
 
   const leave = await prisma.leaveRequest.findFirst({
     where: {
       employeeId,
       status: "APPROVED",
-      startDate: { lte: d },
-      endDate: { gte: d },
+      cancelledAt: null,
+      startDate: { lte: dayEnd },
+      endDate: { gte: dayStart },
     },
   });
   if (leave) return { type: "PERMISSION" };
@@ -50,8 +58,9 @@ async function hasApprovedLeaveOrMission(
     where: {
       employeeId,
       status: "APPROVED",
-      startDate: { lte: d },
-      endDate: { gte: d },
+      cancelledAt: null,
+      startDate: { lte: dayEnd },
+      endDate: { gte: dayStart },
     },
   });
   if (mission) return { type: "MISSION" };
@@ -65,11 +74,12 @@ const MAX_WEEKLY_OT_MIN =
 const MAX_MONTHLY_OT_MIN =
   parseInt(process.env.MAX_MONTHLY_OVERTIME_MIN || "", 10) || 2400; // 40h / mois
 
-// Heure à partir de laquelle on commence à compter les heures sup (ex: 18h30)
+// Heure à partir de laquelle la fenêtre « heures sup » peut commencer (défaut 18h30).
+// En semaine, le comptage effectif démarre au plus tard entre fin de planning et cette heure : max(scheduleEnd, 18h30).
 const OVERTIME_START_HOUR =
   parseInt(process.env.OVERTIME_START_HOUR || "", 10) || 18;
 const OVERTIME_START_MINUTE =
-  parseInt(process.env.OVERTIME_START_MINUTE || "", 10) || 0;
+  parseInt(process.env.OVERTIME_START_MINUTE || "", 10) || 30;
 
 // Heure limite au‑delà de laquelle les heures sup ne sont plus comptabilisées (ex: 21h)
 const OVERTIME_END_HOUR =
@@ -142,10 +152,6 @@ export async function processCheckIn(
   const now = new Date();
   const today = todayDate();
 
-  if (isWeekend(today)) {
-    return { success: false, message: "Pas de pointage le dimanche." };
-  }
-
   if (await isHoliday(today)) {
     return { success: false, message: "Aujourd'hui est un jour férié." };
   }
@@ -154,7 +160,7 @@ export async function processCheckIn(
   if (leaveOrMission.type) {
     return {
       success: false,
-      message: `Vous êtes en ${leaveOrMission.type === "PERMISSION" ? "permission" : "mission"} aujourd'hui.`,
+      message: `Vous êtes en ${leaveOrMission.type === "PERMISSION" ? "autorisation d'absence" : "mission"} aujourd'hui.`,
     };
   }
 
@@ -184,8 +190,10 @@ export async function processCheckIn(
     scheduleStart.getTime() + data.schedule.lateGraceMin * 60 * 1000
   );
 
+  const weekendOptionalWork = isSaturdayOrSunday(today);
+  // Lun–ven : retard vs début de journée. Samedi/dimanche : travail volontaire, pas de « retard » métier.
   let status: CheckInStatus = "ON_TIME";
-  if (now > graceEnd) {
+  if (!weekendOptionalWork && now > graceEnd) {
     status = "LATE";
   }
 
@@ -227,7 +235,9 @@ export async function processCheckIn(
 
   return {
     success: true,
-    message: `Arrivée enregistrée à ${timeStr}. Bonne journée ! ✅`,
+    message: weekendOptionalWork
+      ? `Arrivée enregistrée à ${timeStr}. 📅 Week-end : travail volontaire — pas de retard sur les horaires de semaine. Les heures sup. seront calculées au départ. ✅`
+      : `Arrivée enregistrée à ${timeStr}. Bonne journée ! ✅`,
     status: "ON_TIME",
   };
 }
@@ -287,16 +297,16 @@ export async function processCheckOut(
   otWindowEnd.setHours(OVERTIME_END_HOUR, 0, 0, 0);
   const effectiveCheckoutForOvertime = now > otWindowEnd ? otWindowEnd : now;
 
-  const isSaturday = today.getDay() === 6;
+  const weekendOptionalWork = isSaturdayOrSunday(today);
 
   let overtime: number;
-  if (isSaturday) {
-    // Samedi = pas un jour ouvré officiel : toute la durée travaillée compte en heures sup
+  if (weekendOptionalWork) {
+    // Samedi / dimanche : journée hors planning semaine — toute la durée travaillée compte en heures sup
     const overtimeStart = record.checkInTime;
     const totalForOvertime = minutesBetween(overtimeStart, effectiveCheckoutForOvertime);
     overtime = Math.max(0, totalForOvertime);
   } else {
-    // Lun–ven : heures sup uniquement après fin de journée + 18h30
+    // Lun–ven : heures sup après max(fin de journée site, début fenêtre OT — défaut 18h30)
     const overtimeStart = new Date(
       Math.max(scheduleEnd.getTime(), otWindowStart.getTime())
     );
@@ -367,7 +377,7 @@ export async function processCheckOut(
   });
   const hours = Math.floor(total / 60);
   const mins = total % 60;
-  const leftEarly = !isSaturday && now < scheduleEnd;
+  const leftEarly = !weekendOptionalWork && now < scheduleEnd;
 
   let msg: string;
   if (leftEarly) {
@@ -379,15 +389,16 @@ export async function processCheckOut(
     msg = `Départ enregistré à ${timeStr}. Durée: ${hours}h${mins
       .toString()
       .padStart(2, "0")}. ✅`;
-    if (isSaturday && overtime > 0) {
-      msg += `\n📅 Samedi : toute la durée est comptée en heures supplémentaires.`;
+    if (weekendOptionalWork && overtime > 0) {
+      msg += `\n📅 Week-end : toute la durée travaillée est comptée en heures supplémentaires.`;
     }
     if (overtime > 0) {
       const otH = Math.floor(overtime / 60);
       const otM = overtime % 60;
       msg += `\n💪 Heures supplémentaires: ${otH}h${otM.toString().padStart(2, "0")} (en attente de validation)`;
       if (!comment) {
-        msg += `\n\n⚠️ Merci d'indiquer le motif par message :\n1️⃣ Travail urgent\n2️⃣ Réunion\n3️⃣ Mission\n4️⃣ Autre (précisez)`;
+        msg +=
+          "\n\n⚠️ Merci d'indiquer *en une phrase* le motif de ces heures supplémentaires (ex. réunion client, urgence production, mission exceptionnelle…).";
       }
     }
   }

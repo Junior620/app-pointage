@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { parseDateInputForDbDate } from "@/lib/utils";
 
 const correctionSchema = z.object({
   id: z.string().min(1),
@@ -31,18 +32,10 @@ export async function GET(request: NextRequest) {
 
     const where: Record<string, unknown> = {};
 
-    const parseDateOnlyUTC = (dateStr: string): Date => {
-      const base = dateStr.split("T")[0];
-      const [y, m, d] = base.split("-").map((n) => parseInt(n, 10));
-      if (!y || !m || !d) return new Date(dateStr);
-      // Date-only column: on évite le décalage de jour en fixant l'heure à 12:00 UTC.
-      return new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0));
-    };
-
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) (where.date as Record<string, unknown>).gte = parseDateOnlyUTC(startDate);
-      if (endDate) (where.date as Record<string, unknown>).lte = parseDateOnlyUTC(endDate);
+      if (startDate) (where.date as Record<string, unknown>).gte = parseDateInputForDbDate(startDate);
+      if (endDate) (where.date as Record<string, unknown>).lte = parseDateInputForDbDate(endDate);
     }
     if (employeeId) where.employeeId = employeeId;
     if (finalStatus) where.finalStatus = finalStatus;

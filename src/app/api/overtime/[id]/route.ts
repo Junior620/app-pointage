@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { utcCalendarDayBounds } from "@/lib/utils";
 
 const validateSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"]),
@@ -62,12 +63,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // Optionnel : exiger une mission approuvée sur la date (stricte RH).
     // Par défaut désactivé — activer avec REQUIRE_MISSION_FOR_OVERTIME_APPROVAL=true
     if (process.env.REQUIRE_MISSION_FOR_OVERTIME_APPROVAL === "true") {
+      const { dayStart, dayEnd } = utcCalendarDayBounds(record.date);
       const hasApprovedMission = await prisma.mission.findFirst({
         where: {
           employeeId: record.employeeId,
           status: "APPROVED",
-          startDate: { lte: record.date },
-          endDate: { gte: record.date },
+          cancelledAt: null,
+          startDate: { lte: dayEnd },
+          endDate: { gte: dayStart },
         },
       });
 

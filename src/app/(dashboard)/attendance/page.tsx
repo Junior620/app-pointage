@@ -93,7 +93,7 @@ const statusLabels: Record<string, string> = {
   LATE: "Retard",
   ABSENT: "Absent",
   PRESENT: "Présent",
-  PERMISSION: "Permission",
+  PERMISSION: "Autorisation d'absence",
   MISSION: "Mission",
   AUTO: "Auto",
   MANUAL: "Manuel",
@@ -160,7 +160,9 @@ export default function AttendancePage() {
   const isSingleDay = !!dateFrom && !!dateTo && dateFrom === dateTo;
 
   const [dayPayload, setDayPayload] = useState<DayAttendancePayload | null>(null);
-  const [history, setHistory] = useState<AttendanceHistoryRow[] | null>(null);
+  const [historyRows, setHistoryRows] = useState<AttendanceHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
   const [returnToRange, setReturnToRange] = useState<{ dateFrom: string; dateTo: string } | null>(null);
 
   const fetchRecords = useCallback(async () => {
@@ -197,10 +199,22 @@ export default function AttendancePage() {
       const params = new URLSearchParams({ date: dateFrom });
       if (serviceFilter) params.set("service", serviceFilter);
       const res = await fetch(`/api/attendance/day?${params}`);
-      const json = (await res.json()) as DayAttendancePayload;
-      setDayPayload(json);
+      const json = await res.json();
+      if (
+        res.ok &&
+        json &&
+        typeof json === "object" &&
+        json.counts &&
+        typeof json.counts === "object" &&
+        typeof json.counts.present === "number"
+      ) {
+        setDayPayload(json as DayAttendancePayload);
+      } else {
+        setDayPayload(null);
+      }
     } catch (e) {
       console.error(e);
+      setDayPayload(null);
     }
   }, [isSingleDay, dateFrom, serviceFilter]);
 
@@ -214,20 +228,33 @@ export default function AttendancePage() {
 
   const fetchHistory = useCallback(async () => {
     if (!isSingleDay) return;
+    setHistoryLoading(true);
+    setHistoryError(false);
     try {
       const params = new URLSearchParams({ date: dateFrom, days: "7" });
       if (serviceFilter) params.set("service", serviceFilter);
       const res = await fetch(`/api/attendance/history?${params}`);
       const json = await res.json();
-      setHistory(json.data ?? []);
+      if (res.ok && Array.isArray(json.data)) {
+        setHistoryRows(json.data);
+      } else {
+        setHistoryRows([]);
+        setHistoryError(true);
+      }
     } catch (e) {
       console.error(e);
+      setHistoryRows([]);
+      setHistoryError(true);
+    } finally {
+      setHistoryLoading(false);
     }
   }, [isSingleDay, dateFrom, serviceFilter]);
 
   useEffect(() => {
     if (!isSingleDay) {
-      setHistory(null);
+      setHistoryRows([]);
+      setHistoryLoading(false);
+      setHistoryError(false);
       return;
     }
     fetchHistory();
@@ -235,19 +262,20 @@ export default function AttendancePage() {
 
   const totalPages = Math.ceil(total / perPage);
 
-  const presentCount = dayPayload
-    ? dayPayload.counts.present
+  const dayCounts = dayPayload?.counts;
+  const presentCount = dayCounts
+    ? dayCounts.present
     : records.filter((r) => r.finalStatus === "PRESENT").length;
-  const absentCount = dayPayload
-    ? dayPayload.counts.absent
+  const absentCount = dayCounts
+    ? dayCounts.absent
     : records.filter(
         (r) => r.finalStatus === "ABSENT" && !(isSaturday(r.date) && !r.checkInTime)
       ).length;
-  const lateCount = dayPayload
-    ? dayPayload.counts.late
+  const lateCount = dayCounts
+    ? dayCounts.late
     : records.filter((r) => r.checkInStatus === "LATE").length;
-  const missionPermCount = dayPayload
-    ? dayPayload.counts.missionPerm
+  const missionPermCount = dayCounts
+    ? dayCounts.missionPerm
     : records.filter(
         (r) => r.finalStatus === "MISSION" || r.finalStatus === "PERMISSION"
       ).length;
@@ -340,7 +368,7 @@ export default function AttendancePage() {
       </div>
 
       {/* Absents du jour (vue complète) */}
-      {dayPayload && (
+      {dayPayload && dayCounts != null && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-900 mb-3">
             {dayPayload.isNonWorkingDay ? "Jour non ouvré" : "Absents de la journée"}
@@ -349,13 +377,13 @@ export default function AttendancePage() {
             <p className="text-sm text-slate-500">
               Aucune absence n&apos;est comptée sur ce jour.
             </p>
-          ) : dayPayload.counts.absent === 0 ? (
+          ) : dayCounts.absent === 0 ? (
             <p className="text-sm text-slate-500">
               Personne n&apos;est absent aujourd&apos;hui.
             </p>
           ) : (
             <div className="space-y-2">
-              {dayPayload.absents.map((e) => (
+              {(dayPayload.absents ?? []).map((e) => (
                 <div
                   key={e.id}
                   className="flex items-center justify-between gap-3 border border-slate-100 rounded-xl px-3 py-2"
@@ -442,7 +470,7 @@ export default function AttendancePage() {
               <option value="">Tous les statuts</option>
               <option value="PRESENT">Présent</option>
               <option value="ABSENT">Absent</option>
-              <option value="PERMISSION">Permission</option>
+              <option value="PERMISSION">Autorisation d&apos;absence</option>
               <option value="MISSION">Mission</option>
             </select>
           </div>
@@ -721,8 +749,8 @@ export default function AttendancePage() {
         )}
       </div>
 
-      {/* Historique des journées précédentes */}
-      {history && history.length > 0 && (
+      {/* Historique des journées précédentes (visible dès qu’un seul jour est sélectionné) */}
+      {isSingleDay && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-900 mb-3">
             Historique des journées précédentes (7 jours)
@@ -742,6 +770,19 @@ export default function AttendancePage() {
               </button>
             </div>
           )}
+          {historyLoading && (
+            <p className="text-sm text-slate-500 py-4">Chargement de l&apos;historique…</p>
+          )}
+          {historyError && !historyLoading && (
+            <p className="text-sm text-red-600 py-2">
+              Impossible de charger l&apos;historique (session expirée, droits insuffisants ou erreur serveur).
+              Rechargez la page ou reconnectez-vous.
+            </p>
+          )}
+          {!historyLoading && !historyError && historyRows.length === 0 && (
+            <p className="text-sm text-slate-500 py-2">Aucune ligne d&apos;historique pour cette période.</p>
+          )}
+          {!historyLoading && !historyError && historyRows.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -767,7 +808,7 @@ export default function AttendancePage() {
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
+                {historyRows.map((h) => (
                   <tr key={h.date} className="border-b border-slate-50 hover:bg-slate-50/50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -811,6 +852,7 @@ export default function AttendancePage() {
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -964,7 +1006,7 @@ export default function AttendancePage() {
                     >
                       <option value="PRESENT">Présent</option>
                       <option value="ABSENT">Absent</option>
-                      <option value="PERMISSION">Permission</option>
+                      <option value="PERMISSION">Autorisation d&apos;absence</option>
                       <option value="MISSION">Mission</option>
                     </select>
                   </div>

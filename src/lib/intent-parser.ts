@@ -80,6 +80,12 @@ const DAY_DETAIL_KEYWORDS = [
 ];
 
 const MY_PERMISSIONS_KEYWORDS = [
+  "mes autorisations d'absence",
+  "autorisations d'absence",
+  "autorisation d'absence",
+  "mes autorisations",
+  "autorisations en cours",
+  // anciens mots-clés (compatibilité)
   "mes permissions",
   "permissions en cours",
   "ma permission",
@@ -102,7 +108,15 @@ const MY_WEEK_SUMMARY_KEYWORDS = [
 
 const HELP_KEYWORDS = ["aide", "help", "menu", "commandes", "?"];
 
-export function parseIntent(message: string): {
+export type ParseIntentOptions = {
+  /** Quand l'employé doit saisir un motif d'heures sup : ne pas interpréter 1–11 comme le menu (évite que « 2 » = Départ au lieu du motif). */
+  skipNumericMenuShortcuts?: boolean;
+};
+
+export function parseIntent(
+  message: string,
+  options?: ParseIntentOptions
+): {
   intent: Intent;
   comment?: string;
 } {
@@ -117,24 +131,26 @@ export function parseIntent(message: string): {
     return { intent: "HELP" };
   }
 
-  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 permissions en cours
-  if (normalized === "1") return { intent: "CHECK_IN" };
-  if (normalized === "2") return { intent: "CHECK_OUT" };
-  if (normalized === "3") return { intent: "STATUS" };
-  if (normalized === "4") return { intent: "MY_ATTENDANCE" };
-  if (normalized === "5") return { intent: "MY_ABSENCES" };
-  if (normalized === "6") return { intent: "MY_OVERTIME" };
-  if (normalized === "7") return { intent: "MY_MISSIONS" };
-  if (normalized === "8") return { intent: "MY_OVERTIME_PENDING" };
-  if (normalized === "9" || normalized.startsWith("9 ")) {
-    const rest = message
-      .trim()
-      .replace(/^9\s*/i, "")
-      .trim();
-    return { intent: "DAY_DETAIL", comment: rest || undefined };
+  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 autorisations d'absence en cours
+  if (!options?.skipNumericMenuShortcuts) {
+    if (normalized === "1") return { intent: "CHECK_IN" };
+    if (normalized === "2") return { intent: "CHECK_OUT" };
+    if (normalized === "3") return { intent: "STATUS" };
+    if (normalized === "4") return { intent: "MY_ATTENDANCE" };
+    if (normalized === "5") return { intent: "MY_ABSENCES" };
+    if (normalized === "6") return { intent: "MY_OVERTIME" };
+    if (normalized === "7") return { intent: "MY_MISSIONS" };
+    if (normalized === "8") return { intent: "MY_OVERTIME_PENDING" };
+    if (normalized === "9" || normalized.startsWith("9 ")) {
+      const rest = message
+        .trim()
+        .replace(/^9\s*/i, "")
+        .trim();
+      return { intent: "DAY_DETAIL", comment: rest || undefined };
+    }
+    if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
+    if (normalized === "11") return { intent: "MY_PERMISSIONS" };
   }
-  if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
-  if (normalized === "11") return { intent: "MY_PERMISSIONS" };
 
   const parts = normalized.split(/\s+/);
 
@@ -248,11 +264,11 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 4️⃣ *Mes pointages* — Historique du mois
 5️⃣ *Mes absences* — Voir vos absences
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
-7️⃣ *Mes missions* — Missions et permissions (historique récent)
+7️⃣ *Mes missions* — Missions et autorisations d'absence (historique récent)
 8️⃣ *Heures sup en attente* — Heures sup à valider par la RH
 9️⃣ *Détail jour* — Tapez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 *Résumé semaine* — Historique lundi → samedi
-1️⃣1️⃣ *Mes permissions* — En attente ou période approuvée en cours
+1️⃣1️⃣ *Mes autorisations d'absence* — En attente ou période approuvée en cours
 
 Répondez par le *numéro* (1 à 11) ou tapez la commande.`;
 
@@ -271,7 +287,7 @@ Que souhaitez-vous faire ?
 8️⃣ Mes heures sup en attente
 9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 Résumé / historique de la semaine
-1️⃣1️⃣ Mes permissions en cours
+1️⃣1️⃣ Mes autorisations d'absence en cours
 
 Répondez par le *numéro* (1 à 11) correspondant.`;
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { parseDateInputForDbDate } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,8 +25,8 @@ export async function GET(request: NextRequest) {
     if (employeeId) where.employeeId = employeeId;
     if (dateFrom || dateTo) {
       where.date = {};
-      if (dateFrom) (where.date as Record<string, Date>).gte = new Date(dateFrom);
-      if (dateTo) (where.date as Record<string, Date>).lte = new Date(dateTo);
+      if (dateFrom) (where.date as Record<string, Date>).gte = parseDateInputForDbDate(dateFrom);
+      if (dateTo) (where.date as Record<string, Date>).lte = parseDateInputForDbDate(dateTo);
     }
     if (structure) where.employee = { structure };
 

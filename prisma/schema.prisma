@@ -147,17 +147,19 @@ model AttendanceRecord {
 }
 
 model LeaveRequest {
-  id         String        @id @default(cuid())
-  employeeId String        @map("employee_id")
-  employee   Employee      @relation(fields: [employeeId], references: [id])
-  startDate  DateTime      @map("start_date") @db.Date
-  endDate    DateTime      @map("end_date") @db.Date
-  reason     String
-  status     RequestStatus @default(PENDING)
-  document   String?
-  approvedBy String?       @map("approved_by")
-  createdAt  DateTime      @default(now()) @map("created_at")
-  updatedAt  DateTime      @updatedAt @map("updated_at")
+  id          String        @id @default(cuid())
+  employeeId  String        @map("employee_id")
+  employee    Employee      @relation(fields: [employeeId], references: [id])
+  startDate   DateTime      @map("start_date") @db.Date
+  endDate     DateTime      @map("end_date") @db.Date
+  reason      String
+  status      RequestStatus @default(PENDING)
+  document    String?
+  approvedBy  String?       @map("approved_by")
+  cancelledAt DateTime?     @map("cancelled_at")
+  cancelledBy String?       @map("cancelled_by")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
 
   @@map("leave_requests")
 }
@@ -178,6 +180,8 @@ model Mission {
   daysCompleted    Int           @default(0) @map("days_completed")
   status           RequestStatus @default(PENDING)
   approvedBy       String?       @map("approved_by")
+  cancelledAt      DateTime?     @map("cancelled_at")
+  cancelledBy      String?       @map("cancelled_by")
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 

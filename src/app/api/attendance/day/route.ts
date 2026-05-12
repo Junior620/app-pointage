@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { isWorkingDay } from "@/lib/utils";
+import { isWorkingDay, utcCalendarDayBounds } from "@/lib/utils";
 
 function toDateInputValueUTC(d: Date): string {
   const y = d.getUTCFullYear();
@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     );
     const dateStr = dateStrFromQuery || todayStr;
     const day = parseDateOnlyUTC(dateStr);
+    const { dayStart, dayEnd } = utcCalendarDayBounds(day);
     const isTodayWorking = isWorkingDay(day);
 
     const employeeWhere: Record<string, unknown> = { active: true };
@@ -66,8 +67,9 @@ export async function GET(request: NextRequest) {
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
-          startDate: { lte: day },
-          endDate: { gte: day },
+          cancelledAt: null,
+          startDate: { lte: dayEnd },
+          endDate: { gte: dayStart },
         },
         select: { employeeId: true },
       }),
@@ -75,8 +77,9 @@ export async function GET(request: NextRequest) {
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
-          startDate: { lte: day },
-          endDate: { gte: day },
+          cancelledAt: null,
+          startDate: { lte: dayEnd },
+          endDate: { gte: dayStart },
         },
         select: { employeeId: true },
       }),

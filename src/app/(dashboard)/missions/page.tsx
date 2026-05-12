@@ -17,6 +17,8 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  Trash2,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
@@ -43,6 +45,8 @@ interface Mission {
   daysCompleted: number;
   status: "PENDING" | "APPROVED" | "REJECTED";
   approvedBy: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -88,7 +92,13 @@ export default function MissionsPage() {
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [services, setServices] = useState<string[]>([]);
   const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; service?: string }[]>([]);
-  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    cancelled: 0,
+  });
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
@@ -107,6 +117,7 @@ export default function MissionsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingDays, setEditingDays] = useState<number | null>(null);
   const [savingDays, setSavingDays] = useState(false);
   const perPage = 20;
@@ -217,6 +228,32 @@ export default function MissionsPage() {
     }
   };
 
+  const deleteMission = async (id: string) => {
+    if (
+      !window.confirm(
+        "Annuler cette mission ? Elle restera visible dans l’historique (marquée « annulée ») mais ne sera plus prise en compte pour le pointage."
+      )
+    ) {
+      return;
+    }
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/missions/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setDetailMission(null);
+        fetchMissions();
+      } else {
+        window.alert(typeof json.error === "string" ? json.error : "Annulation impossible.");
+      }
+    } catch (e) {
+      console.error(e);
+      window.alert("Erreur réseau.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const updateDaysCompleted = async (id: string, days: number) => {
     setSavingDays(true);
     try {
@@ -296,14 +333,14 @@ export default function MissionsPage() {
           completed: m.daysCompleted,
           location: m.location ?? "—",
           reason: m.reason,
-          status: statusBadge[m.status]?.label ?? m.status,
+          status: `${statusBadge[m.status]?.label ?? m.status}${m.cancelledAt ? " — annulée" : ""}`,
         });
       });
     };
 
     addSheet("Toutes les missions", all);
 
-    const approved = all.filter((m) => m.status === "APPROVED");
+    const approved = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt);
     if (approved.length > 0) {
       const wsPaie = workbook.addWorksheet("Récapitulatif paie");
       wsPaie.columns = [
@@ -379,9 +416,9 @@ export default function MissionsPage() {
     doc.text(`Généré le ${now} — ${all.length} mission(s)`, 14, 25);
     doc.setTextColor(0);
 
-    const pending = all.filter((m) => m.status === "PENDING").length;
-    const approved = all.filter((m) => m.status === "APPROVED").length;
-    const rejected = all.filter((m) => m.status === "REJECTED").length;
+    const pending = all.filter((m) => m.status === "PENDING" && !m.cancelledAt).length;
+    const approved = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt).length;
+    const rejected = all.filter((m) => m.status === "REJECTED" && !m.cancelledAt).length;
     doc.setFontSize(8);
     doc.text(`En attente: ${pending}  |  Approuvées: ${approved}  |  Refusées: ${rejected}`, 14, 31);
 
@@ -397,14 +434,14 @@ export default function MissionsPage() {
         `${getDurationDays(m.startDate, m.endDate)}j`,
         `${m.daysCompleted}j`,
         m.location ?? "—",
-        statusBadge[m.status]?.label ?? m.status,
+        `${statusBadge[m.status]?.label ?? m.status}${m.cancelledAt ? " (annulée)" : ""}`,
       ]),
       styles: { fontSize: 7, cellPadding: 2 },
       headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
       alternateRowStyles: { fillColor: [248, 250, 252] },
     });
 
-    const approvedMissions = all.filter((m) => m.status === "APPROVED");
+    const approvedMissions = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt);
     if (approvedMissions.length > 0) {
       doc.addPage("a4", "landscape");
       doc.setFontSize(14);
@@ -492,11 +529,12 @@ export default function MissionsPage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard icon={Briefcase} label="Missions totales" value={stats.total} color="slate" />
         <KpiCard icon={Clock} label="En attente" value={stats.pending} color="amber" />
         <KpiCard icon={UserCheck} label="Approuvées" value={stats.approved} color="green" />
         <KpiCard icon={UserX} label="Refusées" value={stats.rejected} color="red" />
+        <KpiCard icon={Archive} label="Annulées" value={stats.cancelled ?? 0} color="slate" />
       </div>
 
       {/* Table card */}
@@ -598,11 +636,15 @@ export default function MissionsPage() {
               ) : (
                 missions.map((mission) => {
                   const badge = statusBadge[mission.status];
+                  const isOff = Boolean(mission.cancelledAt);
                   return (
                     <tr
                       key={mission.id}
                       onClick={() => setDetailMission(mission)}
-                      className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition-colors"
+                      className={cn(
+                        "border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition-colors",
+                        isOff && "opacity-70"
+                      )}
                     >
                       {/* Employé */}
                       <td className="px-6 py-4">
@@ -686,14 +728,21 @@ export default function MissionsPage() {
                       </td>
                       {/* Statut */}
                       <td className="px-6 py-4">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                            badge.bg
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+                              badge.bg
+                            )}
+                          >
+                            {badge.label}
+                          </span>
+                          {isOff && (
+                            <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-slate-200 text-slate-700">
+                              Annulée
+                            </span>
                           )}
-                        >
-                          {badge.label}
-                        </span>
+                        </div>
                       </td>
                       {/* Actions */}
                       <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
@@ -705,11 +754,11 @@ export default function MissionsPage() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {mission.status === "PENDING" && (
+                          {mission.status === "PENDING" && !isOff && (
                             <>
                               <button
                                 onClick={() => updateStatus(mission.id, "APPROVED")}
-                                disabled={actioningId === mission.id}
+                                disabled={actioningId === mission.id || deletingId === mission.id}
                                 className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-50"
                                 title="Approuver"
                               >
@@ -717,13 +766,23 @@ export default function MissionsPage() {
                               </button>
                               <button
                                 onClick={() => updateStatus(mission.id, "REJECTED")}
-                                disabled={actioningId === mission.id}
+                                disabled={actioningId === mission.id || deletingId === mission.id}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
                                 title="Refuser"
                               >
                                 <XCircle className="w-4 h-4" />
                               </button>
                             </>
+                          )}
+                          {!isOff && (
+                            <button
+                              onClick={() => deleteMission(mission.id)}
+                              disabled={deletingId === mission.id || actioningId === mission.id}
+                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                              title="Annuler (conserver l’historique)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -735,31 +794,47 @@ export default function MissionsPage() {
           </table>
         </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
+        {/* Pagination : toujours visible après chargement (résumé), navigation si > 1 page */}
+        {!loading && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-100">
             <p className="text-sm text-slate-500">
-              <span className="font-medium text-slate-700">
-                {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
-              </span>{" "}
-              sur <span className="font-medium text-slate-700">{total}</span> missions
+              {total > 0 ? (
+                <>
+                  <span className="font-medium text-slate-700">
+                    {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
+                  </span>{" "}
+                  sur <span className="font-medium text-slate-700">{total}</span> mission
+                  {total > 1 ? "s" : ""}
+                  {totalPages > 1 && (
+                    <span className="text-slate-400"> — page {page} / {totalPages}</span>
+                  )}
+                </>
+              ) : (
+                "Aucune mission sur cette sélection"
+              )}
             </p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Précédent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                >
+                  Suivant
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -961,7 +1036,11 @@ export default function MissionsPage() {
                 <DetailRow label="Durée prévue" value={formatDuration(detailMission.startDate, detailMission.endDate)} />
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-500">Jours effectués</span>
-                  {editingDays !== null ? (
+                  {detailMission.cancelledAt ? (
+                    <span className="font-medium text-slate-600">
+                      {detailMission.daysCompleted} / {getDurationDays(detailMission.startDate, detailMission.endDate)} jours
+                    </span>
+                  ) : editingDays !== null ? (
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
@@ -987,6 +1066,7 @@ export default function MissionsPage() {
                     </div>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setEditingDays(detailMission.daysCompleted)}
                       className="font-medium text-slate-800 hover:text-blue-600 transition-colors cursor-pointer"
                     >
@@ -1055,15 +1135,26 @@ export default function MissionsPage() {
                     <span className="text-slate-700">{new Date(detailMission.updatedAt).toLocaleDateString("fr-FR")}</span>
                   </div>
                 )}
+                {detailMission.cancelledAt && (
+                  <div className="flex justify-between text-sm border-t border-slate-100 pt-2 mt-2">
+                    <span className="text-slate-600 font-medium">Annulation</span>
+                    <span className="text-slate-700 text-right">
+                      {new Date(detailMission.cancelledAt).toLocaleString("fr-FR")}
+                      {detailMission.cancelledBy ? (
+                        <span className="block text-xs text-slate-500">par {detailMission.cancelledBy}</span>
+                      ) : null}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
               <div className="flex flex-col gap-3 pt-2 border-t border-slate-100">
-                {detailMission.status === "PENDING" && (
+                {detailMission.status === "PENDING" && !detailMission.cancelledAt && (
                   <div className="flex gap-3">
                     <button
                       onClick={() => updateStatus(detailMission.id, "APPROVED")}
-                      disabled={actioningId === detailMission.id}
+                      disabled={actioningId === detailMission.id || deletingId === detailMission.id}
                       className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                     >
                       <Check className="w-4 h-4" />
@@ -1071,7 +1162,7 @@ export default function MissionsPage() {
                     </button>
                     <button
                       onClick={() => updateStatus(detailMission.id, "REJECTED")}
-                      disabled={actioningId === detailMission.id}
+                      disabled={actioningId === detailMission.id || deletingId === detailMission.id}
                       className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
                     >
                       <XCircle className="w-4 h-4" />
@@ -1079,7 +1170,7 @@ export default function MissionsPage() {
                     </button>
                   </div>
                 )}
-                {detailMission.status === "APPROVED" && (
+                {detailMission.status === "APPROVED" && !detailMission.cancelledAt && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
                       onClick={async () => {
@@ -1385,6 +1476,17 @@ export default function MissionsPage() {
                       Télécharger l'ordre de mission (PDF)
                     </button>
                   </div>
+                )}
+                {!detailMission.cancelledAt && (
+                  <button
+                    type="button"
+                    onClick={() => deleteMission(detailMission.id)}
+                    disabled={deletingId === detailMission.id || actioningId === detailMission.id}
+                    className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-slate-700 bg-slate-100 hover:bg-red-50 hover:text-red-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deletingId === detailMission.id ? "Annulation…" : "Annuler (conserver l’historique)"}
+                  </button>
                 )}
               </div>
             </div>

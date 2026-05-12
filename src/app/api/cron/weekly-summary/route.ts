@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
           },
         }),
         prisma.leaveRequest.count({
-          where: { employeeId: emp.id, status: "PENDING" },
+          where: { employeeId: emp.id, status: "PENDING", cancelledAt: null },
         }),
       ]);
 

@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -15,7 +16,8 @@ const createEmployeeSchema = z.object({
   siteId: z.string().optional(),
 });
 
-async function generateNextMatricule(service: string, structure: string): Promise<string> {
+/** Préfixe : STRUCTURE-SERVICE- (SCPB / AFREXIA). Suffixe numérique aléatoire, vérifié unique en base. */
+async function generateUniqueMatricule(service: string, structure: string): Promise<string> {
   const raw = service.trim().toUpperCase();
   const DEPT_MAP: Record<string, string> = {
     IT: "IT",
@@ -30,21 +32,23 @@ async function generateNextMatricule(service: string, structure: string): Promis
   const struct = structure.trim().toUpperCase() || "SCPB";
   const prefix = `${struct}-${dept}-`;
 
-  const last = await prisma.employee.findFirst({
-    where: { matricule: { startsWith: prefix } },
-    orderBy: { matricule: "desc" },
-  });
-
-  let next = 1;
-  if (last?.matricule) {
-    const match = last.matricule.match(/(\d+)$/);
-    if (match) {
-      next = Number(match[1]) + 1;
-    }
+  const maxAttempts = 80;
+  for (let i = 0; i < maxAttempts; i++) {
+    const suffix = String(randomInt(0, 10_000)).padStart(4, "0");
+    const candidate = `${prefix}${suffix}`;
+    const taken = await prisma.employee.findUnique({ where: { matricule: candidate }, select: { id: true } });
+    if (!taken) return candidate;
   }
 
-  const numberPart = String(next).padStart(4, "0");
-  return `${prefix}${numberPart}`;
+  // Collision improbable : élargir à 6 chiffres une fois
+  for (let i = 0; i < 40; i++) {
+    const suffix = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    const candidate = `${prefix}${suffix}`;
+    const taken = await prisma.employee.findUnique({ where: { matricule: candidate }, select: { id: true } });
+    if (!taken) return candidate;
+  }
+
+  throw new Error("Impossible de générer un matricule unique");
 }
 
 export async function GET(request: NextRequest) {
@@ -112,7 +116,7 @@ export async function POST(request: NextRequest) {
     const { matricule, ...rest } = parsed.data;
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
-      finalMatricule = await generateNextMatricule(rest.service, rest.structure);
+      finalMatricule = await generateUniqueMatricule(rest.service, rest.structure);
     }
 
     const existing = await prisma.employee.findUnique({ where: { matricule: finalMatricule } });
@@ -144,6 +148,9 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
+      if (error.message === "Impossible de générer un matricule unique") {
+        return NextResponse.json({ error: error.message }, { status: 503 });
+      }
     }
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }

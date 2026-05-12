@@ -4,7 +4,14 @@ const WHATSAPP_API_URL = "https://graph.facebook.com/v21.0";
 
 /** Numéro au format attendu par l'API WhatsApp : chiffres uniquement, sans + */
 function toWhatsAppPhone(phone: string): string {
-  return phone.replace(/\D/g, "");
+  // Meta attend un numéro en chiffres, généralement avec code pays (sans +).
+  // Beaucoup de numéros sont stockés en format "international prefix" : 00XXXXXXXX.
+  // On normalise donc :
+  // - on supprime tout sauf les chiffres
+  // - si le numéro commence par "00", on enlève ces 2 zéros
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  return digits;
 }
 
 export async function sendWhatsAppMessage(

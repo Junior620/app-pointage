@@ -100,7 +100,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
         { name: "Absents", value: today.absent },
         { name: "Retards", value: today.late },
         { name: "Missions (en cours)", value: today.missionOngoing ?? today.mission },
-        { name: "Permissions (en cours)", value: today.permissionOngoing ?? today.permission },
+        { name: "Autorisations d'absence (en cours)", value: today.permissionOngoing ?? today.permission },
       ].filter((d) => d.value > 0);
 
   const structureBarData = data?.byStructure
@@ -178,7 +178,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
       {hasData && isNonWorkingDay && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
           <p className="text-sm font-medium text-slate-700">
-            Jour non ouvré (samedi ou dimanche) — pas de pointage. Les indicateurs du jour ne comptent pas d&apos;absences.
+            Jour non ouvré (samedi ou dimanche) — pas de planning « jour de semaine ». Le pointage reste possible pour un travail volontaire (heures sup. au départ) ; les indicateurs ci-dessous ne comptent pas d&apos;absences pour cette journée.
           </p>
         </div>
       )}
@@ -192,7 +192,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
         <KpiCard icon={Clock} label="Retards" value={today.late} color="amber"
           sub={today.present > 0 ? `${Math.round((today.late / today.present) * 100)}% des presents` : undefined} />
         <KpiCard icon={Briefcase} label="Missions" value={today.missionOngoing ?? today.mission} color="purple" sub={(today.missionOngoing ?? today.mission) > 0 ? "en cours" : undefined} />
-        <KpiCard icon={Shield} label="Permissions" value={today.permissionOngoing ?? today.permission} color="blue" sub={(today.permissionOngoing ?? today.permission) > 0 ? "en cours" : undefined} />
+        <KpiCard icon={Shield} label="Autorisations d'absence" value={today.permissionOngoing ?? today.permission} color="blue" sub={(today.permissionOngoing ?? today.permission) > 0 ? "en cours" : undefined} />
       </div>
 
       {/* Alerts */}

@@ -72,7 +72,7 @@ export function buildWeeklySummaryWhatsAppMessage(
   if (late > 0) msg += `⏰ Retards : ${late}\n`;
   if (absent > 0) msg += `❌ Absences : ${absent}\n`;
   if (permission > 0) {
-    msg += `📋 ${permission} jour${permission > 1 ? "s" : ""} en permission\n`;
+    msg += `📋 ${permission} jour${permission > 1 ? "s" : ""} avec autorisation d'absence\n`;
   }
   if (mission > 0) {
     msg += `🌍 ${mission} jour${mission > 1 ? "s" : ""} en mission\n`;
@@ -96,10 +96,10 @@ export function buildWeeklySummaryWhatsAppMessage(
 
   const pendingLeaves = extras?.pendingLeaveRequests ?? 0;
   if (pendingLeaves > 0) {
-    msg += `\n📬 *Demandes de permission* : ${pendingLeaves} en attente de validation par la RH.\n`;
+    msg += `\n📬 *Demandes d'autorisation d'absence* : ${pendingLeaves} en attente de validation par la RH.\n`;
   }
 
-  msg += `\n💡 Répondez *11* pour *Mes permissions* (en attente ou période en cours).\n`;
+  msg += `\n💡 Répondez *11* pour *Mes autorisations d'absence* (en attente ou période en cours).\n`;
 
   if (late === 0 && absent === 0) {
     msg += `\n🎉 Semaine parfaite ! Continuez comme ça.`;

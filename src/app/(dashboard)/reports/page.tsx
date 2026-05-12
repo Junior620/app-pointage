@@ -252,7 +252,7 @@ export default function ReportsPage() {
       { header: "Absents", key: "absents", width: 12 },
       { header: "Retards", key: "retards", width: 12 },
       { header: "Missions", key: "missions", width: 12 },
-      { header: "Permissions", key: "permissions", width: 14 },
+      { header: "Autorisations d'absence", key: "permissions", width: 18 },
       { header: "Heures", key: "totalHours", width: 12 },
       { header: "Heures sup", key: "overtimeHours", width: 12 },
       { header: "Ponctualité (%)", key: "punctualityRate", width: 16 },
