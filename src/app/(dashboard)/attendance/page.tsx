@@ -93,7 +93,7 @@ const statusLabels: Record<string, string> = {
   LATE: "Retard",
   ABSENT: "Absent",
   PRESENT: "Présent",
-  PERMISSION: "Permission",
+  PERMISSION: "Autorisation d'absence",
   MISSION: "Mission",
   AUTO: "Auto",
   MANUAL: "Manuel",
@@ -470,7 +470,7 @@ export default function AttendancePage() {
               <option value="">Tous les statuts</option>
               <option value="PRESENT">Présent</option>
               <option value="ABSENT">Absent</option>
-              <option value="PERMISSION">Permission</option>
+              <option value="PERMISSION">Autorisation d&apos;absence</option>
               <option value="MISSION">Mission</option>
             </select>
           </div>
@@ -1006,7 +1006,7 @@ export default function AttendancePage() {
                     >
                       <option value="PRESENT">Présent</option>
                       <option value="ABSENT">Absent</option>
-                      <option value="PERMISSION">Permission</option>
+                      <option value="PERMISSION">Autorisation d&apos;absence</option>
                       <option value="MISSION">Mission</option>
                     </select>
                   </div>

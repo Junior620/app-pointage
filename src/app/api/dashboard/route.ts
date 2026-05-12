@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     const missionToday = todayRecords.filter((r) => r.finalStatus === "MISSION").length;
     const permissionToday = todayRecords.filter((r) => r.finalStatus === "PERMISSION").length;
 
-    // Missions et permissions « en cours » : période inclut aujourd'hui, statut approuvé
+    // Missions et autorisations d'absence « en cours » : période inclut aujourd'hui, statut approuvé
     const [missionOngoingCount, permissionOngoingCount] = await Promise.all([
       prisma.mission.count({
         where: {

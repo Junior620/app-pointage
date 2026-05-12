@@ -160,7 +160,7 @@ export async function processCheckIn(
   if (leaveOrMission.type) {
     return {
       success: false,
-      message: `Vous êtes en ${leaveOrMission.type === "PERMISSION" ? "permission" : "mission"} aujourd'hui.`,
+      message: `Vous êtes en ${leaveOrMission.type === "PERMISSION" ? "autorisation d'absence" : "mission"} aujourd'hui.`,
     };
   }
 

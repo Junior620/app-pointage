@@ -616,12 +616,12 @@ async function handleMyPermissions(
   if (rows.length === 0) {
     await sendWhatsAppMessage(
       phone,
-      `📋 *${firstName}*, aucune permission en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + permissions), répondez *7*.`
+      `📋 *${firstName}*, aucune autorisation d'absence en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + autorisations d'absence), répondez *7*.`
     );
     return;
   }
 
-  let msg = `📋 *Mes permissions en cours — ${firstName}*\n\n`;
+  let msg = `📋 *Mes autorisations d'absence en cours — ${firstName}*\n\n`;
   msg += `⏳ = en attente de validation • ✅ = approuvée (période en cours)\n\n`;
 
   for (const l of rows.slice(0, 10)) {
@@ -758,11 +758,11 @@ async function handleDayDetail(
     msg += `📝 Motif OT : ${record.overtimeReason}\n`;
   }
 
-  // Mission / permission liée (via finalStatus)
+  // Mission / autorisation d'absence liée (via finalStatus)
   if (record.finalStatus === "MISSION") {
     msg += `🌍 Statut journée : Mission\n`;
   } else if (record.finalStatus === "PERMISSION") {
-    msg += `📋 Statut journée : Permission\n`;
+    msg += `📋 Statut journée : Autorisation d'absence\n`;
   } else {
     msg += `📋 Statut journée : ${record.finalStatus}\n`;
   }
@@ -797,12 +797,12 @@ async function handleMyMissions(
   if (missions.length === 0 && leaves.length === 0) {
     await sendWhatsAppMessage(
       phone,
-      `🌍 *${firstName}*, aucune mission ni permission ces 3 derniers mois.`
+      `🌍 *${firstName}*, aucune mission ni autorisation d'absence ces 3 derniers mois.`
     );
     return;
   }
 
-  let msg = `🌍 *Missions & Permissions — ${firstName}*\n\n`;
+  let msg = `🌍 *Missions & autorisations d'absence — ${firstName}*\n\n`;
 
   if (missions.length > 0) {
     msg += `*Missions (${missions.length}) :*\n`;
@@ -823,7 +823,7 @@ async function handleMyMissions(
   }
 
   if (leaves.length > 0) {
-    msg += `\n*Permissions (${leaves.length}) :*\n`;
+    msg += `\n*Autorisations d'absence (${leaves.length}) :*\n`;
     for (const l of leaves.slice(0, 5)) {
       const from = l.startDate.toLocaleDateString("fr-FR", {
         day: "2-digit",

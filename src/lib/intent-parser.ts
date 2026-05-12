@@ -80,6 +80,12 @@ const DAY_DETAIL_KEYWORDS = [
 ];
 
 const MY_PERMISSIONS_KEYWORDS = [
+  "mes autorisations d'absence",
+  "autorisations d'absence",
+  "autorisation d'absence",
+  "mes autorisations",
+  "autorisations en cours",
+  // anciens mots-clés (compatibilité)
   "mes permissions",
   "permissions en cours",
   "ma permission",
@@ -125,7 +131,7 @@ export function parseIntent(
     return { intent: "HELP" };
   }
 
-  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 permissions en cours
+  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 autorisations d'absence en cours
   if (!options?.skipNumericMenuShortcuts) {
     if (normalized === "1") return { intent: "CHECK_IN" };
     if (normalized === "2") return { intent: "CHECK_OUT" };
@@ -258,11 +264,11 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 4️⃣ *Mes pointages* — Historique du mois
 5️⃣ *Mes absences* — Voir vos absences
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
-7️⃣ *Mes missions* — Missions et permissions (historique récent)
+7️⃣ *Mes missions* — Missions et autorisations d'absence (historique récent)
 8️⃣ *Heures sup en attente* — Heures sup à valider par la RH
 9️⃣ *Détail jour* — Tapez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 *Résumé semaine* — Historique lundi → samedi
-1️⃣1️⃣ *Mes permissions* — En attente ou période approuvée en cours
+1️⃣1️⃣ *Mes autorisations d'absence* — En attente ou période approuvée en cours
 
 Répondez par le *numéro* (1 à 11) ou tapez la commande.`;
 
@@ -281,7 +287,7 @@ Que souhaitez-vous faire ?
 8️⃣ Mes heures sup en attente
 9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 Résumé / historique de la semaine
-1️⃣1️⃣ Mes permissions en cours
+1️⃣1️⃣ Mes autorisations d'absence en cours
 
 Répondez par le *numéro* (1 à 11) correspondant.`;
 }

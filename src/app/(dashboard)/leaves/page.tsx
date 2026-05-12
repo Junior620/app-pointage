@@ -251,7 +251,7 @@ export default function LeavesPage() {
       const ExcelJS = (await import("exceljs")).default;
       const all = await fetchAllLeaves();
       const workbook = new ExcelJS.Workbook();
-      const ws = workbook.addWorksheet("Permissions");
+      const ws = workbook.addWorksheet("Autorisations d'absence");
       ws.columns = [
         { header: "Employé", key: "employee", width: 24 },
         { header: "Matricule", key: "matricule", width: 18 },
@@ -290,7 +290,7 @@ export default function LeavesPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `permissions_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.download = `autorisations_absence_${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -329,9 +329,9 @@ export default function LeavesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Permissions</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Autorisations d&apos;absence</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Gestion des demandes d&apos;absence courte et sorties autorisées
+            Demandes d&apos;autorisation d&apos;absence (courtes absences et sorties autorisées)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -445,7 +445,7 @@ export default function LeavesPage() {
                 <tr>
                   <td colSpan={8} className="px-6 py-16 text-center">
                     <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                    <p className="text-base font-semibold text-slate-700">Aucune demande de permission</p>
+                    <p className="text-base font-semibold text-slate-700">Aucune demande d&apos;autorisation d&apos;absence</p>
                     <p className="mt-1 text-sm text-slate-500">
                       Essayez de modifier les filtres ou créez une nouvelle demande.
                     </p>
@@ -638,7 +638,7 @@ export default function LeavesPage() {
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 z-10">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-slate-900">Nouvelle demande de permission</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Nouvelle autorisation d&apos;absence</h2>
               <button onClick={() => setModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
                 <X className="w-5 h-5" />
               </button>

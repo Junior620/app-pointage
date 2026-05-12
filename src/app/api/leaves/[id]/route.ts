@@ -24,7 +24,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     const before = await prisma.leaveRequest.findUnique({ where: { id } });
     if (!before) {
-      return NextResponse.json({ error: "Demande de permission non trouvée" }, { status: 404 });
+      return NextResponse.json({ error: "Demande d'autorisation d'absence non trouvée" }, { status: 404 });
     }
 
     if (before.cancelledAt) {
@@ -69,23 +69,23 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         let msg: string;
         if (parsed.data.status === "APPROVED") {
           msg =
-            `✅ *Permission approuvée*\n\n` +
+            `✅ *Autorisation d'absence approuvée*\n\n` +
             `Bonjour ${leave.employee.firstName},\n\n` +
-            `Votre demande de permission a été *validée* par la RH.\n\n` +
+            `Votre demande d'autorisation d'absence a été *validée* par la RH.\n\n` +
             `📅 *Période*\nDu ${startStr}\nau ${endStr}\n\n` +
             `📝 *Motif*\n${leave.reason}\n\n` +
-            `💡 Répondez *11* pour *Mes permissions* (en cours).`;
+            `💡 Répondez *11* pour *Mes autorisations d'absence* (en cours).`;
         } else {
           msg =
-            `❌ *Permission non approuvée*\n\n` +
+            `❌ *Autorisation d'absence non approuvée*\n\n` +
             `Bonjour ${leave.employee.firstName},\n\n` +
-            `Votre demande de permission du ${startStr} au ${endStr} n'a *pas été approuvée*.\n\n` +
+            `Votre demande d'autorisation d'absence du ${startStr} au ${endStr} n'a *pas été approuvée*.\n\n` +
             `📝 *Motif indiqué*\n${leave.reason}\n\n` +
             `Pour plus d'informations, contactez les RH.`;
         }
         await sendWhatsAppMessage(leave.employee.whatsappPhone.trim(), msg);
       } catch (e) {
-        console.error("[Permissions] Notification WhatsApp (validation) échouée:", e);
+        console.error("[Autorisations absence] Notification WhatsApp (validation) échouée:", e);
       }
     }
 
@@ -106,7 +106,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     const before = await prisma.leaveRequest.findUnique({ where: { id } });
     if (!before) {
-      return NextResponse.json({ error: "Demande de permission non trouvée" }, { status: 404 });
+      return NextResponse.json({ error: "Demande d'autorisation d'absence non trouvée" }, { status: 404 });
     }
 
     if (before.cancelledAt) {

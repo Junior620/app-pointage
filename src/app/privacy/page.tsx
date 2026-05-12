@@ -53,14 +53,16 @@ export default function PrivacyPage() {
                 </li>
                 <li>
                   Donnees de pointage : heures d&apos;arrivee/depart, statuts
-                  (present, absent, retard, mission, permission), commentaires.
+                  (present, absent, retard, mission, autorisation
+                  d&apos;absence), commentaires.
                 </li>
                 <li>
                   Donnees de geolocalisation : position GPS associee aux
                   pointages (arrivee/depart) et distance au site de reference.
                 </li>
                 <li>
-                  Donnees RH : demandes de permissions, missions, heures
+                  Donnees RH : demandes d&apos;autorisations d&apos;absence,
+                  missions, heures
                   supplementaires, validations/refus.
                 </li>
                 <li>
@@ -79,7 +81,8 @@ export default function PrivacyPage() {
                   Gerer la presence et la ponctualite des employes.
                 </li>
                 <li>
-                  Gerer les workflows RH (permissions, missions, heures
+                  Gerer les workflows RH (autorisations d&apos;absence, missions,
+                  heures
                   supplementaires).
                 </li>
                 <li>

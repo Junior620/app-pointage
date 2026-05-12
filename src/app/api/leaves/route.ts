@@ -120,16 +120,16 @@ export async function POST(request: NextRequest) {
         };
         const startStr = leave.startDate.toLocaleDateString("fr-FR", opts);
         const endStr = leave.endDate.toLocaleDateString("fr-FR", opts);
-        let msg = `📋 *Nouvelle demande de permission*\n\n`;
+        let msg = `📋 *Nouvelle demande d'autorisation d'absence*\n\n`;
         msg += `Bonjour ${employee.firstName},\n\n`;
-        msg += `Une permission a été enregistrée à votre nom.\n\n`;
+        msg += `Une demande d'autorisation d'absence a été enregistrée à votre nom.\n\n`;
         msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
         msg += `\n📝 *Motif*\n${leave.reason}\n`;
         msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
-        console.log("[Permissions] Envoi WhatsApp vers:", rawPhone);
+        console.log("[Autorisations absence] Envoi WhatsApp vers:", rawPhone);
         await sendWhatsAppMessage(rawPhone, msg);
       } catch (e) {
-        console.error("[Permissions] Notification WhatsApp (création) échouée:", e);
+        console.error("[Autorisations absence] Notification WhatsApp (création) échouée:", e);
       }
     }
 

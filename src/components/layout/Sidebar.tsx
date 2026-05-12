@@ -24,7 +24,7 @@ const navLinks = [
   { href: "/employees", label: "Employés", icon: Users },
   { href: "/attendance", label: "Pointages", icon: ClipboardCheck },
   { href: "/overtime", label: "Heures sup", icon: Clock },
-  { href: "/leaves", label: "Permissions", icon: CalendarOff },
+  { href: "/leaves", label: "Autorisations d'absence", icon: CalendarOff },
   { href: "/missions", label: "Missions", icon: MapPin },
   { href: "/settings", label: "Paramètres", icon: Settings },
   { href: "/reports", label: "Rapports", icon: FileBarChart },

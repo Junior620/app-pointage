@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const count = await runMarkAbsent();
     return NextResponse.json({
       success: true,
-      message: `${count} employé(s) marqué(s) absent/permissionné/mission`,
+      message: `${count} employé(s) marqué(s) absent / avec autorisation d'absence / mission`,
       count,
     });
   } catch (error) {
