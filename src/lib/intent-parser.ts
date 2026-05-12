@@ -106,10 +106,24 @@ const MY_WEEK_SUMMARY_KEYWORDS = [
   "pointages semaine",
 ];
 
+const DEMAND_LEAVE_FORM_KEYWORDS = [
+  "demander une autorisation",
+  "demander une autorisation d'absence",
+  "demande autorisation",
+  "demande d'autorisation",
+  "demande d'autorisation d'absence",
+  "formulaire autorisation",
+  "formulaire autorisation d'absence",
+  "nouvelle autorisation",
+  "nouvelle autorisation d'absence",
+  "demander autorisation",
+  "demander autorisation absence",
+];
+
 const HELP_KEYWORDS = ["aide", "help", "menu", "commandes", "?"];
 
 export type ParseIntentOptions = {
-  /** Quand l'employé doit saisir un motif d'heures sup : ne pas interpréter 1–11 comme le menu (évite que « 2 » = Départ au lieu du motif). */
+  /** Quand l'employé doit saisir un motif d'heures sup : ne pas interpréter 1–12 comme le menu (évite que « 2 » = Départ au lieu du motif). */
   skipNumericMenuShortcuts?: boolean;
 };
 
@@ -131,13 +145,13 @@ export function parseIntent(
     return { intent: "HELP" };
   }
 
-  // Réponse par numéro : 1–7 menu principal, 8 heures sup attente, 9 détail jour, 10 résumé semaine, 11 autorisations d'absence en cours
+  // Réponse par numéro : 5 = autorisations d'absence en cours ; 11 = absences constatées au pointage (3 mois)
   if (!options?.skipNumericMenuShortcuts) {
     if (normalized === "1") return { intent: "CHECK_IN" };
     if (normalized === "2") return { intent: "CHECK_OUT" };
     if (normalized === "3") return { intent: "STATUS" };
     if (normalized === "4") return { intent: "MY_ATTENDANCE" };
-    if (normalized === "5") return { intent: "MY_ABSENCES" };
+    if (normalized === "5") return { intent: "MY_PERMISSIONS" };
     if (normalized === "6") return { intent: "MY_OVERTIME" };
     if (normalized === "7") return { intent: "MY_MISSIONS" };
     if (normalized === "8") return { intent: "MY_OVERTIME_PENDING" };
@@ -149,7 +163,15 @@ export function parseIntent(
       return { intent: "DAY_DETAIL", comment: rest || undefined };
     }
     if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
-    if (normalized === "11") return { intent: "MY_PERMISSIONS" };
+    if (normalized === "11") return { intent: "MY_ABSENCES" };
+    if (normalized === "12") return { intent: "DEMAND_LEAVE_FORM" };
+  }
+
+  const nkDemand = DEMAND_LEAVE_FORM_KEYWORDS.map((k) =>
+    k.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  );
+  for (const nk of nkDemand) {
+    if (normalized.includes(nk)) return { intent: "DEMAND_LEAVE_FORM" };
   }
 
   const parts = normalized.split(/\s+/);
@@ -262,15 +284,16 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 2️⃣ *Départ* — Pointer votre départ
 3️⃣ *Statut* — Pointage du jour
 4️⃣ *Mes pointages* — Historique du mois
-5️⃣ *Mes absences* — Voir vos absences
+5️⃣ *Mes autorisations d'absence* — En attente ou période approuvée en cours
 6️⃣ *Mes heures sup* — Heures supplémentaires validées
 7️⃣ *Mes missions* — Missions et autorisations d'absence (historique récent)
 8️⃣ *Heures sup en attente* — Heures sup à valider par la RH
 9️⃣ *Détail jour* — Tapez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 *Résumé semaine* — Historique lundi → samedi
-1️⃣1️⃣ *Mes autorisations d'absence* — En attente ou période approuvée en cours
+1️⃣1️⃣ *Mes absences au pointage* — Jours marqués absent (3 derniers mois)
+1️⃣2️⃣ *Demander une autorisation* — Lien formulaire web sécurisé
 
-Répondez par le *numéro* (1 à 11) ou tapez la commande.`;
+Répondez par le *numéro* (1 à 12) ou tapez la commande.`;
 
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
@@ -281,13 +304,14 @@ Que souhaitez-vous faire ?
 2️⃣ Pointer mon départ
 3️⃣ Voir mon statut
 4️⃣ Mes pointages du mois
-5️⃣ Mes absences
+5️⃣ Mes autorisations d'absence en cours
 6️⃣ Mes heures sup
 7️⃣ Mes missions
 8️⃣ Mes heures sup en attente
 9️⃣ Détail jour — répondez *9* puis JJ/MM (ex. *9 15/03*)
 🔟 Résumé / historique de la semaine
-1️⃣1️⃣ Mes autorisations d'absence en cours
+1️⃣1️⃣ Mes absences au pointage (3 derniers mois)
+1️⃣2️⃣ Demander une autorisation (lien formulaire)
 
-Répondez par le *numéro* (1 à 11) correspondant.`;
+Répondez par le *numéro* (1 à 12) correspondant.`;
 }

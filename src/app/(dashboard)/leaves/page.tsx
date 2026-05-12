@@ -18,7 +18,15 @@ import {
   Eye,
   Trash2,
   Archive,
+  FileText,
 } from "lucide-react";
+import { LeaveAbsenceCategory } from "@prisma/client";
+import {
+  ORDERED_LEAVE_ABSENCE_CATEGORIES,
+  LEAVE_ABSENCE_CATEGORY_LABELS,
+  leaveAbsenceCategoryLabel,
+  leaveSubmissionSourceLabel,
+} from "@/lib/leave-absence-labels";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
 
@@ -30,10 +38,14 @@ interface LeaveRequest {
     lastName: string;
     matricule: string;
     service?: string;
+    structure?: string;
   };
   startDate: string;
   endDate: string;
   reason: string;
+  absenceCategory: LeaveAbsenceCategory | null;
+  notifyOrReplace: string | null;
+  submissionSource: "HR_DASHBOARD" | "EMPLOYEE_WHATSAPP_FORM";
   status: "PENDING" | "APPROVED" | "REJECTED";
   document: string | null;
   approvedBy: string | null;
@@ -48,6 +60,8 @@ const leaveSchema = z.object({
   startDate: z.string().min(1, "La date de début est requise"),
   endDate: z.string().min(1, "La date de fin est requise"),
   reason: z.string().min(1, "Le motif est requis"),
+  absenceCategory: z.nativeEnum(LeaveAbsenceCategory).optional(),
+  notifyOrReplace: z.string().max(500).optional(),
 });
 
 const statusBadge: Record<string, { bg: string; label: string }> = {
@@ -97,7 +111,14 @@ export default function LeavesPage() {
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailLeave, setDetailLeave] = useState<LeaveRequest | null>(null);
-  const [form, setForm] = useState({ employeeId: "", startDate: "", endDate: "", reason: "" });
+  const [form, setForm] = useState({
+    employeeId: "",
+    startDate: "",
+    endDate: "",
+    reason: "",
+    absenceCategory: "" as "" | LeaveAbsenceCategory,
+    notifyOrReplace: "",
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -151,7 +172,14 @@ export default function LeavesPage() {
 
   const openCreate = () => {
     fetchEmployees();
-    setForm({ employeeId: "", startDate: "", endDate: "", reason: "" });
+    setForm({
+      employeeId: "",
+      startDate: "",
+      endDate: "",
+      reason: "",
+      absenceCategory: "",
+      notifyOrReplace: "",
+    });
     setErrors({});
     setSubmitError("");
     setModalOpen(true);
@@ -159,7 +187,14 @@ export default function LeavesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = leaveSchema.safeParse(form);
+    const result = leaveSchema.safeParse({
+      employeeId: form.employeeId,
+      startDate: form.startDate,
+      endDate: form.endDate,
+      reason: form.reason,
+      absenceCategory: form.absenceCategory || undefined,
+      notifyOrReplace: form.notifyOrReplace?.trim() || undefined,
+    });
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
       result.error.issues.forEach((i) => {
@@ -171,10 +206,17 @@ export default function LeavesPage() {
     setSubmitting(true);
     setSubmitError("");
     try {
+      const payload = {
+        ...result.data,
+        ...(result.data.absenceCategory ? { absenceCategory: result.data.absenceCategory } : {}),
+        ...(result.data.notifyOrReplace?.trim()
+          ? { notifyOrReplace: result.data.notifyOrReplace.trim() }
+          : {}),
+      };
       const res = await fetch("/api/leaves", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.data),
+        body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -260,6 +302,8 @@ export default function LeavesPage() {
         { header: "Fin", key: "end", width: 12 },
         { header: "Durée", key: "duration", width: 10 },
         { header: "Motif", key: "reason", width: 36 },
+        { header: "Catégorie", key: "category", width: 22 },
+        { header: "Origine", key: "source", width: 18 },
         { header: "Statut", key: "status", width: 22 },
         { header: "Créée le", key: "created", width: 14 },
       ];
@@ -279,6 +323,8 @@ export default function LeavesPage() {
           end: new Date(leave.endDate).toLocaleDateString("fr-FR"),
           duration: formatDuration(leave.startDate, leave.endDate),
           reason: leave.reason,
+          category: leaveAbsenceCategoryLabel(leave.absenceCategory ?? undefined),
+          source: leaveSubmissionSourceLabel(leave.submissionSource),
           status: `${badge?.label ?? leave.status}${cancelled ? " — annulée" : ""}`,
           created: new Date(leave.createdAt).toLocaleDateString("fr-FR"),
         });
@@ -428,6 +474,7 @@ export default function LeavesPage() {
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Fin</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Motif</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Origine</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
                 <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
               </tr>
@@ -436,14 +483,14 @@ export default function LeavesPage() {
               {loading ? (
                 [...Array(3)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={8} className="px-6 py-4">
+                    <td colSpan={9} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : leaves.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center">
+                  <td colSpan={9} className="px-6 py-16 text-center">
                     <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">Aucune demande d&apos;autorisation d&apos;absence</p>
                     <p className="mt-1 text-sm text-slate-500">
@@ -518,6 +565,18 @@ export default function LeavesPage() {
                       {/* Motif */}
                       <td className="px-6 py-4 text-slate-600 max-w-[180px] truncate text-sm">
                         {leave.reason}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                            leave.submissionSource === "EMPLOYEE_WHATSAPP_FORM"
+                              ? "bg-blue-50 text-blue-800"
+                              : "bg-slate-100 text-slate-700"
+                          )}
+                        >
+                          {leaveSubmissionSourceLabel(leave.submissionSource)}
+                        </span>
                       </td>
                       {/* Statut */}
                       <td className="px-6 py-4">
@@ -694,6 +753,39 @@ export default function LeavesPage() {
                 </p>
               )}
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Type / catégorie (optionnel)</label>
+                <select
+                  value={form.absenceCategory || ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      absenceCategory: e.target.value as LeaveAbsenceCategory | "",
+                    })
+                  }
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                >
+                  <option value="">Non précisée</option>
+                  {ORDERED_LEAVE_ABSENCE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {LEAVE_ABSENCE_CATEGORY_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Personne ou service à prévenir (optionnel)
+                </label>
+                <input
+                  type="text"
+                  value={form.notifyOrReplace}
+                  onChange={(e) => setForm({ ...form, notifyOrReplace: e.target.value })}
+                  placeholder={"Joignabilité pendant l'absence…"}
+                  maxLength={500}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Motif</label>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {MOTIF_SUGGESTIONS.map((motif) => (
@@ -809,6 +901,44 @@ export default function LeavesPage() {
                 <p className="text-xs font-medium text-slate-500 mb-1">Motif</p>
                 <p className="text-sm text-slate-700">{detailLeave.reason}</p>
               </div>
+              <div className="rounded-xl bg-slate-50 p-4 space-y-2">
+                <div className="flex justify-between gap-4 text-sm">
+                  <span className="text-slate-500">Catégorie</span>
+                  <span className="font-medium text-slate-800 text-right">
+                    {leaveAbsenceCategoryLabel(detailLeave.absenceCategory ?? undefined)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4 text-sm">
+                  <span className="text-slate-500">Personne/service à prévenir</span>
+                  <span className="font-medium text-slate-800 text-right">
+                    {detailLeave.notifyOrReplace?.trim() || "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4 text-sm">
+                  <span className="text-slate-500">Origine du dossier</span>
+                  <span className="font-medium text-slate-800 text-right">
+                    {leaveSubmissionSourceLabel(detailLeave.submissionSource)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void downloadLeaveRequestPdf(detailLeave)}
+                  className="inline-flex flex-1 min-w-[120px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <Download className="h-4 w-4" />
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadLeaveRequestWord(detailLeave.id)}
+                  className="inline-flex flex-1 min-w-[120px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <FileText className="h-4 w-4" />
+                  Word (.docx)
+                </button>
+              </div>
               {detailLeave.approvedBy && (
                 <div className="rounded-xl border border-slate-200 p-4">
                   <p className="text-xs font-medium text-slate-500 mb-1">Validation</p>
@@ -875,6 +1005,97 @@ export default function LeavesPage() {
       )}
     </div>
   );
+}
+
+async function downloadLeaveRequestPdf(leave: LeaveRequest): Promise<void> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  let y = 18;
+  doc.setFontSize(15);
+  doc.setFont("helvetica", "bold");
+  doc.text("Demande d'autorisation d'absence / congés", 14, y);
+  y += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+
+  const rows: [string, string][] = [
+    ["Structure", leave.employee.structure ?? "—"],
+    ["Nom", `${leave.employee.lastName} ${leave.employee.firstName}`],
+    ["Matricule", leave.employee.matricule],
+    ["Service", leave.employee.service ?? "—"],
+    ["Origine", leaveSubmissionSourceLabel(leave.submissionSource)],
+    ["Catégorie", leaveAbsenceCategoryLabel(leave.absenceCategory ?? undefined)],
+    [
+      "Du",
+      new Date(leave.startDate).toLocaleDateString("fr-FR", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }),
+    ],
+    [
+      "Au",
+      new Date(leave.endDate).toLocaleDateString("fr-FR", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }),
+    ],
+    ["Motif", leave.reason],
+    ["Personne/service à prévenir", leave.notifyOrReplace?.trim() || "—"],
+    [
+      "Statut RH",
+      `${leave.status === "PENDING" ? "En attente" : leave.status === "APPROVED" ? "Approuvé" : "Refusé"}${leave.approvedBy ? ` (${leave.approvedBy})` : ""}`,
+    ],
+    ["Créée le", new Date(leave.createdAt).toLocaleDateString("fr-FR")],
+  ];
+
+  for (const [label, val] of rows) {
+    doc.setFont("helvetica", "bold");
+    doc.text(`${label} :`, 14, y);
+    doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(val, 120);
+    doc.text(lines, 70, y);
+    y += 5 + Math.max(1, lines.length) * 5;
+    if (y > 278) {
+      doc.addPage();
+      y = 16;
+    }
+  }
+  y += 4;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "italic");
+  doc.text("Document généré depuis Pointage RH — signature papier si besoin.", 14, Math.min(y + 6, 288), {
+    maxWidth: 180,
+  });
+  doc.save(`demande_autorisation_${leave.employee.matricule}_${leave.id.slice(0, 8)}.pdf`);
+}
+
+async function downloadLeaveRequestWord(id: string): Promise<void> {
+  const res = await fetch(`/api/leaves/${id}/document`, { credentials: "include" });
+  if (!res.ok) {
+    let msg = "Export Word impossible.";
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (typeof j?.error === "string") msg = j.error;
+    } catch {
+      /* ignore */
+    }
+    window.alert(msg);
+    return;
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition");
+  const match = cd?.match(/filename="([^"]+)"/);
+  const fn = match?.[1] ?? `demande_autorisation_${id.slice(0, 8)}.docx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fn;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function KpiCard({

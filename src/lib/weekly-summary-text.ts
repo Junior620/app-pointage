@@ -99,7 +99,7 @@ export function buildWeeklySummaryWhatsAppMessage(
     msg += `\n📬 *Demandes d'autorisation d'absence* : ${pendingLeaves} en attente de validation par la RH.\n`;
   }
 
-  msg += `\n💡 Répondez *11* pour *Mes autorisations d'absence* (en attente ou période en cours).\n`;
+  msg += `\n💡 Répondez *5* pour *Mes autorisations d'absence* (en attente ou période en cours).\n`;
 
   if (late === 0 && absent === 0) {
     msg += `\n🎉 Semaine parfaite ! Continuez comme ça.`;

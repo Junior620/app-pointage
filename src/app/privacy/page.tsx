@@ -63,7 +63,9 @@ export default function PrivacyPage() {
                 <li>
                   Donnees RH : demandes d&apos;autorisations d&apos;absence,
                   missions, heures
-                  supplementaires, validations/refus.
+                  supplementaires, validations/refus, date et motif de depart
+                  (demission, fin de contrat, licenciement, abandon) le cas
+                  echeant.
                 </li>
                 <li>
                   Journaux techniques et d&apos;audit : historique des actions,

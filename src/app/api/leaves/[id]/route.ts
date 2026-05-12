@@ -74,7 +74,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             `Votre demande d'autorisation d'absence a été *validée* par la RH.\n\n` +
             `📅 *Période*\nDu ${startStr}\nau ${endStr}\n\n` +
             `📝 *Motif*\n${leave.reason}\n\n` +
-            `💡 Répondez *11* pour *Mes autorisations d'absence* (en cours).`;
+            `💡 Répondez *5* pour *Mes autorisations d'absence* (en cours).`;
         } else {
           msg =
             `❌ *Autorisation d'absence non approuvée*\n\n` +

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { getReportPresetRange, getLast30DaysRange, toInputDateLocal } from "@/lib/period-range";
 import {
   FileSpreadsheet,
   FileText,
@@ -188,6 +189,18 @@ export default function ReportsPage() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const applyPeriodPreset = useCallback((kind: "30d" | "month" | "quarter" | "year") => {
+    if (kind === "30d") {
+      const { from, to } = getLast30DaysRange();
+      setDateFrom(toInputDateLocal(from));
+      setDateTo(toInputDateLocal(to));
+      return;
+    }
+    const { from, to } = getReportPresetRange(kind);
+    setDateFrom(toInputDateLocal(from));
+    setDateTo(toInputDateLocal(to));
   }, []);
 
   const generate = useCallback(async () => {
@@ -498,6 +511,40 @@ export default function ReportsPage() {
             <BarChart3 className="w-4 h-4" />
             {loading ? "Génération…" : "Générer"}
           </button>
+        </div>
+        <div className="mt-5 pt-5 border-t border-slate-100 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-600 shrink-0">Période rapide</span>
+          <button
+            type="button"
+            onClick={() => applyPeriodPreset("30d")}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            30 derniers jours
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPeriodPreset("month")}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            Mois en cours
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPeriodPreset("quarter")}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            Trimestre en cours
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPeriodPreset("year")}
+            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            Année en cours
+          </button>
+          <span className="text-xs text-slate-400 ml-1">
+            Remplit les dates ; filtrez un employé puis <strong>Générer</strong>.
+          </span>
         </div>
       </div>
 

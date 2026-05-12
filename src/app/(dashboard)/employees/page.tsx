@@ -18,10 +18,19 @@ import {
   CheckCircle2,
   XCircle,
   Download,
+  UserMinus,
+  PenLine,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
+import { departureReasonLabel } from "@/lib/departure-labels";
+
+type DepartureReasonCode =
+  | "RESIGNATION"
+  | "END_OF_CONTRACT"
+  | "DISMISSAL"
+  | "ABANDONMENT";
 
 interface Employee {
   id: string;
@@ -34,6 +43,21 @@ interface Employee {
   active: boolean;
   siteId?: string | null;
   site?: { id: string; name: string } | null;
+  departureDate?: string | null;
+  departureReason?: DepartureReasonCode | null;
+  departureNote?: string | null;
+}
+
+function todayInputDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatDepartureDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
 const employeeSchema = z.object({
@@ -79,6 +103,12 @@ export default function EmployeesPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
+  const [departureModal, setDepartureModal] = useState<Employee | null>(null);
+  const [departureDate, setDepartureDate] = useState("");
+  const [departureReason, setDepartureReason] = useState<DepartureReasonCode | "">("");
+  const [departureNote, setDepartureNote] = useState("");
+  const [departureSubmitting, setDepartureSubmitting] = useState(false);
+  const [departureError, setDepartureError] = useState<string | null>(null);
   const perPage = 15;
 
   const fetchEmployees = useCallback(async () => {
@@ -168,7 +198,9 @@ export default function EmployeesPage() {
         { header: "Structure", key: "structure", width: 12 },
         { header: "Site", key: "site", width: 20 },
         { header: "WhatsApp", key: "whatsapp", width: 18 },
-        { header: "Statut", key: "status", width: 10 },
+        { header: "Statut", key: "status", width: 12 },
+        { header: "Date départ", key: "departureDate", width: 14 },
+        { header: "Motif départ", key: "departureReason", width: 22 },
       ];
 
       ws.getRow(1).eachCell((cell) => {
@@ -186,7 +218,11 @@ export default function EmployeesPage() {
           structure: emp.structure,
           site: emp.site?.name ?? "Non assigné",
           whatsapp: emp.whatsappPhone ?? "—",
-          status: emp.active ? "Actif" : "Inactif",
+          status: emp.active ? "Actif" : "Parti / inactif",
+          departureDate: emp.departureDate ? formatDepartureDate(emp.departureDate) : "—",
+          departureReason: emp.departureReason
+            ? departureReasonLabel(emp.departureReason)
+            : "—",
         });
       });
     };
@@ -229,11 +265,24 @@ export default function EmployeesPage() {
       const inactive = data.length - active;
       const whatsapp = data.filter((e) => e.whatsappPhone).length;
       doc.setFontSize(8);
-      doc.text(`Actifs: ${active}  |  Inactifs: ${inactive}  |  WhatsApp: ${whatsapp}`, 14, 31);
+      doc.text(`Actifs: ${active}  |  Partis/inactifs: ${inactive}  |  WhatsApp: ${whatsapp}`, 14, 31);
 
       autoTable(doc, {
         startY: 35,
-        head: [["Matricule", "Nom", "Prénom", "Service", "Structure", "Site", "WhatsApp", "Statut"]],
+        head: [
+          [
+            "Matricule",
+            "Nom",
+            "Prénom",
+            "Service",
+            "Structure",
+            "Site",
+            "WhatsApp",
+            "Statut",
+            "Date départ",
+            "Motif",
+          ],
+        ],
         body: data.map((emp) => [
           emp.matricule,
           emp.lastName,
@@ -242,7 +291,9 @@ export default function EmployeesPage() {
           emp.structure,
           emp.site?.name ?? "Non assigné",
           emp.whatsappPhone ?? "—",
-          emp.active ? "Actif" : "Inactif",
+          emp.active ? "Actif" : "Parti / inactif",
+          emp.departureDate ? formatDepartureDate(emp.departureDate) : "—",
+          emp.departureReason ? departureReasonLabel(emp.departureReason) : "—",
         ]),
         styles: { fontSize: 8, cellPadding: 2 },
         headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
@@ -318,13 +369,75 @@ export default function EmployeesPage() {
     }
   };
 
-  const toggleActive = async (id: string, active: boolean) => {
+  const reactivateEmployee = async (id: string) => {
     await fetch(`/api/employees/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ active: !active }),
+      body: JSON.stringify({ active: true }),
     });
     fetchEmployees();
+  };
+
+  const openDepartureModal = (emp: Employee) => {
+    if (!emp.active) {
+      void reactivateEmployee(emp.id);
+      return;
+    }
+    setDepartureModal(emp);
+    setDepartureDate(todayInputDate());
+    setDepartureReason("");
+    setDepartureNote(emp.departureNote ?? "");
+    setDepartureError(null);
+  };
+
+  const openCompleteDepartureModal = (emp: Employee) => {
+    setDepartureModal(emp);
+    setDepartureDate(
+      emp.departureDate ? emp.departureDate.slice(0, 10) : todayInputDate()
+    );
+    setDepartureReason((emp.departureReason as DepartureReasonCode) ?? "");
+    setDepartureNote(emp.departureNote ?? "");
+    setDepartureError(null);
+  };
+
+  const submitDeparture = async () => {
+    if (!departureModal) return;
+    if (!departureDate.trim()) {
+      setDepartureError("La date de départ est obligatoire.");
+      return;
+    }
+    if (!departureReason) {
+      setDepartureError("Choisissez un motif de départ.");
+      return;
+    }
+    setDepartureSubmitting(true);
+    setDepartureError(null);
+    try {
+      const payload: Record<string, unknown> = {
+        departureDate: departureDate.trim(),
+        departureReason,
+        departureNote: departureNote.trim() || null,
+      };
+      if (departureModal.active) {
+        payload.active = false;
+      }
+      const res = await fetch(`/api/employees/${departureModal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDepartureError(typeof json.error === "string" ? json.error : "Erreur lors de l’enregistrement.");
+        return;
+      }
+      setDepartureModal(null);
+      fetchEmployees();
+    } catch {
+      setDepartureError("Erreur réseau.");
+    } finally {
+      setDepartureSubmitting(false);
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -369,7 +482,7 @@ export default function EmployeesPage() {
             Employés
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Gestion des collaborateurs et de leur statut de présence.
+            Gestion des collaborateurs, des départs (motif et date) et du statut de présence.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -413,7 +526,7 @@ export default function EmployeesPage() {
         />
         <MiniKPI
           icon={UserX}
-          label="Inactifs"
+          label="Partis / inactifs"
           value={inactiveCount}
           color="red"
         />
@@ -480,7 +593,7 @@ export default function EmployeesPage() {
             >
               <option value="all">Tous les statuts</option>
               <option value="active">Actif</option>
-              <option value="inactive">Inactif</option>
+              <option value="inactive">Parti / inactif</option>
             </select>
           </div>
         </div>
@@ -508,6 +621,12 @@ export default function EmployeesPage() {
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Statut
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Date départ
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Motif départ
+                </th>
                 <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Actions
                 </th>
@@ -517,14 +636,14 @@ export default function EmployeesPage() {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={7} className="px-6 py-4">
+                    <td colSpan={9} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
+                  <td colSpan={9} className="px-6 py-16 text-center">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">
                       Aucun employé trouvé
@@ -618,7 +737,19 @@ export default function EmployeesPage() {
                             : "bg-red-50 text-red-700"
                         )}
                       >
-                        {emp.active ? "Actif" : "Inactif"}
+                        {emp.active ? "Actif" : "Parti / inactif"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600 whitespace-nowrap">
+                      {formatDepartureDate(emp.departureDate)}
+                    </td>
+                    <td className="px-6 py-4 text-slate-600 max-w-[200px]">
+                      <span className="line-clamp-2">
+                        {emp.departureReason
+                          ? departureReasonLabel(emp.departureReason)
+                          : !emp.active
+                            ? <span className="text-amber-600 text-xs font-medium">Non renseigné</span>
+                            : "—"}
                       </span>
                     </td>
                     {/* Actions */}
@@ -638,15 +769,39 @@ export default function EmployeesPage() {
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
+                        {!emp.active && !emp.departureReason && (
+                          <button
+                            type="button"
+                            onClick={() => openCompleteDepartureModal(emp)}
+                            className="p-2 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded-xl transition-colors"
+                            title="Renseigner le départ"
+                          >
+                            <UserMinus className="w-4 h-4" />
+                          </button>
+                        )}
+                        {!emp.active && emp.departureReason && (
+                          <button
+                            type="button"
+                            onClick={() => openCompleteDepartureModal(emp)}
+                            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+                            title="Modifier date ou motif de départ"
+                          >
+                            <PenLine className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
-                          onClick={() => toggleActive(emp.id, emp.active)}
+                          onClick={() => openDepartureModal(emp)}
                           className={cn(
                             "p-2 rounded-xl transition-colors",
                             emp.active
                               ? "text-slate-400 hover:text-red-600 hover:bg-red-50"
                               : "text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
                           )}
-                          title={emp.active ? "Désactiver" : "Activer"}
+                          title={
+                            emp.active
+                              ? "Enregistrer un départ (démission, fin de contrat…)"
+                              : "Réactiver l’employé"
+                          }
                         >
                           <Ban className="w-4 h-4" />
                         </button>
@@ -927,6 +1082,101 @@ export default function EmployeesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal départ RH */}
+      {departureModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => !departureSubmitting && setDepartureModal(null)}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 z-10">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {departureModal.active ? "Enregistrer un départ" : "Motif et date de départ"}
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  {departureModal.firstName} {departureModal.lastName}{" "}
+                  <span className="font-mono text-xs text-slate-400">({departureModal.matricule})</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !departureSubmitting && setDepartureModal(null)}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Fermer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Date du départ
+                </label>
+                <input
+                  type="date"
+                  value={departureDate}
+                  onChange={(e) => setDepartureDate(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Motif
+                </label>
+                <select
+                  value={departureReason}
+                  onChange={(e) =>
+                    setDepartureReason(e.target.value as DepartureReasonCode | "")
+                  }
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— Choisir —</option>
+                  <option value="RESIGNATION">Démission</option>
+                  <option value="END_OF_CONTRACT">Fin de contrat</option>
+                  <option value="DISMISSAL">Licenciement</option>
+                  <option value="ABANDONMENT">Abandon de poste</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Commentaire (optionnel)
+                </label>
+                <textarea
+                  value={departureNote}
+                  onChange={(e) => setDepartureNote(e.target.value)}
+                  rows={3}
+                  placeholder="Précisions pour le dossier RH…"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y min-h-[80px]"
+                />
+              </div>
+              {departureError && (
+                <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{departureError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => !departureSubmitting && setDepartureModal(null)}
+                disabled={departureSubmitting}
+                className="h-10 px-4 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitDeparture()}
+                disabled={departureSubmitting}
+                className="h-10 px-5 text-sm font-medium bg-slate-900 text-white rounded-xl hover:bg-slate-800 disabled:opacity-50 transition-colors"
+              >
+                {departureSubmitting ? "Enregistrement…" : "Valider"}
+              </button>
+            </div>
           </div>
         </div>
       )}

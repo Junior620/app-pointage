@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
 import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
 import { parseIntent, getWelcomeMessage } from "@/lib/intent-parser";
+import { issueLeaveFormToken } from "@/lib/leave-form-token";
 import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
@@ -311,6 +312,10 @@ async function handleMessage(
         await handleMyWeekSummary(phone, employee.id, employee.firstName);
         break;
 
+      case "DEMAND_LEAVE_FORM":
+        await handleDemandLeaveFormLink(phone, employee);
+        break;
+
       case "GREETING":
       case "HELP":
         await sendWhatsAppMessage(phone, getWelcomeMessage(employee.firstName));
@@ -320,6 +325,46 @@ async function handleMessage(
         await sendWhatsAppButtons(phone);
     }
   }
+}
+
+async function handleDemandLeaveFormLink(
+  phone: string,
+  employee: { id: string; firstName: string; active: boolean }
+) {
+  if (!employee.active) {
+    await sendWhatsAppMessage(
+      phone,
+      "Votre compte est inactif. Pour toute demande, contactez les RH."
+    );
+    return;
+  }
+
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")?.trim();
+  if (!base) {
+    await sendWhatsAppMessage(
+      phone,
+      "Le service de formulaire n'est pas configuré (URL de l'application). Contactez les RH."
+    );
+    return;
+  }
+
+  let token: string;
+  try {
+    token = issueLeaveFormToken(employee.id);
+  } catch (e) {
+    console.error("[WhatsApp] leave form token:", e);
+    await sendWhatsAppMessage(
+      phone,
+      "Service temporairement indisponible. Réessayez plus tard ou contactez les RH."
+    );
+    return;
+  }
+
+  const url = `${base}/leave-request/new?t=${encodeURIComponent(token)}`;
+  await sendWhatsAppMessage(
+    phone,
+    `📝 *Demande d'autorisation d'absence*\n\nBonjour ${employee.firstName},\n\nOuvrez ce lien sur votre téléphone pour remplir le formulaire officiel (valide environ 20 minutes) :\n\n${url}\n\nAprès envoi, les RH recevront la demande pour validation. Vous serez notifié sur WhatsApp après décision.\n\n💡 Tapez aussi *« demander une autorisation »* pour recevoir ce lien à tout moment.`
+  );
 }
 
 async function handleMyAttendance(
@@ -424,8 +469,8 @@ async function handleMyAbsences(
     return;
   }
 
-  let msg = `📅 *Absences (3 derniers mois) — ${firstName}*\n\n`;
-  msg += `Total : ${absences.length} jour(s) d'absence\n\n`;
+  let msg = `📅 *Absences au pointage (3 derniers mois) — ${firstName}*\n\n`;
+  msg += `Total : ${absences.length} jour(s) marqué(s) absent sans pointage valide\n\n`;
 
   for (const a of absences.slice(0, 10)) {
     const dateStr = a.date.toLocaleDateString("fr-FR", {
@@ -616,7 +661,7 @@ async function handleMyPermissions(
   if (rows.length === 0) {
     await sendWhatsAppMessage(
       phone,
-      `📋 *${firstName}*, aucune autorisation d'absence en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + autorisations d'absence), répondez *7*.`
+      `📋 *${firstName}*, aucune autorisation d'absence en cours : ni demande en attente de la RH, ni période approuvée couvrant aujourd'hui.\n\nPour l'historique récent (missions + autorisations d'absence), répondez *7*. Pour les jours marqués *absent* au pointage, répondez *11*.`
     );
     return;
   }

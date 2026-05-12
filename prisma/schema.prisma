@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -40,6 +39,32 @@ enum RequestStatus {
 enum Structure {
   SCPB
   AFREXIA
+}
+
+/** Type de demande (formulaire officiel RH). */
+enum LeaveAbsenceCategory {
+  AUTORISATION_COURTE
+  CONGES_ANNUELS
+  CONGES_EXCEPTIONNEL
+  EVENEMENT_FAMILIAL
+  MALADIE
+  FORMATION
+  RTT_RECUPERATION
+  MATERNITE_PATERNITE
+  AUTRE
+}
+
+enum LeaveSubmissionSource {
+  HR_DASHBOARD
+  EMPLOYEE_WHATSAPP_FORM
+}
+
+/** Motif de sortie de l’entreprise (RH). */
+enum DepartureReason {
+  RESIGNATION // Démission
+  END_OF_CONTRACT // Fin de contrat
+  DISMISSAL // Licenciement
+  ABANDONMENT // Abandon de poste
 }
 
 enum OvertimeStatus {
@@ -77,6 +102,9 @@ model Employee {
   onboardingExpiry DateTime?          @map("onboarding_expiry")
   siteId           String?            @map("site_id")
   site             Site?              @relation(fields: [siteId], references: [id])
+  departureDate    DateTime?          @map("departure_date") @db.Date
+  departureReason  DepartureReason?   @map("departure_reason")
+  departureNote    String?            @map("departure_note")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
   attendances      AttendanceRecord[]
@@ -147,19 +175,22 @@ model AttendanceRecord {
 }
 
 model LeaveRequest {
-  id          String        @id @default(cuid())
-  employeeId  String        @map("employee_id")
-  employee    Employee      @relation(fields: [employeeId], references: [id])
-  startDate   DateTime      @map("start_date") @db.Date
-  endDate     DateTime      @map("end_date") @db.Date
-  reason      String
-  status      RequestStatus @default(PENDING)
-  document    String?
-  approvedBy  String?       @map("approved_by")
-  cancelledAt DateTime?     @map("cancelled_at")
-  cancelledBy String?       @map("cancelled_by")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  id               String               @id @default(cuid())
+  employeeId       String               @map("employee_id")
+  employee         Employee             @relation(fields: [employeeId], references: [id])
+  startDate        DateTime             @map("start_date") @db.Date
+  endDate          DateTime             @map("end_date") @db.Date
+  reason           String
+  absenceCategory  LeaveAbsenceCategory? @map("absence_category")
+  notifyOrReplace  String?               @map("notify_or_replace")
+  submissionSource LeaveSubmissionSource @default(HR_DASHBOARD) @map("submission_source")
+  status           RequestStatus         @default(PENDING)
+  document         String?
+  approvedBy       String?               @map("approved_by")
+  cancelledAt      DateTime?             @map("cancelled_at")
+  cancelledBy      String?               @map("cancelled_by")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
 
   @@map("leave_requests")
 }

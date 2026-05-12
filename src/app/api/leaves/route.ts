@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { LeaveAbsenceCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
@@ -12,6 +13,8 @@ const createLeaveSchema = z.object({
   startDate: z.string().min(1),
   endDate: z.string().min(1),
   reason: z.string().min(1, "Le motif est requis"),
+  absenceCategory: z.nativeEnum(LeaveAbsenceCategory).optional(),
+  notifyOrReplace: z.string().max(500).optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -91,12 +94,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
+    const notify =
+      parsed.data.notifyOrReplace === undefined || parsed.data.notifyOrReplace === null
+        ? undefined
+        : parsed.data.notifyOrReplace.trim() || null;
+
     const leave = await prisma.leaveRequest.create({
       data: {
         employeeId: parsed.data.employeeId,
         startDate: new Date(parsed.data.startDate),
         endDate: new Date(parsed.data.endDate),
         reason: parsed.data.reason,
+        ...(parsed.data.absenceCategory != null && { absenceCategory: parsed.data.absenceCategory }),
+        ...(notify !== undefined && { notifyOrReplace: notify }),
       },
       include: { employee: true },
     });

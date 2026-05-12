@@ -5,7 +5,10 @@ import { redirect } from "next/navigation";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { ArrowLeft, Phone, MapPin, Hash, Building2, Landmark } from "lucide-react";
+import { resolveEmployeeStatsPeriod } from "@/lib/period-range";
+import { departureReasonLabel } from "@/lib/departure-labels";
 import HrRemarks from "./HrRemarks";
+import EmployeePeriodNav from "./EmployeePeriodNav";
 
 function getWorkingDays(from: Date, to: Date): Date[] {
   const days: Date[] = [];
@@ -32,28 +35,42 @@ function dateKeyFromDbDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function finalStatusLabel(status: string): string {
+  switch (status) {
+    case "PRESENT":
+      return "Présent";
+    case "ABSENT":
+      return "Absent";
+    case "PERMISSION":
+      return "Autorisation d'absence";
+    case "MISSION":
+      return "Mission";
+    default:
+      return status;
+  }
+}
+
 export default async function EmployeeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
 
   const { id } = await params;
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const sp = await searchParams;
+  const periodRes = resolveEmployeeStatsPeriod(sp);
+  const { rangeFrom, rangeTo } = periodRes;
 
   const employee = await prisma.employee.findUnique({
     where: { id },
     include: {
       site: true,
       attendances: {
-        where: { date: { gte: thirtyDaysAgo } },
+        where: { date: { gte: rangeFrom, lte: rangeTo } },
         orderBy: { date: "desc" },
       },
     },
@@ -62,11 +79,11 @@ export default async function EmployeeDetailPage({
   if (!employee) notFound();
 
   const holidays = await prisma.holiday.findMany({
-    where: { date: { gte: thirtyDaysAgo, lte: today } },
+    where: { date: { gte: rangeFrom, lte: rangeTo } },
   });
   const holidaySet = new Set(holidays.map((h) => dateKeyFromDbDate(h.date)));
 
-  const workingDays = getWorkingDays(thirtyDaysAgo, today).filter(
+  const workingDays = getWorkingDays(rangeFrom, rangeTo).filter(
     (d) => !holidaySet.has(dateKeyLocalCalendar(d))
   );
 
@@ -194,6 +211,60 @@ export default async function EmployeeDetailPage({
         </div>
       </div>
 
+      {!employee.active && (
+        <div
+          className={cn(
+            "rounded-xl border px-4 py-3 text-sm",
+            employee.departureReason
+              ? "border-amber-200 bg-amber-50 text-amber-950"
+              : "border-slate-200 bg-slate-50 text-slate-700"
+          )}
+        >
+          <p className="font-semibold">
+            {employee.departureReason ? "Employé parti" : "Employé inactif"}
+          </p>
+          {employee.departureDate && (
+            <p className="mt-1">
+              Date de départ :{" "}
+              <span className="font-medium">
+                {new Date(employee.departureDate).toLocaleDateString("fr-FR", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </span>
+            </p>
+          )}
+          {employee.departureReason ? (
+            <p className="mt-1">
+              Motif :{" "}
+              <span className="font-medium">
+                {departureReasonLabel(employee.departureReason)}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-1 text-slate-600">
+              Motif de départ non renseigné — vous pouvez le compléter depuis la liste des employés.
+            </p>
+          )}
+          {employee.departureNote && (
+            <p
+              className={cn(
+                "mt-2 text-slate-700 border-t pt-2 whitespace-pre-wrap",
+                employee.departureReason ? "border-amber-200/60" : "border-slate-200"
+              )}
+            >
+              {employee.departureNote}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <EmployeePeriodNav employeeId={id} resolution={periodRes} />
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 text-center">
           <p className="text-sm text-slate-500">Ponctualité</p>
@@ -225,7 +296,7 @@ export default async function EmployeeDetailPage({
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-base font-semibold text-slate-800 mb-4">
-          Historique de pointage (30 derniers jours)
+          Historique de pointage — {periodRes.label}
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -322,7 +393,7 @@ export default async function EmployeeDetailPage({
                           }
                         )}
                       >
-                        {a.finalStatus}
+                        {finalStatusLabel(a.finalStatus)}
                       </span>
                     </td>
                   </tr>

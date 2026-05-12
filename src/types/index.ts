@@ -52,6 +52,7 @@ export type Intent =
   | "MY_MISSIONS"
   | "MY_PERMISSIONS"
   | "MY_WEEK_SUMMARY"
+  | "DEMAND_LEAVE_FORM"
   | "UNKNOWN";
 
 export type GeoPoint = {

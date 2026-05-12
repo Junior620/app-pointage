@@ -1,8 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import type { DepartureReason, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { normalizePhone } from "@/lib/whatsapp";
+import { parseDateInputForDbDate } from "@/lib/utils";
+
+const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT"] as const;
+
+const updateEmployeeBodySchema = z
+  .object({
+    matricule: z.string().optional(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    service: z.string().optional(),
+    structure: z.enum(["SCPB", "AFREXIA"]).optional(),
+    siteId: z.union([z.string(), z.null()]).optional(),
+    whatsappPhone: z.union([z.string(), z.null()]).optional(),
+    active: z.boolean().optional(),
+    departureDate: z.union([z.string(), z.null()]).optional(),
+    departureReason: z.enum(DEPARTURE_REASONS).nullable().optional(),
+    departureNote: z.union([z.string(), z.null()]).optional(),
+  })
+  .strict();
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -43,32 +64,92 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   try {
     const session = await requireRole(["HR", "ADMIN"]);
     const { id } = await context.params;
-    const body = await request.json();
+    const rawBody = await request.json();
+    const parsed = updateEmployeeBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Données invalides", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const body = parsed.data;
 
     const before = await prisma.employee.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    const { matricule, firstName, lastName, service, structure, siteId, whatsappPhone, active } = body;
-
-    const siteIdValue = siteId !== undefined ? (siteId?.trim() || null) : undefined;
-    const rawPhone = whatsappPhone?.trim() || "";
+    const siteIdValue =
+      body.siteId !== undefined ? (typeof body.siteId === "string" ? body.siteId.trim() || null : null) : undefined;
+    const rawPhone = typeof body.whatsappPhone === "string" ? body.whatsappPhone.trim() : "";
     const whatsappPhoneValue =
-      whatsappPhone !== undefined ? (rawPhone ? normalizePhone(rawPhone) : null) : undefined;
+      body.whatsappPhone !== undefined
+        ? rawPhone
+          ? normalizePhone(rawPhone)
+          : null
+        : undefined;
+
+    const data: Prisma.EmployeeUpdateInput = {};
+
+    if (body.matricule !== undefined) data.matricule = body.matricule;
+    if (body.firstName !== undefined) data.firstName = body.firstName;
+    if (body.lastName !== undefined) data.lastName = body.lastName;
+    if (body.service !== undefined) data.service = body.service;
+    if (body.structure !== undefined) data.structure = body.structure;
+    if (body.siteId !== undefined) {
+      data.site =
+        siteIdValue === null ? { disconnect: true } : { connect: { id: siteIdValue } };
+    }
+    if (body.whatsappPhone !== undefined) data.whatsappPhone = whatsappPhoneValue;
+
+    const becomingInactive = body.active === false && before.active === true;
+    const reactivating = body.active === true;
+
+    if (reactivating) {
+      data.active = true;
+      data.departureDate = null;
+      data.departureReason = null;
+      data.departureNote = null;
+    } else if (becomingInactive) {
+      const dateStr = body.departureDate && typeof body.departureDate === "string" ? body.departureDate : null;
+      const reason = body.departureReason as DepartureReason | undefined;
+      if (!dateStr || !reason) {
+        return NextResponse.json(
+          {
+            error:
+              "Pour enregistrer un départ, la date de départ et le motif (démission, fin de contrat, licenciement ou abandon) sont obligatoires.",
+          },
+          { status: 400 }
+        );
+      }
+      data.active = false;
+      data.departureDate = parseDateInputForDbDate(dateStr);
+      data.departureReason = reason;
+      const note =
+        body.departureNote === undefined || body.departureNote === null
+          ? null
+          : String(body.departureNote).trim() || null;
+      data.departureNote = note;
+    } else {
+      if (body.active !== undefined) data.active = body.active;
+      if (body.departureDate !== undefined) {
+        data.departureDate =
+          body.departureDate === null || body.departureDate === ""
+            ? null
+            : parseDateInputForDbDate(body.departureDate);
+      }
+      if (body.departureReason !== undefined) {
+        data.departureReason = body.departureReason;
+      }
+      if (body.departureNote !== undefined) {
+        data.departureNote =
+          body.departureNote === null ? null : String(body.departureNote).trim() || null;
+      }
+    }
 
     const employee = await prisma.employee.update({
       where: { id },
-      data: {
-        ...(matricule !== undefined && { matricule }),
-        ...(firstName !== undefined && { firstName }),
-        ...(lastName !== undefined && { lastName }),
-        ...(service !== undefined && { service }),
-        ...(structure !== undefined && { structure }),
-        ...(siteId !== undefined && { siteId: siteIdValue }),
-        ...(whatsappPhone !== undefined && { whatsappPhone: whatsappPhoneValue }),
-        ...(active !== undefined && { active }),
-      },
+      data,
       include: { site: true },
     });
 
