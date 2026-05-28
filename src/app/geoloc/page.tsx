@@ -17,6 +17,15 @@ function GeolocForm() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  const actionLabel =
+    action === "CHECK_OUT"
+      ? "Enregistrement du départ"
+      : action === "BREAK_START"
+        ? "Enregistrement du départ en pause"
+        : action === "BREAK_END"
+          ? "Enregistrement du retour de pause"
+          : "Enregistrement de l'arrivée";
+
   const requestGeolocation = useCallback(() => {
     setGeoLoading(true);
     setGeoError("");
@@ -106,7 +115,7 @@ function GeolocForm() {
           </div>
           <h1 className="text-xl font-bold text-slate-800">Pointage géolocalisé</h1>
           <p className="text-slate-500 text-sm mt-1">
-            {action === "CHECK_OUT" ? "Enregistrement du départ" : "Enregistrement de l'arrivée"}
+            {actionLabel}
           </p>
         </div>
 

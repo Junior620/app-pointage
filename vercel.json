@@ -5,8 +5,12 @@
       "schedule": "30 16 * * 1-6"
     },
     {
-      "path": "/api/cron/auto-checkout",
+      "path": "/api/cron/checkout-reminder-ot",
       "schedule": "0 17 * * 1-6"
+    },
+    {
+      "path": "/api/cron/auto-checkout",
+      "schedule": "0 20 * * 1-6"
     },
     {
       "path": "/api/cron/mark-absent",
@@ -19,6 +23,18 @@
     {
       "path": "/api/cron/overtime-reminder",
       "schedule": "0 8 * * 1-5"
+    },
+    {
+      "path": "/api/cron/pause-start-reminder",
+      "schedule": "30 11 * * 1-5"
+    },
+    {
+      "path": "/api/cron/pause-end-reminder",
+      "schedule": "30 12 * * 1-5"
+    },
+    {
+      "path": "/api/cron/pause-return-reminder",
+      "schedule": "40 12 * * 1-5"
     }
   ]
 }

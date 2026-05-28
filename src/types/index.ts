@@ -40,6 +40,8 @@ export type WhatsAppWebhookPayload = {
 export type Intent =
   | "CHECK_IN"
   | "CHECK_OUT"
+  | "BREAK_START"
+  | "BREAK_END"
   | "STATUS"
   | "HELP"
   | "GREETING"
@@ -53,6 +55,7 @@ export type Intent =
   | "MY_PERMISSIONS"
   | "MY_WEEK_SUMMARY"
   | "DEMAND_LEAVE_FORM"
+  | "DEMAND_MISSION_FORM"
   | "UNKNOWN";
 
 export type GeoPoint = {

@@ -93,7 +93,7 @@ export async function sendWhatsAppButtons(to: string): Promise<void> {
 
 export async function sendWhatsAppLocationRequest(
   to: string,
-  action: "CHECK_IN" | "CHECK_OUT"
+  action: "CHECK_IN" | "CHECK_OUT" | "BREAK_START" | "BREAK_END"
 ): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;

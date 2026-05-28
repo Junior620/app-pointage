@@ -59,6 +59,17 @@ enum LeaveSubmissionSource {
   EMPLOYEE_WHATSAPP_FORM
 }
 
+enum MissionSubmissionSource {
+  HR_DASHBOARD
+  EMPLOYEE_WHATSAPP_FORM
+}
+
+/** Type de soumission publique (formulaire WhatsApp, sans session RH). */
+enum PublicSubmissionType {
+  LEAVE_REQUEST
+  MISSION_REQUEST
+}
+
 /** Motif de sortie de l’entreprise (RH). */
 enum DepartureReason {
   RESIGNATION // Démission
@@ -112,6 +123,7 @@ model Employee {
   missions         Mission[]
   fraudAttempts    FraudAttempt[]
   hrRemarks        HrRemark[]
+  publicSubmissions PublicSubmissionLog[]
 
   @@map("employees")
 }
@@ -160,6 +172,10 @@ model AttendanceRecord {
   checkOutComment String?         @map("check_out_comment")
   checkOutLat     Float?          @map("check_out_lat")
   checkOutLng     Float?          @map("check_out_lng")
+  breakStartTime  DateTime?       @map("break_start_time")
+  breakEndTime    DateTime?       @map("break_end_time")
+  breakDeductedMinutes Int?       @default(0) @map("break_deducted_minutes")
+  breakMinutes    Int?            @default(0) @map("break_minutes")
   totalMinutes       Int?            @map("total_minutes")
   overtimeMinutes    Int?            @default(0) @map("overtime_minutes")
   overtimeStatus     OvertimeStatus? @map("overtime_status")
@@ -208,6 +224,7 @@ model Mission {
   expenses         String?
   originStructure  Structure?    @map("origin_structure")
   hostStructure    Structure?    @map("host_structure")
+  submissionSource MissionSubmissionSource @default(HR_DASHBOARD) @map("submission_source")
   daysCompleted    Int           @default(0) @map("days_completed")
   status           RequestStatus @default(PENDING)
   approvedBy       String?       @map("approved_by")
@@ -269,4 +286,22 @@ model AuditLog {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("audit_logs")
+}
+
+/** Traçabilité des formulaires publics soumis par les employés (lien WhatsApp). */
+model PublicSubmissionLog {
+  id         String              @id @default(cuid())
+  employeeId String              @map("employee_id")
+  employee   Employee            @relation(fields: [employeeId], references: [id])
+  type       PublicSubmissionType
+  entity     String
+  entityId   String              @map("entity_id")
+  ipAddress  String?             @map("ip_address")
+  userAgent  String?             @map("user_agent") @db.Text
+  payloadJson String?            @map("payload_json") @db.Text
+  createdAt  DateTime            @default(now()) @map("created_at")
+
+  @@index([employeeId, createdAt])
+  @@index([type, entityId])
+  @@map("public_submission_logs")
 }

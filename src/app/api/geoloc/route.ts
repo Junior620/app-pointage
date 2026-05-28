@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
+import {
+  processBreakEnd,
+  processBreakStart,
+  processCheckIn,
+  processCheckOut,
+} from "@/lib/attendance-engine";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 
 const geolocSchema = z.object({
   phone: z.string().min(1, "Le numéro de téléphone est requis"),
   lat: z.number(),
   lng: z.number(),
-  action: z.enum(["CHECK_IN", "CHECK_OUT"]),
+  action: z.enum(["CHECK_IN", "CHECK_OUT", "BREAK_START", "BREAK_END"]),
   comment: z.string().optional(),
 });
 
@@ -47,7 +52,11 @@ export async function POST(request: NextRequest) {
     const result =
       action === "CHECK_IN"
         ? await processCheckIn(employee.id, point, comment)
-        : await processCheckOut(employee.id, point, comment);
+        : action === "CHECK_OUT"
+          ? await processCheckOut(employee.id, point, comment)
+          : action === "BREAK_START"
+            ? await processBreakStart(employee.id, point)
+            : await processBreakEnd(employee.id, point);
 
     if (result.message) {
       const toPhone = employee.whatsappPhone || phone;

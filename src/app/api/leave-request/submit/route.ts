@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyLeaveFormToken } from "@/lib/leave-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { logPublicSubmission } from "@/lib/public-submission-log";
 
 const submitSchema = z.object({
   t: z.string().min(10),
@@ -75,6 +76,22 @@ export async function POST(request: NextRequest) {
         submissionSource: "EMPLOYEE_WHATSAPP_FORM",
       },
       include: { employee: true },
+    });
+
+    await logPublicSubmission({
+      employeeId: employee.id,
+      type: "LEAVE_REQUEST",
+      entity: "leave_request",
+      entityId: leave.id,
+      request,
+      payload: {
+        startDate: parsed.data.startDate,
+        endDate: parsed.data.endDate,
+        reason: parsed.data.reason.trim().slice(0, 500),
+        absenceCategory: parsed.data.absenceCategory,
+        notifyOrReplace: notify,
+        submissionSource: "EMPLOYEE_WHATSAPP_FORM",
+      },
     });
 
     if (employee.whatsappPhone?.trim()) {

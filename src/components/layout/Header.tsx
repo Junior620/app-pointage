@@ -7,6 +7,7 @@ const pageTitles: Record<string, string> = {
   "/": "Tableau de bord",
   "/employees": "Employés",
   "/attendance": "Pointages",
+  "/breaks": "Pauses",
   "/leaves": "Autorisations d'absence",
   "/missions": "Missions",
   "/settings": "Paramètres",

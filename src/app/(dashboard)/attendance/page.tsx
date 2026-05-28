@@ -35,6 +35,9 @@ interface AttendanceRecord {
   checkOutTime: string | null;
   checkOutStatus: string | null;
   checkOutComment: string | null;
+  breakStartTime: string | null;
+  breakEndTime: string | null;
+  breakMinutes: number | null;
   totalMinutes: number | null;
   overtimeMinutes: number | null;
   overtimeStatus: string | null;
@@ -494,6 +497,9 @@ export default function AttendancePage() {
                   Départ
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Pause
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Durée
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -508,14 +514,14 @@ export default function AttendancePage() {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={7} className="px-6 py-4">
+                    <td colSpan={8} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : records.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
+                  <td colSpan={8} className="px-6 py-16 text-center">
                     <ClipboardCheck className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">
                       Aucun pointage trouvé
@@ -603,6 +609,17 @@ export default function AttendancePage() {
                           </span>
                         )}
                       </div>
+                    </td>
+                    {/* Durée */}
+                    <td className="px-6 py-4">
+                      <span className="text-slate-700">
+                        {formatTime(r.breakStartTime)} → {formatTime(r.breakEndTime)}
+                      </span>
+                      {(r.breakMinutes ?? 0) > 0 && (
+                        <span className="ml-1 text-xs text-amber-700">
+                          ({formatDuration(r.breakMinutes)})
+                        </span>
+                      )}
                     </td>
                     {/* Durée */}
                     <td className="px-6 py-4">
@@ -939,6 +956,21 @@ export default function AttendancePage() {
                   label="Départ"
                   value={formatTime(detailRecord.checkOutTime)}
                   badge={detailRecord.checkOutStatus}
+                />
+                <DetailRow
+                  icon={Timer}
+                  label="Départ pause"
+                  value={formatTime(detailRecord.breakStartTime)}
+                />
+                <DetailRow
+                  icon={Timer}
+                  label="Retour pause"
+                  value={formatTime(detailRecord.breakEndTime)}
+                />
+                <DetailRow
+                  icon={Timer}
+                  label="Durée pause"
+                  value={formatDuration(detailRecord.breakMinutes)}
                 />
                 <DetailRow
                   icon={Timer}

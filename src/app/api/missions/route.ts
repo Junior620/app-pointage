@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
         expenses: parsed.data.expenses || null,
         originStructure: employee.structure,
         hostStructure: parsed.data.hostStructure || null,
+        submissionSource: "HR_DASHBOARD",
       } as any,
       include: { employee: true },
     });

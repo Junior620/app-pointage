@@ -38,6 +38,15 @@ export async function GET(request: NextRequest) {
           `Bonjour ${r.firstName}, vous n'avez pas pointé votre départ aujourd'hui.\n\n` +
           `✅ Arrivée : ${inTime}\n` +
           `🔒 Départ enregistré : ${outTime} (automatique)\n\n` +
+          (r.breakMinutes > 0
+            ? `☕ Pause déduite : ${Math.floor(r.breakMinutes / 60)}h${(r.breakMinutes % 60)
+                .toString()
+                .padStart(2, "0")}${
+                r.missingBreakReturn
+                  ? " (retour non pointé, pause comptée jusqu'au départ automatique)"
+                  : ""
+              }\n\n`
+            : "") +
           `⚠️ Pensez à pointer votre sortie chaque jour pour un suivi précis de vos heures.`
       );
       notified++;

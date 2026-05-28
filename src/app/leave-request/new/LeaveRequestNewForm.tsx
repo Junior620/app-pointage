@@ -17,6 +17,10 @@ type Prefill = {
   structure: string;
 };
 
+const PUBLIC_FORM_ABSENCE_CATEGORIES = ORDERED_LEAVE_ABSENCE_CATEGORIES.filter((cat) =>
+  ["EVENEMENT_FAMILIAL", "MALADIE", "FORMATION", "AUTRE"].includes(cat)
+);
+
 export default function LeaveRequestNewForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("t")?.trim() ?? "";
@@ -28,7 +32,9 @@ export default function LeaveRequestNewForm() {
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [absenceCategory, setAbsenceCategory] = useState<string>("AUTORISATION_COURTE");
+  const [absenceCategory, setAbsenceCategory] = useState<string>(
+    PUBLIC_FORM_ABSENCE_CATEGORIES[0] ?? "EVENEMENT_FAMILIAL"
+  );
   const [reason, setReason] = useState("");
   const [notifyOrReplace, setNotifyOrReplace] = useState("");
   const [certify, setCertify] = useState(false);
@@ -183,7 +189,7 @@ export default function LeaveRequestNewForm() {
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           >
-            {ORDERED_LEAVE_ABSENCE_CATEGORIES.map((key) => (
+            {PUBLIC_FORM_ABSENCE_CATEGORIES.map((key) => (
               <option key={key} value={key}>
                 {LEAVE_ABSENCE_CATEGORY_LABELS[key]}
               </option>

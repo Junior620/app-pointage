@@ -32,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Routes publiques (pas de protection)
-  const publicRoutes = ["/login", "/onboarding", "/geoloc", "/qr-chatbot", "/privacy", "/leave-request"];
+  const publicRoutes = ["/login", "/onboarding", "/geoloc", "/qr-chatbot", "/privacy", "/leave-request", "/mission-request"];
   const isPublic =
     publicRoutes.some((r) => pathname.startsWith(r)) ||
     pathname.startsWith("/api/webhooks") ||
@@ -41,7 +41,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/geoloc") ||
     pathname.startsWith("/api/onboarding") ||
     pathname.startsWith("/api/qr-chatbot") ||
-    pathname.startsWith("/api/leave-request");
+    pathname.startsWith("/api/leave-request") ||
+    pathname.startsWith("/api/mission-request");
 
   if (isPublic) {
     return supabaseResponse;

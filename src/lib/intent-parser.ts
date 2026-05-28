@@ -35,6 +35,22 @@ const CHECK_OUT_KEYWORDS = [
   "sortie",
 ];
 
+const BREAK_START_KEYWORDS = [
+  "debut pause",
+  "début pause",
+  "pause debut",
+  "pause départ",
+  "pause depart",
+  "je pars en pause",
+];
+
+const BREAK_END_KEYWORDS = [
+  "retour pause",
+  "fin pause",
+  "pause fin",
+  "je reviens de pause",
+];
+
 const STATUS_KEYWORDS = ["statut", "status", "état", "etat"];
 
 const MY_ATTENDANCE_KEYWORDS = [
@@ -120,6 +136,15 @@ const DEMAND_LEAVE_FORM_KEYWORDS = [
   "demander autorisation absence",
 ];
 
+const DEMAND_MISSION_FORM_KEYWORDS = [
+  "demander une mission",
+  "demande mission",
+  "formulaire mission",
+  "demander ordre de mission",
+  "ordre de mission",
+  "nouvelle mission",
+];
+
 const HELP_KEYWORDS = ["aide", "help", "menu", "commandes", "?"];
 
 export type ParseIntentOptions = {
@@ -165,6 +190,9 @@ export function parseIntent(
     if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
     if (normalized === "11") return { intent: "MY_ABSENCES" };
     if (normalized === "12") return { intent: "DEMAND_LEAVE_FORM" };
+    if (normalized === "13") return { intent: "BREAK_START" };
+    if (normalized === "14") return { intent: "BREAK_END" };
+    if (normalized === "15") return { intent: "DEMAND_MISSION_FORM" };
   }
 
   const nkDemand = DEMAND_LEAVE_FORM_KEYWORDS.map((k) =>
@@ -172,6 +200,13 @@ export function parseIntent(
   );
   for (const nk of nkDemand) {
     if (normalized.includes(nk)) return { intent: "DEMAND_LEAVE_FORM" };
+  }
+
+  const nkMissionDemand = DEMAND_MISSION_FORM_KEYWORDS.map((k) =>
+    k.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  );
+  for (const nk of nkMissionDemand) {
+    if (normalized.includes(nk)) return { intent: "DEMAND_MISSION_FORM" };
   }
 
   const parts = normalized.split(/\s+/);
@@ -202,6 +237,24 @@ export function parseIntent(
     if (normalized.startsWith(normalizedKeyword)) {
       const comment = message.slice(keyword.length).trim() || undefined;
       return { intent: "CHECK_OUT", comment };
+    }
+  }
+
+  for (const keyword of BREAK_START_KEYWORDS) {
+    const normalizedKeyword = keyword
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (normalized.startsWith(normalizedKeyword)) {
+      return { intent: "BREAK_START" };
+    }
+  }
+
+  for (const keyword of BREAK_END_KEYWORDS) {
+    const normalizedKeyword = keyword
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    if (normalized.startsWith(normalizedKeyword)) {
+      return { intent: "BREAK_END" };
     }
   }
 
@@ -292,8 +345,11 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 🔟 *Résumé semaine* — Historique lundi → samedi
 1️⃣1️⃣ *Mes absences au pointage* — Jours marqués absent (3 derniers mois)
 1️⃣2️⃣ *Demander une autorisation* — Lien formulaire web sécurisé
+1️⃣3️⃣ *Début pause* — Pointer le départ en pause
+1️⃣4️⃣ *Retour pause* — Pointer la fin de pause
+1️⃣5️⃣ *Demande mission* — Lien formulaire mission
 
-Répondez par le *numéro* (1 à 12) ou tapez la commande.`;
+Répondez par le *numéro* (1 à 15) ou tapez la commande.`;
 
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
@@ -312,6 +368,9 @@ Que souhaitez-vous faire ?
 🔟 Résumé / historique de la semaine
 1️⃣1️⃣ Mes absences au pointage (3 derniers mois)
 1️⃣2️⃣ Demander une autorisation (lien formulaire)
+1️⃣3️⃣ Début pause
+1️⃣4️⃣ Retour pause
+1️⃣5️⃣ Demander une mission (lien formulaire)
 
-Répondez par le *numéro* (1 à 12) correspondant.`;
+Répondez par le *numéro* (1 à 15) correspondant.`;
 }

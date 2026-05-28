@@ -46,6 +46,24 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const breakRows = todayRecords
+      .filter((r) => r.checkInTime && r.breakStartTime)
+      .map((r) => {
+        const onBreak = Boolean(r.breakStartTime && !r.breakEndTime && !r.checkOutTime);
+        const missingReturn = Boolean(r.breakStartTime && !r.breakEndTime && r.checkOutTime);
+        return {
+          id: r.id,
+          employee: r.employee,
+          breakStartTime: r.breakStartTime,
+          breakEndTime: r.breakEndTime,
+          breakMinutes: r.breakMinutes ?? 0,
+          checkOutTime: r.checkOutTime,
+          onBreak,
+          missingReturn,
+        };
+      })
+      .sort((a, b) => (b.breakStartTime?.getTime() ?? 0) - (a.breakStartTime?.getTime() ?? 0));
+
     const isTodayWorking = isWorkingDayUTC(today);
     const presentToday = todayRecords.filter((r) => r.finalStatus === "PRESENT" || r.finalStatus === "PERMISSION" || r.finalStatus === "MISSION").length;
     const absentToday = isTodayWorking
@@ -190,6 +208,20 @@ export async function GET(request: NextRequest) {
         finalStatus: r.finalStatus,
       }));
 
+    const breakStats = {
+      onBreak: breakRows.filter((r) => r.onBreak).length,
+      completed: breakRows.filter((r) => r.breakEndTime).length,
+      missingReturn: breakRows.filter((r) => r.missingReturn).length,
+      avgMinutes:
+        breakRows.length > 0
+          ? Math.round(
+              breakRows.reduce((sum, r) => sum + (r.breakMinutes ?? 0), 0) /
+                breakRows.length
+            )
+          : 0,
+      records: breakRows.slice(0, 10),
+    };
+
     return NextResponse.json({
       today: {
         totalEmployees: allEmployees.length,
@@ -210,6 +242,7 @@ export async function GET(request: NextRequest) {
         topAbsent: topAbsentWithNames,
       },
       recentCheckIns,
+      breaks: breakStats,
     });
   } catch (error) {
     console.error("[API dashboard]", error);

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
-import { processCheckIn, processCheckOut } from "@/lib/attendance-engine";
 import { parseIntent, getWelcomeMessage } from "@/lib/intent-parser";
 import { issueLeaveFormToken } from "@/lib/leave-form-token";
+import { issueMissionFormToken } from "@/lib/mission-form-token";
 import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
@@ -14,7 +14,7 @@ import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 // Stockage temporaire des intents en attente de localisation
 const pendingActions = new Map<
   string,
-  { intent: "CHECK_IN" | "CHECK_OUT"; comment?: string; timestamp: number }
+  { intent: "CHECK_IN" | "CHECK_OUT" | "BREAK_START" | "BREAK_END"; comment?: string; timestamp: number }
 >();
 
 // Nettoyage des intents expirés (> 10 min)
@@ -148,6 +148,16 @@ async function handleMessage(
         } else {
           statusMsg += `\n⏳ Départ: Non encore pointé`;
         }
+        if (record.breakStartTime) {
+          const breakStartTime = record.breakStartTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
+          if (record.breakEndTime) {
+            const breakEndTime = record.breakEndTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+            statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
+          } else {
+            statusMsg += `\n⚠️ Retour pause: non pointé`;
+          }
+        }
         statusMsg += `\nStatut: ${record.finalStatus}`;
         await sendWhatsAppMessage(phone, statusMsg);
       }
@@ -240,6 +250,22 @@ async function handleMessage(
         await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
         break;
 
+      case "BREAK_START":
+        pendingActions.set(normalizedPhone, {
+          intent: "BREAK_START",
+          timestamp: Date.now(),
+        });
+        await sendWhatsAppLocationRequest(phone, "BREAK_START");
+        break;
+
+      case "BREAK_END":
+        pendingActions.set(normalizedPhone, {
+          intent: "BREAK_END",
+          timestamp: Date.now(),
+        });
+        await sendWhatsAppLocationRequest(phone, "BREAK_END");
+        break;
+
       case "STATUS": {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -268,6 +294,22 @@ async function handleMessage(
             statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
           } else {
             statusMsg += `\n⏳ Départ: Non encore pointé`;
+          }
+          if (record.breakStartTime) {
+            const breakStartTime = record.breakStartTime.toLocaleTimeString("fr-FR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
+            if (record.breakEndTime) {
+              const breakEndTime = record.breakEndTime.toLocaleTimeString("fr-FR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+              statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
+            } else {
+              statusMsg += `\n⚠️ Retour pause: non pointé`;
+            }
           }
           statusMsg += `\nStatut: ${record.finalStatus}`;
           await sendWhatsAppMessage(phone, statusMsg);
@@ -314,6 +356,10 @@ async function handleMessage(
 
       case "DEMAND_LEAVE_FORM":
         await handleDemandLeaveFormLink(phone, employee);
+        break;
+
+      case "DEMAND_MISSION_FORM":
+        await handleDemandMissionFormLink(phone, employee);
         break;
 
       case "GREETING":
@@ -364,6 +410,46 @@ async function handleDemandLeaveFormLink(
   await sendWhatsAppMessage(
     phone,
     `📝 *Demande d'autorisation d'absence*\n\nBonjour ${employee.firstName},\n\nOuvrez ce lien sur votre téléphone pour remplir le formulaire officiel (valide environ 20 minutes) :\n\n${url}\n\nAprès envoi, les RH recevront la demande pour validation. Vous serez notifié sur WhatsApp après décision.\n\n💡 Tapez aussi *« demander une autorisation »* pour recevoir ce lien à tout moment.`
+  );
+}
+
+async function handleDemandMissionFormLink(
+  phone: string,
+  employee: { id: string; firstName: string; active: boolean }
+) {
+  if (!employee.active) {
+    await sendWhatsAppMessage(
+      phone,
+      "Votre compte est inactif. Pour toute demande, contactez les RH."
+    );
+    return;
+  }
+
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")?.trim();
+  if (!base) {
+    await sendWhatsAppMessage(
+      phone,
+      "Le service de formulaire mission n'est pas configuré (URL de l'application). Contactez les RH."
+    );
+    return;
+  }
+
+  let token: string;
+  try {
+    token = issueMissionFormToken(employee.id);
+  } catch (e) {
+    console.error("[WhatsApp] mission form token:", e);
+    await sendWhatsAppMessage(
+      phone,
+      "Service temporairement indisponible. Réessayez plus tard ou contactez les RH."
+    );
+    return;
+  }
+
+  const url = `${base}/mission-request/new?t=${encodeURIComponent(token)}`;
+  await sendWhatsAppMessage(
+    phone,
+    `🌍 *Demande d'ordre de mission*\n\nBonjour ${employee.firstName},\n\nOuvrez ce lien sur votre téléphone pour remplir votre demande de mission (valide environ 20 minutes) :\n\n${url}\n\nAprès envoi, la RH/l'administrateur pourra valider puis télécharger votre ordre de mission pour impression et signatures.\n\n💡 Tapez aussi *« demander une mission »* pour recevoir ce lien à tout moment.`
   );
 }
 

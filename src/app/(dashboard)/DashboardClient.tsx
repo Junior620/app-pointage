@@ -15,6 +15,7 @@ import {
   ArrowRight,
   RefreshCw,
   Landmark,
+  Coffee,
 } from "lucide-react";
 import {
   LineChart,
@@ -60,6 +61,22 @@ interface DashboardData {
     checkOutTime: string | null;
     finalStatus: string;
   }[];
+  breaks: {
+    onBreak: number;
+    completed: number;
+    missingReturn: number;
+    avgMinutes: number;
+    records: {
+      id: string;
+      employee: { firstName: string; lastName: string; matricule: string; service: string; structure: string };
+      breakStartTime: string | null;
+      breakEndTime: string | null;
+      breakMinutes: number;
+      checkOutTime: string | null;
+      onBreak: boolean;
+      missingReturn: boolean;
+    }[];
+  };
 }
 
 const PIE_COLORS = ["#10b981", "#ef4444", "#f59e0b", "#8b5cf6", "#3b82f6"];
@@ -428,6 +445,84 @@ export default function DashboardClient({ userName }: { userName: string }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Pause tracking */}
+      {hasData && (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div className="p-6 pb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Coffee className="h-5 w-5 text-amber-600" />
+              <h3 className="text-base font-semibold text-slate-900">Suivi des pauses</h3>
+            </div>
+            <Link href="/breaks" className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              Ouvrir la page pauses <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <div className="px-6 pb-4 flex flex-wrap gap-2">
+            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-amber-50 text-amber-700">
+              En pause: {data?.breaks?.onBreak ?? 0}
+            </span>
+            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-emerald-50 text-emerald-700">
+              Retours pointés: {data?.breaks?.completed ?? 0}
+            </span>
+            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-red-50 text-red-700">
+              Retours manquants: {data?.breaks?.missingReturn ?? 0}
+            </span>
+            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-700">
+              Pause moyenne: {Math.floor((data?.breaks?.avgMinutes ?? 0) / 60)}h{((data?.breaks?.avgMinutes ?? 0) % 60).toString().padStart(2, "0")}
+            </span>
+          </div>
+          {(data?.breaks?.records ?? []).length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-t border-slate-100">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employé</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début pause</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Retour pause</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.breaks?.records ?? []).map((row) => (
+                    <tr key={row.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-3 font-medium text-slate-800">
+                        {row.employee.firstName} {row.employee.lastName}
+                      </td>
+                      <td className="px-6 py-3 text-slate-600">
+                        {row.breakStartTime ? new Date(row.breakStartTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </td>
+                      <td className="px-6 py-3 text-slate-600">
+                        {row.breakEndTime ? new Date(row.breakEndTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </td>
+                      <td className="px-6 py-3 text-slate-700">
+                        {Math.floor((row.breakMinutes ?? 0) / 60)}h{((row.breakMinutes ?? 0) % 60).toString().padStart(2, "0")}
+                      </td>
+                      <td className="px-6 py-3">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                            row.onBreak
+                              ? "bg-amber-50 text-amber-700"
+                              : row.missingReturn
+                                ? "bg-red-50 text-red-700"
+                                : "bg-emerald-50 text-emerald-700"
+                          )}
+                        >
+                          {row.onBreak ? "En pause" : row.missingReturn ? "Retour manquant" : "Pause clôturée"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="px-6 pb-6 text-sm text-slate-500">Aucune pause enregistrée aujourd&apos;hui.</p>
+          )}
         </div>
       )}
     </div>

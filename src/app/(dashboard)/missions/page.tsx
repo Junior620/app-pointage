@@ -1173,6 +1173,16 @@ export default function MissionsPage() {
                 {detailMission.status === "APPROVED" && !detailMission.cancelledAt && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <button
+                      onClick={() =>
+                        window.open(`/api/missions/${detailMission.id}/document`, "_blank")
+                      }
+                      className="inline-flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-medium text-blue-700 border border-blue-200 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Modèle officiel (Word)
+                    </button>
+
+                    <button
                       onClick={async () => {
                         const docxMod = (await import("docx")) as any;
                         const {

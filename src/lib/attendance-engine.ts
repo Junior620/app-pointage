@@ -16,6 +16,7 @@ type CheckResult = {
   message: string;
   status?: string;
   overtimeMinutes?: number;
+  breakMinutes?: number;
 };
 
 async function getScheduleForEmployee(employeeId: string) {
@@ -85,6 +86,17 @@ const OVERTIME_START_MINUTE =
 const OVERTIME_END_HOUR =
   parseInt(process.env.OVERTIME_END_HOUR || "", 10) || 21;
 
+const BREAK_DEFAULT_START_HOUR =
+  parseInt(process.env.BREAK_START_HOUR || "", 10) || 12;
+const BREAK_DEFAULT_START_MINUTE =
+  parseInt(process.env.BREAK_START_MINUTE || "", 10) || 30;
+const BREAK_DEFAULT_END_HOUR =
+  parseInt(process.env.BREAK_END_HOUR || "", 10) || 13;
+const BREAK_DEFAULT_END_MINUTE =
+  parseInt(process.env.BREAK_END_MINUTE || "", 10) || 30;
+const BREAK_EXPECTED_DURATION_MIN =
+  parseInt(process.env.BREAK_DEFAULT_DURATION_MIN || "", 10) || 60;
+
 function startOfWeek(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -98,6 +110,28 @@ function startOfMonth(date: Date): Date {
   const d = new Date(date.getFullYear(), date.getMonth(), 1);
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function computeBreakMinutes(
+  breakStartTime: Date | null,
+  breakEndTime: Date | null,
+  checkoutRef: Date
+): number {
+  if (!breakStartTime) return 0;
+
+  // Si le retour de pause n'est pas pointé, on prend l'heure de départ final
+  // pour comptabiliser la durée réelle passée en pause.
+  const effectiveEnd = breakEndTime ?? checkoutRef;
+
+  if (effectiveEnd <= breakStartTime) return 0;
+
+  return Math.max(0, minutesBetween(breakStartTime, effectiveEnd));
+}
+
+function computeBreakDeductedMinutes(measuredMinutes: number): number {
+  // Règle paie : pause déduite limitée à la durée attendue (défaut 60 min),
+  // mais on garde la pause mesurée pour l'avertissement RH.
+  return Math.max(0, Math.min(measuredMinutes, BREAK_EXPECTED_DURATION_MIN));
 }
 
 export async function verifyGeofence(
@@ -289,7 +323,14 @@ export async function processCheckOut(
     APP_TIMEZONE
   );
 
-  const total = minutesBetween(record.checkInTime, now);
+  const grossTotal = minutesBetween(record.checkInTime, now);
+  const breakMeasuredMinutes = computeBreakMinutes(
+    record.breakStartTime,
+    record.breakEndTime,
+    now
+  );
+  const breakDeductedMinutes = computeBreakDeductedMinutes(breakMeasuredMinutes);
+  const total = Math.max(0, grossTotal - breakDeductedMinutes);
 
   const otWindowStart = new Date(today);
   otWindowStart.setHours(OVERTIME_START_HOUR, OVERTIME_START_MINUTE, 0, 0);
@@ -364,6 +405,8 @@ export async function processCheckOut(
       checkOutLat: point.lat,
       checkOutLng: point.lng,
       totalMinutes: total,
+      breakMinutes: breakMeasuredMinutes,
+      breakDeductedMinutes,
       overtimeMinutes: overtime,
       overtimeStatus: overtime > 0 ? "PENDING" : null,
       overtimeReason: overtime > 0 ? (comment || null) : null,
@@ -386,9 +429,24 @@ export async function processCheckOut(
       ? `Départ enregistré à ${timeStr} (en avance de ${earlyMin} min). Motif: ${comment}`
       : `Départ enregistré à ${timeStr} (en avance de ${earlyMin} min).\n⚠️ Veuillez indiquer le motif de votre départ anticipé.`;
   } else {
-    msg = `Départ enregistré à ${timeStr}. Durée: ${hours}h${mins
+    msg = `Départ enregistré à ${timeStr}. Durée travaillée: ${hours}h${mins
       .toString()
       .padStart(2, "0")}. ✅`;
+    if (breakMeasuredMinutes > 0) {
+      const mh = Math.floor(breakMeasuredMinutes / 60);
+      const mm = breakMeasuredMinutes % 60;
+      const dh = Math.floor(breakDeductedMinutes / 60);
+      const dm = breakDeductedMinutes % 60;
+      msg += `\n☕ Pause mesurée: ${mh}h${mm.toString().padStart(2, "0")} (déduite: ${dh}h${dm
+        .toString()
+        .padStart(2, "0")}).`;
+      if (record.breakStartTime && !record.breakEndTime) {
+        msg += `\nℹ️ Retour de pause non pointé : pause comptée jusqu'au départ.`;
+      }
+      if (breakMeasuredMinutes > BREAK_EXPECTED_DURATION_MIN) {
+        msg += `\n⚠️ Pause supérieure à ${BREAK_EXPECTED_DURATION_MIN} min (signalement possible).`;
+      }
+    }
     if (weekendOptionalWork && overtime > 0) {
       msg += `\n📅 Week-end : toute la durée travaillée est comptée en heures supplémentaires.`;
     }
@@ -408,6 +466,122 @@ export async function processCheckOut(
     message: msg,
     status: "CHECKED_OUT",
     overtimeMinutes: overtime,
+    breakMinutes: breakMeasuredMinutes,
+  };
+}
+
+export async function processBreakStart(
+  employeeId: string,
+  point: GeoPoint
+): Promise<CheckResult> {
+  const now = new Date();
+  const today = todayDate();
+
+  const record = await prisma.attendanceRecord.findUnique({
+    where: { employeeId_date: { employeeId, date: today } },
+  });
+  if (!record?.checkInTime) {
+    return {
+      success: false,
+      message: "Arrivée non pointée. Pointez d'abord votre arrivée avant de démarrer la pause.",
+    };
+  }
+  if (record.checkOutTime) {
+    return { success: false, message: "Votre départ est déjà enregistré pour aujourd'hui." };
+  }
+  if (record.breakStartTime && !record.breakEndTime) {
+    return { success: false, message: "Pause déjà démarrée. Merci de pointer votre retour de pause." };
+  }
+
+  const geo = await verifyGeofence(employeeId, point, "BREAK_START");
+  if (!geo.allowed) {
+    return {
+      success: false,
+      message: `Vous n'êtes pas dans la zone de travail (${geo.distance}m). Pointage refusé.`,
+    };
+  }
+
+  await prisma.attendanceRecord.update({
+    where: { id: record.id },
+    data: { breakStartTime: now, breakEndTime: null },
+  });
+
+  const timeStr = now.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: APP_TIMEZONE,
+  });
+
+  return {
+    success: true,
+    message: `☕ Départ en pause enregistré à ${timeStr}. Pensez à pointer votre retour.`,
+    status: "BREAK_STARTED",
+  };
+}
+
+export async function processBreakEnd(
+  employeeId: string,
+  point: GeoPoint
+): Promise<CheckResult> {
+  const now = new Date();
+  const today = todayDate();
+
+  const record = await prisma.attendanceRecord.findUnique({
+    where: { employeeId_date: { employeeId, date: today } },
+  });
+  if (!record?.checkInTime) {
+    return {
+      success: false,
+      message: "Arrivée non pointée. Pointez d'abord votre arrivée.",
+    };
+  }
+  if (record.checkOutTime) {
+    return { success: false, message: "Votre départ est déjà enregistré pour aujourd'hui." };
+  }
+  if (!record.breakStartTime) {
+    return {
+      success: false,
+      message: "Aucun départ en pause enregistré. Pointez d'abord le départ en pause.",
+    };
+  }
+  if (record.breakEndTime) {
+    return { success: false, message: "Le retour de pause est déjà enregistré." };
+  }
+
+  const geo = await verifyGeofence(employeeId, point, "BREAK_END");
+  if (!geo.allowed) {
+    return {
+      success: false,
+      message: `Vous n'êtes pas dans la zone de travail (${geo.distance}m). Pointage refusé.`,
+    };
+  }
+
+  const breakMeasuredMinutes = computeBreakMinutes(record.breakStartTime, now, now);
+  const breakDeductedMinutes = computeBreakDeductedMinutes(breakMeasuredMinutes);
+  await prisma.attendanceRecord.update({
+    where: { id: record.id },
+    data: { breakEndTime: now, breakMinutes: breakMeasuredMinutes, breakDeductedMinutes },
+  });
+
+  const timeStr = now.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: APP_TIMEZONE,
+  });
+  const breakH = Math.floor(breakMeasuredMinutes / 60);
+  const breakM = breakMeasuredMinutes % 60;
+
+  return {
+    success: true,
+    message:
+      `✅ Retour de pause enregistré à ${timeStr}. Pause cumulée: ${breakH}h${breakM
+        .toString()
+        .padStart(2, "0")}.` +
+      (breakMeasuredMinutes > BREAK_EXPECTED_DURATION_MIN
+        ? `\n⚠️ Cette pause dépasse la durée attendue (${BREAK_EXPECTED_DURATION_MIN} min).`
+        : ""),
+    status: "BREAK_ENDED",
+    breakMinutes: breakMeasuredMinutes,
   };
 }
 
@@ -417,6 +591,8 @@ export type AutoCheckoutResult = {
   whatsappPhone: string | null;
   checkOutTime: Date;
   checkInTime: Date;
+  breakMinutes: number;
+  missingBreakReturn: boolean;
 };
 
 export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
@@ -440,7 +616,14 @@ export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
 
     const endTime = parseTimeString(schedule.endTime, today, APP_TIMEZONE);
     const checkInTime = record.checkInTime!;
-    const total = minutesBetween(checkInTime, endTime);
+    const grossTotal = minutesBetween(checkInTime, endTime);
+    const breakMeasuredMinutes = computeBreakMinutes(
+      record.breakStartTime,
+      record.breakEndTime,
+      endTime
+    );
+    const breakDeductedMinutes = computeBreakDeductedMinutes(breakMeasuredMinutes);
+    const total = Math.max(0, grossTotal - breakDeductedMinutes);
 
     await prisma.attendanceRecord.update({
       where: { id: record.id },
@@ -449,6 +632,8 @@ export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
         checkOutStatus: "AUTO",
         checkOutComment: "Départ auto – non déclaré",
         totalMinutes: Math.max(0, total),
+        breakMinutes: breakMeasuredMinutes,
+        breakDeductedMinutes,
         overtimeMinutes: 0,
       },
     });
@@ -459,6 +644,8 @@ export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
       whatsappPhone: record.employee.whatsappPhone,
       checkOutTime: endTime,
       checkInTime,
+      breakMinutes: breakMeasuredMinutes,
+      missingBreakReturn: Boolean(record.breakStartTime && !record.breakEndTime),
     });
   }
 

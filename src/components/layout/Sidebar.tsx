@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   Clock,
+  Coffee,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ const navLinks = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/employees", label: "Employés", icon: Users },
   { href: "/attendance", label: "Pointages", icon: ClipboardCheck },
+  { href: "/breaks", label: "Pauses", icon: Coffee },
   { href: "/overtime", label: "Heures sup", icon: Clock },
   { href: "/leaves", label: "Autorisations d'absence", icon: CalendarOff },
   { href: "/missions", label: "Missions", icon: MapPin },
