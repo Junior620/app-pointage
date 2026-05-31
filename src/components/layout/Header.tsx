@@ -5,6 +5,7 @@ import { CalendarDays } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
   "/": "Tableau de bord",
+  "/users": "Utilisateurs",
   "/employees": "Employés",
   "/attendance": "Pointages",
   "/breaks": "Pauses",

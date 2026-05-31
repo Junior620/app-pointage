@@ -101,15 +101,13 @@ APP_BASE_URL=https://ton-app.vercel.app
 
 Lorsqu’un employé envoie le formulaire **autorisation** (`12`) ou **mission** (`15`), tous les numéros configurés reçoivent un message WhatsApp avec le résumé de la demande.
 
-### Numéros liés aux comptes RH (recommandé)
+### Comptes RH / Admin et numéros WhatsApp
 
-Dans le dashboard : **Paramètres → Alertes WhatsApp**.
+**Créer un compte** (administrateur uniquement) : menu **Utilisateurs → Nouvel utilisateur** (email, mot de passe, rôle HR / Admin / DG). Nécessite `SUPABASE_SERVICE_ROLE_KEY` côté serveur.
 
-- Chaque utilisateur **RH / Admin / DG** peut enregistrer **son** numéro WhatsApp.
-- Un **administrateur** peut aussi renseigner les numéros de tous les comptes (tableau utilisateurs).
-- Ces numéros sont fusionnés avec `WHATSAPP_RH_NOTIFY_PHONES` (sans doublon).
+**Numéro WhatsApp** : **Paramètres → Alertes WhatsApp** (son propre numéro) ou colonne WhatsApp sur **Utilisateurs** (admin).
 
-Le numéro ne doit pas être le même qu’une fiche **employé** (conflit refusé).
+Les numéros en base sont fusionnés avec `WHATSAPP_RH_NOTIFY_PHONES` (sans doublon). Un numéro ne peut pas être partagé avec une fiche **employé**.
 
 ---
 

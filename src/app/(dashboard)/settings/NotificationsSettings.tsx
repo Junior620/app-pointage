@@ -1,23 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, MessageCircle, Save, Users } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Bell, MessageCircle, Save } from "lucide-react";
+import Link from "next/link";
 
 type MeProfile = {
   id: string;
   name: string;
   email: string;
   role: string;
-  whatsappPhone: string | null;
-};
-
-type DashboardUser = {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  active: boolean;
   whatsappPhone: string | null;
 };
 
@@ -34,30 +25,12 @@ export default function NotificationsSettings() {
   const [meMessage, setMeMessage] = useState<string | null>(null);
   const [meError, setMeError] = useState<string | null>(null);
 
-  const [allUsers, setAllUsers] = useState<DashboardUser[]>([]);
-  const [edits, setEdits] = useState<Record<string, string>>({});
-  const [savingUserId, setSavingUserId] = useState<string | null>(null);
-
   const load = useCallback(async () => {
     const meRes = await fetch("/api/me");
     if (!meRes.ok) return;
     const profile = (await meRes.json()) as MeProfile;
     setMe(profile);
     setMyPhone(profile.whatsappPhone ?? "");
-
-    if (profile.role === "ADMIN") {
-      const usersRes = await fetch("/api/users");
-      if (usersRes.ok) {
-        const json = await usersRes.json();
-        const list = (json.data ?? []) as DashboardUser[];
-        setAllUsers(list);
-        const initial: Record<string, string> = {};
-        for (const u of list) {
-          initial[u.id] = u.whatsappPhone ?? "";
-        }
-        setEdits(initial);
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -92,38 +65,9 @@ export default function NotificationsSettings() {
     }
   };
 
-  const saveUserPhone = async (userId: string) => {
-    setSavingUserId(userId);
-    try {
-      const res = await fetch(`/api/users/${userId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          whatsappPhone: (edits[userId] ?? "").trim() || null,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(typeof json.error === "string" ? json.error : "Erreur");
-        return;
-      }
-      const updated = json.data as DashboardUser;
-      setAllUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...updated } : u)));
-      setMeMessage(`Numéro mis à jour pour ${updated.name}.`);
-    } catch {
-      alert("Erreur réseau.");
-    } finally {
-      setSavingUserId(null);
-    }
-  };
-
   if (!me) {
-    return (
-      <div className="h-24 bg-slate-100 rounded-xl animate-pulse" />
-    );
+    return <div className="h-24 bg-slate-100 rounded-xl animate-pulse" />;
   }
-
-  const isAdmin = me.role === "ADMIN";
 
   return (
     <div className="space-y-8">
@@ -137,6 +81,16 @@ export default function NotificationsSettings() {
           DG avec un numéro renseigné sont notifiés sur WhatsApp.
         </p>
       </div>
+
+      {me.role === "ADMIN" && (
+        <p className="text-sm text-slate-600 rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3">
+          Pour <strong>créer des comptes</strong> RH ou administrateurs, utilisez le menu{" "}
+          <Link href="/users" className="text-blue-600 font-medium hover:underline">
+            Utilisateurs
+          </Link>
+          . Vous pourrez y gérer aussi les numéros WhatsApp de chaque compte.
+        </p>
+      )}
 
       <form
         onSubmit={saveMyPhone}
@@ -175,75 +129,6 @@ export default function NotificationsSettings() {
           {savingMe ? "Enregistrement…" : "Enregistrer mon numéro"}
         </button>
       </form>
-
-      {isAdmin && (
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
-              <Users className="w-5 h-5 text-violet-600" />
-              Comptes utilisateurs
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              En tant qu&apos;administrateur, vous pouvez renseigner le WhatsApp de chaque compte RH / Admin / DG.
-            </p>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Utilisateur</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Rôle</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">WhatsApp</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allUsers.map((u) => (
-                  <tr key={u.id} className="border-b border-slate-50">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{u.name}</p>
-                      <p className="text-xs text-slate-500">{u.email}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          "text-xs font-medium px-2 py-0.5 rounded-full",
-                          u.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-                        )}
-                      >
-                        {ROLE_LABELS[u.role] ?? u.role}
-                        {!u.active ? " (inactif)" : ""}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="tel"
-                        value={edits[u.id] ?? ""}
-                        onChange={(e) =>
-                          setEdits((prev) => ({ ...prev, [u.id]: e.target.value }))
-                        }
-                        placeholder="237…"
-                        className="w-full min-w-[140px] px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        disabled={savingUserId === u.id}
-                        onClick={() => void saveUserPhone(u.id)}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                      >
-                        {savingUserId === u.id ? "…" : "Enregistrer"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
