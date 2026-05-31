@@ -1,11 +1,9 @@
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/require-admin-page";
 import UsersAdminClient from "./UsersAdminClient";
 
-export default async function UsersAdminPage() {
-  const session = await getSession();
-  if (!session) redirect("/login");
-  if (session.role !== "ADMIN") redirect("/");
+export const dynamic = "force-dynamic";
 
+export default async function UsersAdminPage() {
+  const session = await requireAdminPage();
   return <UsersAdminClient currentUserId={session.id} />;
 }

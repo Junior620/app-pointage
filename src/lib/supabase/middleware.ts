@@ -60,5 +60,23 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
+
+  // Pages et API réservées aux administrateurs (métadonnées Supabase si présentes)
+  const isAdminOnlyPage =
+    pathname === "/users" || pathname.startsWith("/users/");
+  const isAdminOnlyApi = pathname.startsWith("/api/users");
+
+  if (user && (isAdminOnlyPage || isAdminOnlyApi)) {
+    const metaRole = user.user_metadata?.role as string | undefined;
+    if (metaRole && metaRole !== "ADMIN") {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Accès interdit" }, { status: 403 });
+      }
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
+  }
+
   return supabaseResponse;
 }
