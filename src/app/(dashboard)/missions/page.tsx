@@ -21,6 +21,11 @@ import {
   Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  getMissionDurationDays,
+  getMissionDaysCompletedDisplay,
+  isMissionNotStarted,
+} from "@/lib/mission-days";
 import { z } from "zod";
 
 interface Mission {
@@ -70,17 +75,16 @@ const statusBadge: Record<string, { bg: string; label: string }> = {
   REJECTED: { bg: "bg-red-50 text-red-700", label: "Refusée" },
 };
 
-function getDurationDays(start: string, end: string): number {
-  const a = new Date(start);
-  const b = new Date(end);
-  const diff = b.getTime() - a.getTime();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24))) + 1;
-}
-
 function formatDuration(start: string, end: string): string {
-  const days = getDurationDays(start, end);
+  const days = getMissionDurationDays(start, end);
   if (days <= 1) return "1 jour";
   return `${days} jours`;
+}
+
+function missionDaysLabel(m: Pick<Mission, "startDate" | "endDate" | "daysCompleted">): string {
+  const total = getMissionDurationDays(m.startDate, m.endDate);
+  const done = getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted);
+  return `${done} / ${total}`;
 }
 
 export default function MissionsPage() {
@@ -330,8 +334,8 @@ export default function MissionsPage() {
           host: m.hostStructure ?? "—",
           start: new Date(m.startDate).toLocaleDateString("fr-FR"),
           end: new Date(m.endDate).toLocaleDateString("fr-FR"),
-          duration: getDurationDays(m.startDate, m.endDate),
-          completed: m.daysCompleted,
+          duration: getMissionDurationDays(m.startDate, m.endDate),
+          completed: getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted),
           location: m.location ?? "—",
           reason: m.reason,
           status: `${statusBadge[m.status]?.label ?? m.status}${m.cancelledAt ? " — annulée" : ""}`,
@@ -365,16 +369,16 @@ export default function MissionsPage() {
         const key = `${m.employee.id}-${m.originStructure ?? ""}-${m.hostStructure ?? ""}`;
         const existing = byEmployee.get(key);
         if (existing) {
-          existing.duration += getDurationDays(m.startDate, m.endDate);
-          existing.completed += m.daysCompleted;
+          existing.duration += getMissionDurationDays(m.startDate, m.endDate);
+          existing.completed += getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted);
           existing.count++;
         } else {
           byEmployee.set(key, {
             emp: m.employee,
             origin: m.originStructure ?? "—",
             host: m.hostStructure ?? "—",
-            duration: getDurationDays(m.startDate, m.endDate),
-            completed: m.daysCompleted,
+            duration: getMissionDurationDays(m.startDate, m.endDate),
+            completed: getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted),
             count: 1,
           });
         }
@@ -432,8 +436,8 @@ export default function MissionsPage() {
         m.hostStructure ?? "—",
         new Date(m.startDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
         new Date(m.endDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
-        `${getDurationDays(m.startDate, m.endDate)}j`,
-        `${m.daysCompleted}j`,
+        `${getMissionDurationDays(m.startDate, m.endDate)}j`,
+        `${getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted)}j`,
         m.location ?? "—",
         `${statusBadge[m.status]?.label ?? m.status}${m.cancelledAt ? " (annulée)" : ""}`,
       ]),
@@ -457,8 +461,8 @@ export default function MissionsPage() {
         const key = `${m.employee.id}-${m.originStructure ?? ""}-${m.hostStructure ?? ""}`;
         const ex = byEmp.get(key);
         if (ex) {
-          ex.duration += getDurationDays(m.startDate, m.endDate);
-          ex.completed += m.daysCompleted;
+          ex.duration += getMissionDurationDays(m.startDate, m.endDate);
+          ex.completed += getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted);
           ex.count++;
         } else {
           byEmp.set(key, {
@@ -466,8 +470,8 @@ export default function MissionsPage() {
             matricule: m.employee.matricule,
             origin: m.originStructure ?? "—",
             host: m.hostStructure ?? "—",
-            duration: getDurationDays(m.startDate, m.endDate),
-            completed: m.daysCompleted,
+            duration: getMissionDurationDays(m.startDate, m.endDate),
+            completed: getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted),
             count: 1,
           });
         }
@@ -707,14 +711,29 @@ export default function MissionsPage() {
                       </td>
                       {/* Jours effectués */}
                       <td className="px-6 py-4">
-                        <span className={cn(
-                          "inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-medium",
-                          mission.daysCompleted > 0
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-500"
-                        )}>
-                          {mission.daysCompleted} / {getDurationDays(mission.startDate, mission.endDate)}
-                        </span>
+                        {(() => {
+                          const done = getMissionDaysCompletedDisplay(
+                            mission.startDate,
+                            mission.endDate,
+                            mission.daysCompleted
+                          );
+                          const notStarted = isMissionNotStarted(mission.startDate);
+                          return (
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-medium",
+                                done > 0
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : notStarted
+                                    ? "bg-slate-100 text-slate-400"
+                                    : "bg-slate-100 text-slate-500"
+                              )}
+                              title={notStarted ? "Mission pas encore commencée" : undefined}
+                            >
+                              {missionDaysLabel(mission)}
+                            </span>
+                          );
+                        })()}
                       </td>
                       {/* Lieu */}
                       <td className="px-6 py-4 text-slate-600">
@@ -1045,14 +1064,14 @@ export default function MissionsPage() {
                   <span className="text-slate-500">Jours effectués</span>
                   {detailMission.cancelledAt ? (
                     <span className="font-medium text-slate-600">
-                      {detailMission.daysCompleted} / {getDurationDays(detailMission.startDate, detailMission.endDate)} jours
+                      {missionDaysLabel(detailMission)} jours
                     </span>
                   ) : editingDays !== null ? (
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
                         min={0}
-                        max={getDurationDays(detailMission.startDate, detailMission.endDate)}
+                        max={getMissionDurationDays(detailMission.startDate, detailMission.endDate)}
                         value={editingDays}
                         onChange={(e) => setEditingDays(Math.max(0, parseInt(e.target.value) || 0))}
                         className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1074,23 +1093,32 @@ export default function MissionsPage() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setEditingDays(detailMission.daysCompleted)}
+                      onClick={() => setEditingDays(getMissionDaysCompletedDisplay(detailMission.startDate, detailMission.endDate, detailMission.daysCompleted))}
                       className="font-medium text-slate-800 hover:text-blue-600 transition-colors cursor-pointer"
                     >
-                      {detailMission.daysCompleted} / {getDurationDays(detailMission.startDate, detailMission.endDate)} jours
+                      {missionDaysLabel(detailMission)} jours
                     </button>
                   )}
                 </div>
-                {detailMission.daysCompleted > 0 && (
-                  <div className="mt-1">
-                    <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500 rounded-full transition-all"
-                        style={{ width: `${Math.min(100, (detailMission.daysCompleted / getDurationDays(detailMission.startDate, detailMission.endDate)) * 100)}%` }}
-                      />
+                {(() => {
+                  const done = getMissionDaysCompletedDisplay(
+                    detailMission.startDate,
+                    detailMission.endDate,
+                    detailMission.daysCompleted
+                  );
+                  const total = getMissionDurationDays(detailMission.startDate, detailMission.endDate);
+                  if (done <= 0) return null;
+                  return (
+                    <div className="mt-1">
+                      <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full transition-all"
+                          style={{ width: `${Math.min(100, (done / total) * 100)}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 {detailMission.originStructure && (
                   <DetailRow label="Structure d'origine" value={detailMission.originStructure} />
                 )}
@@ -1325,7 +1353,7 @@ export default function MissionsPage() {
                                   text: `Durée prévue : ${formatDuration(m.startDate, m.endDate)}`,
                                 }),
                                 new Paragraph({
-                                  text: `Jours effectués (suivi) : ${m.daysCompleted} jour(s)`,
+                                  text: `Jours effectués (suivi) : ${getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted)} jour(s)`,
                                 }),
 
                                 new Paragraph({ text: "MOYENS", heading: docxMod.HeadingLevel.HEADING_2 }),
@@ -1445,7 +1473,7 @@ export default function MissionsPage() {
                         );
                         y += lineHeight;
                         doc.text(
-                          `Jours effectués (suivi) : ${m.daysCompleted} jour(s)`,
+                          `Jours effectués (suivi) : ${getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted)} jour(s)`,
                           14,
                           y
                         );

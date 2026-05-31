@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { Structure } from "@prisma/client";
-import { isWorkingDay, utcCalendarDayBounds } from "@/lib/utils";
+import { isWorkingDay, utcCalendarDayBounds, prismaOngoingMissionWhere, prismaOngoingLeaveWhere } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
@@ -73,24 +73,19 @@ export async function GET(request: NextRequest) {
     const missionToday = todayRecords.filter((r) => r.finalStatus === "MISSION").length;
     const permissionToday = todayRecords.filter((r) => r.finalStatus === "PERMISSION").length;
 
-    // Missions et autorisations d'absence « en cours » : période inclut aujourd'hui, statut approuvé
+    // Missions : approuvées, non terminées, début dans les 7 prochains jours (inclut « demain »).
+    // Autorisations : période incluant aujourd'hui.
     const [missionOngoingCount, permissionOngoingCount] = await Promise.all([
       prisma.mission.count({
         where: {
           employeeId: { in: employeeIds },
-          status: "APPROVED",
-          cancelledAt: null,
-          startDate: { lte: todayEnd },
-          endDate: { gte: todayStart },
+          ...prismaOngoingMissionWhere(todayStart, todayEnd),
         },
       }),
       prisma.leaveRequest.count({
         where: {
           employeeId: { in: employeeIds },
-          status: "APPROVED",
-          cancelledAt: null,
-          startDate: { lte: todayEnd },
-          endDate: { gte: todayStart },
+          ...prismaOngoingLeaveWhere(todayStart, todayEnd),
         },
       }),
     ]);

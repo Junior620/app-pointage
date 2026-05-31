@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { getMissionDurationDays, getMissionElapsedDays } from "@/lib/mission-days";
 
 const updateMissionSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"]).optional(),
@@ -68,31 +69,20 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       updateData.status = parsed.data.status;
       updateData.approvedBy = session.name;
 
-      // Quand la mission est approuvée, on considère par défaut qu'elle couvre
-      // toute la durée prévue (afin d'afficher directement "jours effectués").
-      // L'édition reste possible après, pour corriger si l'employé a fait
-      // plus ou moins de jours.
+      // À l'approbation : 0 jour effectué ; la RH met à jour au fil de la mission.
       if (parsed.data.status === "APPROVED" && parsed.data.daysCompleted === undefined) {
-        const durationDays = (() => {
-          const s = Date.UTC(
-            before.startDate.getUTCFullYear(),
-            before.startDate.getUTCMonth(),
-            before.startDate.getUTCDate()
-          );
-          const e = Date.UTC(
-            before.endDate.getUTCFullYear(),
-            before.endDate.getUTCMonth(),
-            before.endDate.getUTCDate()
-          );
-          const diffDays = Math.floor((e - s) / (24 * 60 * 60 * 1000));
-          return Math.max(0, diffDays + 1);
-        })();
-        updateData.daysCompleted = durationDays;
+        updateData.daysCompleted = 0;
       }
     }
 
     if (parsed.data.daysCompleted !== undefined) {
-      updateData.daysCompleted = parsed.data.daysCompleted;
+      const maxDays = getMissionDurationDays(before.startDate, before.endDate);
+      const elapsed = getMissionElapsedDays(before.startDate, before.endDate);
+      const capped =
+        elapsed === 0
+          ? 0
+          : Math.min(Math.max(0, parsed.data.daysCompleted), maxDays, elapsed);
+      updateData.daysCompleted = capped;
     }
 
     const mission = await prisma.mission.update({

@@ -164,3 +164,25 @@ export function prismaPeriodOverlapAnd(
   }
   return out;
 }
+
+/** Missions approuvées « en cours » au dashboard : pas terminées et début ≤ J+7 (inclut une mission qui démarre demain). */
+export function prismaOngoingMissionWhere(todayStart: Date, todayEnd: Date, lookaheadDays = 7) {
+  const lookaheadEnd = new Date(todayEnd);
+  lookaheadEnd.setUTCDate(lookaheadEnd.getUTCDate() + lookaheadDays);
+  return {
+    status: "APPROVED" as const,
+    cancelledAt: null,
+    endDate: { gte: todayStart },
+    startDate: { lte: lookaheadEnd },
+  };
+}
+
+/** Autorisation approuvée couvrant le jour civil (période inclut aujourd'hui). */
+export function prismaOngoingLeaveWhere(todayStart: Date, todayEnd: Date) {
+  return {
+    status: "APPROVED" as const,
+    cancelledAt: null,
+    startDate: { lte: todayEnd },
+    endDate: { gte: todayStart },
+  };
+}
