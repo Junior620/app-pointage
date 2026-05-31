@@ -21,11 +21,7 @@ import {
   Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  getMissionDurationDays,
-  getMissionDaysCompletedDisplay,
-  isMissionNotStarted,
-} from "@/lib/mission-days";
+import { getMissionDurationDays } from "@/lib/mission-days";
 import { z } from "zod";
 
 interface Mission {
@@ -81,11 +77,6 @@ function formatDuration(start: string, end: string): string {
   return `${days} jours`;
 }
 
-function missionDaysLabel(m: Pick<Mission, "startDate" | "endDate" | "daysCompleted">): string {
-  const total = getMissionDurationDays(m.startDate, m.endDate);
-  const done = getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted);
-  return `${done} / ${total}`;
-}
 
 export default function MissionsPage() {
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -123,8 +114,6 @@ export default function MissionsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [editingDays, setEditingDays] = useState<number | null>(null);
-  const [savingDays, setSavingDays] = useState(false);
   const perPage = 20;
 
   const fetchMissions = useCallback(async () => {
@@ -259,28 +248,6 @@ export default function MissionsPage() {
     }
   };
 
-  const updateDaysCompleted = async (id: string, days: number) => {
-    setSavingDays(true);
-    try {
-      const res = await fetch(`/api/missions/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ daysCompleted: days }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setMissions((prev) => prev.map((m) => (m.id === id ? { ...m, daysCompleted: days } : m)));
-        if (detailMission?.id === id) {
-          setDetailMission({ ...detailMission, daysCompleted: days });
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSavingDays(false);
-      setEditingDays(null);
-    }
-  };
 
   const fetchAllMissions = async (): Promise<Mission[]> => {
     const params = new URLSearchParams({
@@ -313,7 +280,6 @@ export default function MissionsPage() {
         { header: "Début", key: "start", width: 12 },
         { header: "Fin", key: "end", width: 12 },
         { header: "Durée (j)", key: "duration", width: 10 },
-        { header: "Jours effectués", key: "completed", width: 14 },
         { header: "Lieu", key: "location", width: 18 },
         { header: "Motif", key: "reason", width: 30 },
         { header: "Statut", key: "status", width: 12 },
@@ -335,7 +301,6 @@ export default function MissionsPage() {
           start: new Date(m.startDate).toLocaleDateString("fr-FR"),
           end: new Date(m.endDate).toLocaleDateString("fr-FR"),
           duration: getMissionDurationDays(m.startDate, m.endDate),
-          completed: getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted),
           location: m.location ?? "—",
           reason: m.reason,
           status: `${statusBadge[m.status]?.label ?? m.status}${m.cancelledAt ? " — annulée" : ""}`,
@@ -354,7 +319,6 @@ export default function MissionsPage() {
         { header: "Structure origine", key: "origin", width: 16 },
         { header: "Structure accueil", key: "host", width: 16 },
         { header: "Durée totale (j)", key: "duration", width: 14 },
-        { header: "Jours effectués", key: "completed", width: 14 },
         { header: "Nb missions", key: "count", width: 12 },
       ];
 
@@ -364,13 +328,12 @@ export default function MissionsPage() {
         cell.alignment = { horizontal: "center" };
       });
 
-      const byEmployee = new Map<string, { emp: Mission["employee"]; origin: string; host: string; duration: number; completed: number; count: number }>();
+      const byEmployee = new Map<string, { emp: Mission["employee"]; origin: string; host: string; duration: number; count: number }>();
       approved.forEach((m) => {
         const key = `${m.employee.id}-${m.originStructure ?? ""}-${m.hostStructure ?? ""}`;
         const existing = byEmployee.get(key);
         if (existing) {
           existing.duration += getMissionDurationDays(m.startDate, m.endDate);
-          existing.completed += getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted);
           existing.count++;
         } else {
           byEmployee.set(key, {
@@ -378,7 +341,6 @@ export default function MissionsPage() {
             origin: m.originStructure ?? "—",
             host: m.hostStructure ?? "—",
             duration: getMissionDurationDays(m.startDate, m.endDate),
-            completed: getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted),
             count: 1,
           });
         }
@@ -391,7 +353,6 @@ export default function MissionsPage() {
           origin: v.origin,
           host: v.host,
           duration: v.duration,
-          completed: v.completed,
           count: v.count,
         });
       });
@@ -429,7 +390,7 @@ export default function MissionsPage() {
 
     autoTable(doc, {
       startY: 35,
-      head: [["Employé", "Origine", "Accueil", "Début", "Fin", "Durée", "Eff.", "Lieu", "Statut"]],
+      head: [["Employé", "Origine", "Accueil", "Début", "Fin", "Durée", "Lieu", "Statut"]],
       body: all.map((m) => [
         `${m.employee.lastName} ${m.employee.firstName}`,
         m.originStructure ?? "—",
@@ -437,7 +398,6 @@ export default function MissionsPage() {
         new Date(m.startDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
         new Date(m.endDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
         `${getMissionDurationDays(m.startDate, m.endDate)}j`,
-        `${getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted)}j`,
         m.location ?? "—",
         `${statusBadge[m.status]?.label ?? m.status}${m.cancelledAt ? " (annulée)" : ""}`,
       ]),
@@ -456,13 +416,12 @@ export default function MissionsPage() {
       doc.text(`${approvedMissions.length} mission(s) approuvée(s)`, 14, 25);
       doc.setTextColor(0);
 
-      const byEmp = new Map<string, { name: string; matricule: string; origin: string; host: string; duration: number; completed: number; count: number }>();
+      const byEmp = new Map<string, { name: string; matricule: string; origin: string; host: string; duration: number; count: number }>();
       approvedMissions.forEach((m) => {
         const key = `${m.employee.id}-${m.originStructure ?? ""}-${m.hostStructure ?? ""}`;
         const ex = byEmp.get(key);
         if (ex) {
           ex.duration += getMissionDurationDays(m.startDate, m.endDate);
-          ex.completed += getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted);
           ex.count++;
         } else {
           byEmp.set(key, {
@@ -471,7 +430,6 @@ export default function MissionsPage() {
             origin: m.originStructure ?? "—",
             host: m.hostStructure ?? "—",
             duration: getMissionDurationDays(m.startDate, m.endDate),
-            completed: getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted),
             count: 1,
           });
         }
@@ -479,9 +437,9 @@ export default function MissionsPage() {
 
       autoTable(doc, {
         startY: 30,
-        head: [["Employé", "Matricule", "Origine", "Accueil", "Durée totale", "Jours eff.", "Nb missions"]],
+        head: [["Employé", "Matricule", "Origine", "Accueil", "Durée totale", "Nb missions"]],
         body: Array.from(byEmp.values()).map((v) => [
-          v.name, v.matricule, v.origin, v.host, `${v.duration}j`, `${v.completed}j`, v.count,
+          v.name, v.matricule, v.origin, v.host, `${v.duration}j`, v.count,
         ]),
         styles: { fontSize: 8, cellPadding: 2 },
         headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: "bold" },
@@ -606,7 +564,6 @@ export default function MissionsPage() {
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Fin</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Jours eff.</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Lieu</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
                 <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
@@ -616,14 +573,14 @@ export default function MissionsPage() {
               {loading ? (
                 [...Array(3)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={11} className="px-6 py-4">
+                    <td colSpan={10} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : missions.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-16 text-center">
+                  <td colSpan={10} className="px-6 py-16 text-center">
                     <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">Aucune mission</p>
                     <p className="mt-1 text-sm text-slate-500">
@@ -708,32 +665,6 @@ export default function MissionsPage() {
                         <span className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                           {formatDuration(mission.startDate, mission.endDate)}
                         </span>
-                      </td>
-                      {/* Jours effectués */}
-                      <td className="px-6 py-4">
-                        {(() => {
-                          const done = getMissionDaysCompletedDisplay(
-                            mission.startDate,
-                            mission.endDate,
-                            mission.daysCompleted
-                          );
-                          const notStarted = isMissionNotStarted(mission.startDate);
-                          return (
-                            <span
-                              className={cn(
-                                "inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-medium",
-                                done > 0
-                                  ? "bg-emerald-50 text-emerald-700"
-                                  : notStarted
-                                    ? "bg-slate-100 text-slate-400"
-                                    : "bg-slate-100 text-slate-500"
-                              )}
-                              title={notStarted ? "Mission pas encore commencée" : undefined}
-                            >
-                              {missionDaysLabel(mission)}
-                            </span>
-                          );
-                        })()}
                       </td>
                       {/* Lieu */}
                       <td className="px-6 py-4 text-slate-600">
@@ -1060,65 +991,6 @@ export default function MissionsPage() {
                 <DetailRow label="Date début" value={new Date(detailMission.startDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Date fin" value={new Date(detailMission.endDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Durée prévue" value={formatDuration(detailMission.startDate, detailMission.endDate)} />
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500">Jours effectués</span>
-                  {detailMission.cancelledAt ? (
-                    <span className="font-medium text-slate-600">
-                      {missionDaysLabel(detailMission)} jours
-                    </span>
-                  ) : editingDays !== null ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        max={getMissionDurationDays(detailMission.startDate, detailMission.endDate)}
-                        value={editingDays}
-                        onChange={(e) => setEditingDays(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <button
-                        onClick={() => updateDaysCompleted(detailMission.id, editingDays)}
-                        disabled={savingDays}
-                        className="px-2 py-1 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {savingDays ? "…" : "OK"}
-                      </button>
-                      <button
-                        onClick={() => setEditingDays(null)}
-                        className="px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 rounded-lg"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setEditingDays(getMissionDaysCompletedDisplay(detailMission.startDate, detailMission.endDate, detailMission.daysCompleted))}
-                      className="font-medium text-slate-800 hover:text-blue-600 transition-colors cursor-pointer"
-                    >
-                      {missionDaysLabel(detailMission)} jours
-                    </button>
-                  )}
-                </div>
-                {(() => {
-                  const done = getMissionDaysCompletedDisplay(
-                    detailMission.startDate,
-                    detailMission.endDate,
-                    detailMission.daysCompleted
-                  );
-                  const total = getMissionDurationDays(detailMission.startDate, detailMission.endDate);
-                  if (done <= 0) return null;
-                  return (
-                    <div className="mt-1">
-                      <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500 rounded-full transition-all"
-                          style={{ width: `${Math.min(100, (done / total) * 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })()}
                 {detailMission.originStructure && (
                   <DetailRow label="Structure d'origine" value={detailMission.originStructure} />
                 )}
@@ -1353,7 +1225,6 @@ export default function MissionsPage() {
                                   text: `Durée prévue : ${formatDuration(m.startDate, m.endDate)}`,
                                 }),
                                 new Paragraph({
-                                  text: `Jours effectués (suivi) : ${getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted)} jour(s)`,
                                 }),
 
                                 new Paragraph({ text: "MOYENS", heading: docxMod.HeadingLevel.HEADING_2 }),
@@ -1468,12 +1339,6 @@ export default function MissionsPage() {
                         y += lineHeight;
                         doc.text(
                           `Durée prévue : ${formatDuration(m.startDate, m.endDate)}`,
-                          14,
-                          y
-                        );
-                        y += lineHeight;
-                        doc.text(
-                          `Jours effectués (suivi) : ${getMissionDaysCompletedDisplay(m.startDate, m.endDate, m.daysCompleted)} jour(s)`,
                           14,
                           y
                         );
