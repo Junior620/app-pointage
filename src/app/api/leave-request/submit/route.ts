@@ -6,6 +6,8 @@ import { verifyLeaveFormToken } from "@/lib/leave-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { logPublicSubmission } from "@/lib/public-submission-log";
+import { leaveAbsenceCategoryLabel } from "@/lib/leave-absence-labels";
+import { notifyRhAdminsWhatsApp } from "@/lib/rh-whatsapp-notify";
 
 const submitSchema = z.object({
   t: z.string().min(10),
@@ -93,6 +95,29 @@ export async function POST(request: NextRequest) {
         submissionSource: "EMPLOYEE_WHATSAPP_FORM",
       },
     });
+
+    const leaveStartStr = leave.startDate.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const leaveEndStr = leave.endDate.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    await notifyRhAdminsWhatsApp(
+      `🆕 *Nouvelle autorisation d'absence (employé)*\n\n` +
+        `Employé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\n` +
+        `Service : ${employee.service}\n` +
+        `Type : ${leaveAbsenceCategoryLabel(parsed.data.absenceCategory)}\n` +
+        `Période : ${leaveStartStr} → ${leaveEndStr}\n` +
+        `Motif : ${leave.reason.slice(0, 600)}${leave.reason.length > 600 ? "…" : ""}\n` +
+        (notify ? `À prévenir / remplacer : ${notify.slice(0, 200)}\n` : "") +
+        `\n➡️ À traiter dans le module *Autorisations d'absence* du dashboard.`
+    );
 
     if (employee.whatsappPhone?.trim()) {
       try {

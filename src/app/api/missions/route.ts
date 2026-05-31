@@ -6,6 +6,7 @@ import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { activeRequestFilter } from "@/lib/request-active";
 import { prismaPeriodOverlapAnd } from "@/lib/utils";
+import { createMissionWithOrderNumber } from "@/lib/mission-order-number";
 
 const createMissionSchema = z.object({
   employeeId: z.string().min(1),
@@ -96,23 +97,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    const mission = await prisma.mission.create({
-      // Cast en any pour rester compatible tant que le client Prisma
-      // généré n'a pas encore les nouveaux champs (transport/lodging/expenses).
-      data: {
-        employeeId: parsed.data.employeeId,
-        startDate: new Date(parsed.data.startDate),
-        endDate: new Date(parsed.data.endDate),
-        reason: parsed.data.reason,
-        location: parsed.data.location || null,
-        transport: parsed.data.transport || null,
-        lodging: parsed.data.lodging || null,
-        expenses: parsed.data.expenses || null,
-        originStructure: employee.structure,
-        hostStructure: parsed.data.hostStructure || null,
-        submissionSource: "HR_DASHBOARD",
-      } as any,
-      include: { employee: true },
+    const mission = await createMissionWithOrderNumber({
+      employeeId: parsed.data.employeeId,
+      startDate: new Date(parsed.data.startDate),
+      endDate: new Date(parsed.data.endDate),
+      reason: parsed.data.reason,
+      location: parsed.data.location || null,
+      transport: parsed.data.transport || null,
+      lodging: parsed.data.lodging || null,
+      expenses: parsed.data.expenses || null,
+      originStructure: employee.structure,
+      hostStructure: parsed.data.hostStructure || null,
+      submissionSource: "HR_DASHBOARD",
     });
 
     await createAuditLog({

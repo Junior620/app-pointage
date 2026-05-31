@@ -25,6 +25,7 @@ import { z } from "zod";
 
 interface Mission {
   id: string;
+  orderNumber?: string | null;
   employee: {
     id: string;
     firstName: string;
@@ -1031,6 +1032,12 @@ export default function MissionsPage() {
 
               {/* Info */}
               <div className="rounded-xl bg-slate-50 p-4 space-y-3">
+                {detailMission.orderNumber && (
+                  <DetailRow
+                    label="N° ordre de mission"
+                    value={detailMission.orderNumber}
+                  />
+                )}
                 <DetailRow label="Date début" value={new Date(detailMission.startDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Date fin" value={new Date(detailMission.endDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
                 <DetailRow label="Durée prévue" value={formatDuration(detailMission.startDate, detailMission.endDate)} />

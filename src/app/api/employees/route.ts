@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { normalizePhone } from "@/lib/whatsapp";
+import { sendEmployeeWelcomeWhatsApp } from "@/lib/employee-welcome";
 
 const STRUCTURES = ["SCPB", "AFREXIA"] as const;
 
@@ -14,6 +16,7 @@ const createEmployeeSchema = z.object({
   service: z.string().min(1, "Le service est requis"),
   structure: z.enum(STRUCTURES).default("SCPB"),
   siteId: z.string().optional(),
+  whatsappPhone: z.string().optional(),
 });
 
 /** Préfixe : STRUCTURE-SERVICE- (SCPB / AFREXIA). Suffixe numérique aléatoire, vérifié unique en base. */
@@ -113,7 +116,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { matricule, ...rest } = parsed.data;
+    const { matricule, whatsappPhone: whatsappPhoneInput, ...rest } = parsed.data;
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
       finalMatricule = await generateUniqueMatricule(rest.service, rest.structure);
@@ -124,10 +127,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
     }
 
+    const rawPhone = typeof whatsappPhoneInput === "string" ? whatsappPhoneInput.trim() : "";
+    const whatsappPhone = rawPhone ? normalizePhone(rawPhone) : undefined;
+
     const data = {
       ...rest,
       matricule: finalMatricule,
       siteId: rest.siteId?.trim() || undefined,
+      whatsappPhone,
     };
 
     const employee = await prisma.employee.create({
@@ -143,7 +150,18 @@ export async function POST(request: NextRequest) {
       after: employee,
     });
 
-    return NextResponse.json({ data: employee }, { status: 201 });
+    let welcomeSent = false;
+    if (employee.active && employee.whatsappPhone) {
+      welcomeSent = await sendEmployeeWelcomeWhatsApp(employee.whatsappPhone, {
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        matricule: employee.matricule,
+        service: employee.service,
+        structure: employee.structure,
+      });
+    }
+
+    return NextResponse.json({ data: employee, welcomeSent }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });

@@ -14,6 +14,7 @@ import {
 } from "docx";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { missionOrderTitle } from "@/lib/mission-order-number";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -90,8 +91,16 @@ function twoFieldsRow(
   });
 }
 
-function buildMissionOrderDoc(mission: any) {
+function buildMissionOrderDoc(mission: {
+  orderNumber: string | null;
+  startDate: Date;
+  endDate: Date;
+  reason: string;
+  location: string | null;
+  employee: { lastName: string; firstName: string; service: string };
+}) {
   const emp = mission.employee;
+  const title = missionOrderTitle(mission.orderNumber, mission.startDate);
   const startDate = mission.startDate.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
@@ -194,13 +203,12 @@ function buildMissionOrderDoc(mission: any) {
       {
         children: [
           new Paragraph({
-            text: `ORDRE DE MISSION N°____/MM/${new Date().getFullYear()}`,
             heading: HeadingLevel.HEADING_1,
             alignment: AlignmentType.CENTER,
             spacing: { after: 240 },
             children: [
               new TextRun({
-                text: `ORDRE DE MISSION N°____/MM/${new Date().getFullYear()}`,
+                text: title,
                 underline: { type: UnderlineType.SINGLE },
                 bold: true,
               }),
@@ -227,7 +235,8 @@ export async function GET(_request: Request, context: RouteContext) {
 
     const doc = buildMissionOrderDoc(mission);
     const buffer = await Packer.toBuffer(doc);
-    const name = `ordre_mission_${mission.employee.matricule}_${mission.id.slice(0, 8)}.docx`;
+    const numPart = mission.orderNumber?.replace(/\//g, "-") ?? mission.id.slice(0, 8);
+    const name = `ordre_mission_${numPart}_${mission.employee.matricule}.docx`;
 
     return new Response(new Uint8Array(buffer), {
       status: 200,
