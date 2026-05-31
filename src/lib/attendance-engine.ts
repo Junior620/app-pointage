@@ -94,7 +94,7 @@ const BREAK_DEFAULT_END_HOUR =
   parseInt(process.env.BREAK_END_HOUR || "", 10) || 13;
 const BREAK_DEFAULT_END_MINUTE =
   parseInt(process.env.BREAK_END_MINUTE || "", 10) || 30;
-const BREAK_EXPECTED_DURATION_MIN =
+export const BREAK_EXPECTED_DURATION_MIN =
   parseInt(process.env.BREAK_DEFAULT_DURATION_MIN || "", 10) || 60;
 
 function startOfWeek(date: Date): Date {
@@ -444,7 +444,11 @@ export async function processCheckOut(
         msg += `\nℹ️ Retour de pause non pointé : pause comptée jusqu'au départ.`;
       }
       if (breakMeasuredMinutes > BREAK_EXPECTED_DURATION_MIN) {
-        msg += `\n⚠️ Pause supérieure à ${BREAK_EXPECTED_DURATION_MIN} min (signalement possible).`;
+        msg += `\n⚠️ Pause supérieure à ${BREAK_EXPECTED_DURATION_MIN} min.`;
+        if (!record.breakComment) {
+          msg +=
+            "\n\nMerci d'indiquer *en une phrase* le motif de cette pause prolongée (répondez sur WhatsApp).";
+        }
       }
     }
     if (weekendOptionalWork && overtime > 0) {
@@ -578,7 +582,8 @@ export async function processBreakEnd(
         .toString()
         .padStart(2, "0")}.` +
       (breakMeasuredMinutes > BREAK_EXPECTED_DURATION_MIN
-        ? `\n⚠️ Cette pause dépasse la durée attendue (${BREAK_EXPECTED_DURATION_MIN} min).`
+        ? `\n⚠️ Cette pause dépasse la durée attendue (${BREAK_EXPECTED_DURATION_MIN} min).` +
+          "\n\nMerci d'indiquer *en une phrase* le motif de cette pause prolongée (répondez sur WhatsApp)."
         : ""),
     status: "BREAK_ENDED",
     breakMinutes: breakMeasuredMinutes,

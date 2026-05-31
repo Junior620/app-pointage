@@ -9,6 +9,7 @@ import {
   getCurrentWeekRangeUtc,
 } from "@/lib/weekly-summary-text";
 import { utcCalendarDayBounds } from "@/lib/utils";
+import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -157,6 +158,15 @@ async function handleMessage(
           } else {
             statusMsg += `\n⚠️ Retour pause: non pointé`;
           }
+          if ((record.breakMinutes ?? 0) > 0) {
+            const bm = record.breakMinutes ?? 0;
+            statusMsg += `\n⏱️ Durée pause: ${Math.floor(bm / 60)}h${(bm % 60).toString().padStart(2, "0")}`;
+          }
+          if (record.breakComment) {
+            statusMsg += `\n📝 Motif pause: ${record.breakComment}`;
+          } else if ((record.breakMinutes ?? 0) > BREAK_EXPECTED_DURATION_MIN) {
+            statusMsg += `\n⚠️ Motif pause prolongée : en attente`;
+          }
         }
         statusMsg += `\nStatut: ${record.finalStatus}`;
         await sendWhatsAppMessage(phone, statusMsg);
@@ -178,9 +188,15 @@ async function handleMessage(
       todayRecord.checkOutTime &&
       (todayRecord.overtimeMinutes ?? 0) > 0 &&
       !todayRecord.overtimeReason;
+    const awaitingBreakReason =
+      todayRecord &&
+      (todayRecord.breakMinutes ?? 0) > BREAK_EXPECTED_DURATION_MIN &&
+      !todayRecord.breakComment;
 
     const { intent, comment } = parseIntent(message.text.body, {
-      skipNumericMenuShortcuts: Boolean(awaitingOvertimeReason && rawTrimmed),
+      skipNumericMenuShortcuts: Boolean(
+        (awaitingOvertimeReason || awaitingBreakReason) && rawTrimmed
+      ),
     });
     console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
@@ -206,6 +222,19 @@ async function handleMessage(
         await sendWhatsAppMessage(
           phone,
           `Motif des heures sup enregistré : "${rawComment}". Merci. La RH validera vos heures.`
+        );
+        return;
+      } else if (
+        (record.breakMinutes ?? 0) > BREAK_EXPECTED_DURATION_MIN &&
+        !record.breakComment
+      ) {
+        await prisma.attendanceRecord.update({
+          where: { id: record.id },
+          data: { breakComment: rawComment },
+        });
+        await sendWhatsAppMessage(
+          phone,
+          `Motif de pause prolongée enregistré : "${rawComment}". Merci.`
         );
         return;
       } else if (record.checkOutTime && !record.checkOutComment) {

@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
         breakStartTime: r.breakStartTime,
         breakEndTime: r.breakEndTime,
         breakMinutes: r.breakMinutes ?? 0,
+        breakComment: r.breakComment,
         checkInTime: r.checkInTime,
         checkOutTime: r.checkOutTime,
         onBreak,
