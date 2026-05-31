@@ -9,6 +9,7 @@ import {
   getCurrentWeekRangeUtc,
 } from "@/lib/weekly-summary-text";
 import { utcCalendarDayBounds } from "@/lib/utils";
+import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
 import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
@@ -79,15 +80,7 @@ async function handleMessage(
   const normalizedPhone = normalizePhone(phone);
   const digitsOnly = normalizedPhone.replace(/\D/g, "");
 
-  const employee = await prisma.employee.findFirst({
-    where: {
-      OR: [
-        { whatsappPhone: normalizedPhone },
-        { whatsappPhone: digitsOnly },
-        { whatsappPhone: `+${digitsOnly}` },
-      ],
-    },
-  });
+  const employee = await findEmployeeByWhatsappPhone(phone);
 
     if (!employee) {
       console.log("[WhatsApp] Numéro non lié:", digitsOnly || normalizedPhone);

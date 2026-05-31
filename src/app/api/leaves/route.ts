@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 import { activeRequestFilter } from "@/lib/request-active";
 import { prismaPeriodOverlapAnd } from "@/lib/utils";
 
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
     const [leaves, total, pending, approved, rejected, cancelled, services] = await Promise.all([
       prisma.leaveRequest.findMany({
         where,
-        include: { employee: true },
+        include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
         ...(parsed.data.absenceCategory != null && { absenceCategory: parsed.data.absenceCategory }),
         ...(notify !== undefined && { notifyOrReplace: notify }),
       },
-      include: { employee: true },
+      include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
     await createAuditLog({
@@ -119,9 +120,8 @@ export async function POST(request: NextRequest) {
       after: leave,
     });
 
-    if (employee.active && employee.whatsappPhone?.trim()) {
+    if (employee.active && phonesFromEmployee(employee).length > 0) {
       try {
-        const rawPhone = employee.whatsappPhone.trim();
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
           day: "numeric",
@@ -136,8 +136,7 @@ export async function POST(request: NextRequest) {
         msg += `📅 *Période*\nDu ${startStr}\nau ${endStr}\n`;
         msg += `\n📝 *Motif*\n${leave.reason}\n`;
         msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
-        console.log("[Autorisations absence] Envoi WhatsApp vers:", rawPhone);
-        await sendWhatsAppMessage(rawPhone, msg);
+        await sendWhatsAppToEmployeeEntity(employee, msg);
       } catch (e) {
         console.error("[Autorisations absence] Notification WhatsApp (création) échouée:", e);
       }

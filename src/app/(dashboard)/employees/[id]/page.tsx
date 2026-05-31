@@ -69,6 +69,7 @@ export default async function EmployeeDetailPage({
     where: { id },
     include: {
       site: true,
+      whatsappPhones: { orderBy: { sortOrder: "asc" } },
       attendances: {
         where: { date: { gte: rangeFrom, lte: rangeTo } },
         orderBy: { date: "desc" },
@@ -194,12 +195,12 @@ export default async function EmployeeDetailPage({
                 <Building2 className="w-4 h-4" />
                 {employee.service}
               </span>
-              {employee.whatsappPhone && (
-                <span className="flex items-center gap-1.5">
+              {(employee.whatsappPhones?.length ? employee.whatsappPhones : employee.whatsappPhone ? [{ phone: employee.whatsappPhone }] : []).map((p: { phone: string }, i: number) => (
+                <span key={p.phone} className="flex items-center gap-1.5">
                   <Phone className="w-4 h-4" />
-                  {employee.whatsappPhone}
+                  {i === 0 ? "WhatsApp" : "WhatsApp 2"} : {p.phone}
                 </span>
-              )}
+              ))}
               {employee.site && (
                 <span className="flex items-center gap-1.5">
                   <MapPin className="w-4 h-4" />

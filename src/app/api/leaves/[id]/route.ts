@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 
 const updateLeaveSchema = z.object({
   status: z.enum(["APPROVED", "REJECTED"]),
@@ -44,7 +45,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         status: parsed.data.status,
         approvedBy: session.name,
       },
-      include: { employee: true },
+      include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
     await createAuditLog({
@@ -56,7 +57,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       after: leave,
     });
 
-    if (leave.employee.active && leave.employee.whatsappPhone?.trim()) {
+    if (leave.employee.active && phonesFromEmployee(leave.employee).length > 0) {
       try {
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
@@ -83,7 +84,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             `📝 *Motif indiqué*\n${leave.reason}\n\n` +
             `Pour plus d'informations, contactez les RH.`;
         }
-        await sendWhatsAppMessage(leave.employee.whatsappPhone.trim(), msg);
+        await sendWhatsAppToEmployeeEntity(leave.employee, msg);
       } catch (e) {
         console.error("[Autorisations absence] Notification WhatsApp (validation) échouée:", e);
       }
@@ -119,7 +120,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
         cancelledAt: new Date(),
         cancelledBy: session.name,
       },
-      include: { employee: true },
+      include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
     await createAuditLog({

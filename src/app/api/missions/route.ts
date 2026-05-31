@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 import { activeRequestFilter } from "@/lib/request-active";
 import { prismaPeriodOverlapAnd } from "@/lib/utils";
 import { createMissionWithOrderNumber } from "@/lib/mission-order-number";
@@ -119,7 +120,7 @@ export async function POST(request: NextRequest) {
       after: mission,
     });
 
-    if (employee.active && employee.whatsappPhone?.trim()) {
+    if (employee.active && phonesFromEmployee(employee).length > 0) {
       try {
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
         }
         msg += `\n📝 *Motif*\n${mission.reason}\n`;
         msg += `\n⏳ Statut : *en attente* de validation par la RH / la hiérarchie. Vous recevrez une confirmation une fois la demande traitée.`;
-        await sendWhatsAppMessage(employee.whatsappPhone.trim(), msg);
+        await sendWhatsAppToEmployeeEntity(employee, msg);
       } catch (e) {
         console.error("[Missions] Notification WhatsApp (création mission) échouée:", e);
       }

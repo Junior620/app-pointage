@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
@@ -21,7 +22,10 @@ export async function GET(request: NextRequest) {
     const { monday, saturday } = getCurrentWeekRangeUtc(now);
 
     const employees = await prisma.employee.findMany({
-      where: { active: true, whatsappPhone: { not: null } },
+      where: {
+      active: true,
+      OR: [{ whatsappPhone: { not: null } }, { whatsappPhones: { some: {} } }],
+    },
       select: {
         id: true,
         firstName: true,
@@ -60,7 +64,7 @@ export async function GET(request: NextRequest) {
       );
 
       try {
-        await sendWhatsAppMessage(emp.whatsappPhone!, msg);
+        await sendWhatsAppToEmployee(emp.id, msg);
         count++;
       } catch (e) {
         failed++;

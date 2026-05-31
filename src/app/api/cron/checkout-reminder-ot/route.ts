@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 import { todayDate, isWeekend } from "@/lib/utils";
 
 function isAuthorized(request: NextRequest): boolean {
@@ -56,10 +57,11 @@ export async function GET(request: NextRequest) {
     let count = 0;
     for (const record of records) {
       const { employee } = record;
-      if (!employee.active || !employee.whatsappPhone) continue;
+      if (!employee.active) continue;
+      const phones = await getEmployeeWhatsappPhones(record.employeeId);
+      if (phones.length === 0) continue;
 
-      await sendWhatsAppMessage(
-        employee.whatsappPhone,
+      await sendWhatsAppToEmployee(record.employeeId,
         `🕕 *Rappel important (18h00)*\n\n` +
           `Bonjour ${employee.firstName}, pensez à pointer votre départ quand vous quittez le bureau.\n\n` +
           `💡 Les heures supplémentaires se calculent à partir de 18h30 uniquement si vous pointez votre départ manuellement.\n` +

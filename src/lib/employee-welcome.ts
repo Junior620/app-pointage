@@ -41,6 +41,18 @@ export function buildEmployeeWelcomeMessage(emp: EmployeeWelcomeInput): string {
 }
 
 /** Message business-initiated : nécessite que le numéro soit joignable via l'API WhatsApp (souvent après un premier contact ou modèle approuvé Meta). */
+export async function sendEmployeeWelcomeWhatsAppToPhones(
+  phones: string[],
+  emp: EmployeeWelcomeInput
+): Promise<boolean> {
+  if (!isEmployeeWelcomeEnabled()) return false;
+  let sent = false;
+  for (const phone of phones) {
+    if (await sendEmployeeWelcomeWhatsApp(phone, emp)) sent = true;
+  }
+  return sent;
+}
+
 export async function sendEmployeeWelcomeWhatsApp(
   phone: string,
   emp: EmployeeWelcomeInput

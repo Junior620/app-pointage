@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 import { getMissionDurationDays, getMissionElapsedDays } from "@/lib/mission-days";
 
 const updateMissionSchema = z.object({
@@ -20,7 +21,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     const mission = await prisma.mission.findUnique({
       where: { id },
-      include: { employee: true },
+      include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
     if (!mission) {
@@ -88,7 +89,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const mission = await prisma.mission.update({
       where: { id },
       data: updateData,
-      include: { employee: true },
+      include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
     const action = parsed.data.status === "APPROVED"
@@ -109,7 +110,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (
       parsed.data.status &&
       mission.employee.active &&
-      mission.employee.whatsappPhone?.trim()
+      phonesFromEmployee(mission.employee).length > 0
     ) {
       try {
         const opts: Intl.DateTimeFormatOptions = {
@@ -144,7 +145,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             `📝 *Motif indiqué*\n${mission.reason}\n\n` +
             `Pour plus d'informations, contactez les RH.`;
         }
-        await sendWhatsAppMessage(mission.employee.whatsappPhone.trim(), msg);
+        await sendWhatsAppToEmployeeEntity(mission.employee, msg);
       } catch (e) {
         console.error("[Missions] Notification WhatsApp (validation) échouée:", e);
       }
@@ -180,7 +181,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
         cancelledAt: new Date(),
         cancelledBy: session.name,
       },
-      include: { employee: true },
+      include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
     await createAuditLog({

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 import { todayDate, isWeekend } from "@/lib/utils";
 
 function isAuthorized(request: NextRequest): boolean {
@@ -62,7 +63,9 @@ export async function GET(request: NextRequest) {
     let count = 0;
     for (const record of records) {
       const { employee } = record;
-      if (!employee.active || !employee.whatsappPhone) continue;
+      if (!employee.active) continue;
+      const phones = await getEmployeeWhatsappPhones(record.employeeId);
+      if (phones.length === 0) continue;
 
       const inTime = record.checkInTime!.toLocaleTimeString("fr-FR", {
         hour: "2-digit",
@@ -70,8 +73,7 @@ export async function GET(request: NextRequest) {
         timeZone: process.env.APP_TIMEZONE || "Africa/Douala",
       });
 
-      await sendWhatsAppMessage(
-        employee.whatsappPhone,
+      await sendWhatsAppToEmployee(record.employeeId,
         `⚠️ *Rappel de pointage*\n\n` +
           `Bonjour ${employee.firstName}, vous avez pointé votre arrivée à ${inTime} mais votre départ n'a pas encore été enregistré.\n\n` +
           `Tapez *DÉPART* ou *2* pour pointer votre sortie maintenant.\n\n` +

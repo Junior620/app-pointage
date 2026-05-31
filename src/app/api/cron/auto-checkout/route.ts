@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAutoCheckout } from "@/lib/attendance-engine";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
 
@@ -19,7 +20,8 @@ export async function GET(request: NextRequest) {
 
     let notified = 0;
     for (const r of results) {
-      if (!r.whatsappPhone) continue;
+      const phones = await getEmployeeWhatsappPhones(r.employeeId);
+      if (phones.length === 0) continue;
 
       const inTime = r.checkInTime.toLocaleTimeString("fr-FR", {
         hour: "2-digit",
@@ -32,8 +34,7 @@ export async function GET(request: NextRequest) {
         timeZone: APP_TIMEZONE,
       });
 
-      await sendWhatsAppMessage(
-        r.whatsappPhone,
+      await sendWhatsAppToEmployee(r.employeeId,
         `📌 *Départ automatique enregistré*\n\n` +
           `Bonjour ${r.firstName}, vous n'avez pas pointé votre départ aujourd'hui.\n\n` +
           `✅ Arrivée : ${inTime}\n` +

@@ -8,6 +8,7 @@ import {
   processCheckOut,
 } from "@/lib/attendance-engine";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
 
 const geolocSchema = z.object({
   phone: z.string().min(1, "Le numéro de téléphone est requis"),
@@ -27,17 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { phone, lat, lng, action, comment } = parsed.data;
-    const digitsOnly = phone.replace(/\D/g, "");
-
-    const employee = await prisma.employee.findFirst({
-      where: {
-        OR: [
-          { whatsappPhone: phone },
-          { whatsappPhone: digitsOnly },
-          { whatsappPhone: `+${digitsOnly}` },
-        ],
-      },
-    });
+    const employee = await findEmployeeByWhatsappPhone(phone);
 
     if (!employee) {
       return NextResponse.json({ error: "Employé non trouvé avec ce numéro" }, { status: 404 });
@@ -59,7 +50,7 @@ export async function POST(request: NextRequest) {
             : await processBreakEnd(employee.id, point);
 
     if (result.message) {
-      const toPhone = employee.whatsappPhone || phone;
+      const toPhone = phone;
       // On envoie toujours un récap sur WhatsApp (succès ou erreur)
       await sendWhatsAppMessage(toPhone, result.message);
     }

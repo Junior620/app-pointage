@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyMissionFormToken } from "@/lib/mission-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 import { logPublicSubmission } from "@/lib/public-submission-log";
 import { createMissionWithOrderNumber } from "@/lib/mission-order-number";
 import { notifyRhAdminsWhatsApp } from "@/lib/rh-whatsapp-notify";
@@ -113,9 +114,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (employee.whatsappPhone?.trim()) {
+    if (phonesFromEmployee(employee).length > 0) {
       try {
-        const rawPhone = employee.whatsappPhone.trim();
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
           day: "numeric",
@@ -124,8 +124,8 @@ export async function POST(request: NextRequest) {
         };
         const startStr = mission.startDate.toLocaleDateString("fr-FR", opts);
         const endStr = mission.endDate.toLocaleDateString("fr-FR", opts);
-        await sendWhatsAppMessage(
-          rawPhone,
+        await sendWhatsAppToEmployeeEntity(
+          employee,
           `✅ *Demande de mission transmise*\n\nBonjour ${employee.firstName},\n\nVotre demande d'ordre de mission a bien été envoyée.\n\n📅 *Période*\nDu ${startStr}\nau ${endStr}\n\n📝 *Objet*\n${mission.reason.slice(0, 500)}${mission.reason.length > 500 ? "…" : ""}\n\n⏳ Elle sera examinée par la RH / l'administrateur.`
         );
       } catch (e) {

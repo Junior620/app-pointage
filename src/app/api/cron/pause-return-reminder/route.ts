@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 import { todayDate, isWeekend } from "@/lib/utils";
 
 function isAuthorized(request: NextRequest): boolean {
@@ -33,9 +34,10 @@ export async function GET(request: NextRequest) {
 
   let count = 0;
   for (const record of records) {
-    if (!record.employee.active || !record.employee.whatsappPhone) continue;
-    await sendWhatsAppMessage(
-      record.employee.whatsappPhone,
+    if (!record.employee.active) continue;
+    const phones = await getEmployeeWhatsappPhones(record.employeeId);
+    if (phones.length === 0) continue;
+    await sendWhatsAppToEmployee(record.employeeId,
       `⚠️ *Retour de pause non pointé*\n\nBonjour ${record.employee.firstName}, vous avez marqué votre départ en pause mais pas le retour.\n\nMerci de taper *retour pause* ou *14* pour enregistrer votre reprise.`
     );
     count++;
