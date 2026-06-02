@@ -76,6 +76,18 @@ const createEmployeeSchema = employeeSchema.omit({ matricule: true });
 
 type EmployeeForm = z.infer<typeof employeeSchema>;
 
+const SERVICE_PRESETS = [
+  "IT",
+  "QHSE",
+  "RH",
+  "DAF",
+  "RAF",
+  "ST",
+  "RESPONSABLE TRANSIT (RT)",
+  "ASSISTANTE TRANSIT (AT)",
+  "DIRECTION GENERALE (DG)",
+];
+
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -958,21 +970,23 @@ export default function EmployeesPage() {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Service
                   </label>
-                  <select
+                  <input
+                    list="employee-service-options"
                     value={form.service}
                     onChange={(e) =>
                       setForm({ ...form, service: e.target.value })
                     }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Sélectionner un service</option>
-                    <option value="IT">IT</option>
-                    <option value="QHSE">QHSE</option>
-                    <option value="RH">RH</option>
-                    <option value="DAF">DAF</option>
-                    <option value="RAF">RAF</option>
-                    <option value="ST">ST</option>
-                  </select>
+                    placeholder="Choisir ou saisir manuellement"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-400"
+                  />
+                  <datalist id="employee-service-options">
+                    {Array.from(new Set([...SERVICE_PRESETS, ...services])).map((s) => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Vous pouvez sélectionner un service proposé ou le saisir librement.
+                  </p>
                   {errors.service && (
                     <p className="text-xs text-red-500 mt-1">
                       {errors.service}

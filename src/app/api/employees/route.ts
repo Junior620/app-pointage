@@ -35,6 +35,12 @@ async function generateUniqueMatricule(service: string, structure: string): Prom
     DAF: "DAF",
     RAF: "RAF",
     ST: "ST",
+    "RESPONSABLE TRANSIT": "RT",
+    RT: "RT",
+    "ASSISTANTE TRANSIT": "AT",
+    AT: "AT",
+    "DIRECTION GENERALE": "DG",
+    DG: "DG",
   };
   const derived = raw.replace(/[^A-Z]/g, "").slice(0, 4);
   const dept = DEPT_MAP[raw] || derived || "GEN";
