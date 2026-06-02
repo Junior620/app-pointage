@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
-import { todayDate, isWeekend } from "@/lib/utils";
+import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
+
+const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
 
 function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
@@ -24,6 +26,18 @@ export async function GET(request: NextRequest) {
   });
   if (holiday) {
     return NextResponse.json({ success: true, message: "Jour férié — pas de rappel pause", count: 0 });
+  }
+
+  const now = new Date();
+  const sendAt = parseTimeString("12:30", today, APP_TIMEZONE);
+  const sendUntil = new Date(sendAt.getTime() + 30 * 60 * 1000);
+  // Garde-fou: n'envoie pas avant l'heure cible, même si le cron se déclenche trop tôt.
+  if (now < sendAt || now >= sendUntil) {
+    return NextResponse.json({
+      success: true,
+      message: `Hors fenêtre rappel pause début ($12:30)`,
+      count: 0,
+    });
   }
 
   const records = await prisma.attendanceRecord.findMany({
