@@ -269,17 +269,29 @@ export default function DashboardClient({ userName }: { userName: string }) {
               Repartition du jour
             </h3>
             {pieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} dataKey="value" label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="space-y-3">
+                <ResponsiveContainer width="100%" height={220}>
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={78} dataKey="value" label={false} labelLine={false}>
+                      {pieData.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  {pieData.map((entry, i) => (
+                    <div key={entry.name} className="flex items-center gap-2 text-slate-600 min-w-0">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+                      />
+                      <span className="truncate">{entry.name}: {entry.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
               <p className="text-sm text-slate-400 text-center py-16">
                 {isNonWorkingDay ? "Pas de pointage (jour non ouvré)" : "Aucune donnee"}
