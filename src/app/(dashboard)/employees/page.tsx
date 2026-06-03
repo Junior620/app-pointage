@@ -947,7 +947,7 @@ export default function EmployeesPage() {
             className="fixed inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setModalOpen(false)}
           />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 z-10">
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 z-10">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -1076,51 +1076,72 @@ export default function EmployeesPage() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-xl border-2 border-blue-200 bg-blue-50/60 p-4 space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Zone de travail 1
-                  </label>
-                  <select
-                    value={form.siteId}
-                    onChange={(e) =>
-                      setForm({ ...form, siteId: e.target.value })
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                  >
-                    <option value="">Aucune</option>
-                    {sites.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  <p className="text-sm font-semibold text-blue-900">
+                    Zones de pointage (jusqu&apos;à 2)
+                  </p>
+                  <p className="text-xs text-blue-800/80 mt-0.5">
+                    L&apos;employé peut pointer partout où il se trouve : bureau, usine, etc.
+                    (arrivée, pause et départ).
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Zone de travail 2 (optionnel)
-                  </label>
-                  <select
-                    value={form.checkoutSiteId}
-                    onChange={(e) =>
-                      setForm({ ...form, checkoutSiteId: e.target.value })
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                  >
-                    <option value="">Une seule zone</option>
-                    {sites
-                      .filter((s) => s.id !== form.siteId)
-                      .map((s) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Zone 1 — ex. siège / bureau
+                    </label>
+                    <select
+                      value={form.siteId}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          siteId: e.target.value,
+                          checkoutSiteId:
+                            e.target.value === form.checkoutSiteId
+                              ? ""
+                              : form.checkoutSiteId,
+                        })
+                      }
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                    >
+                      <option value="">— Choisir un site —</option>
+                      {sites.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name}
                         </option>
                       ))}
-                  </select>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Zone 2 — ex. usine (optionnel)
+                    </label>
+                    <select
+                      value={form.checkoutSiteId}
+                      onChange={(e) =>
+                        setForm({ ...form, checkoutSiteId: e.target.value })
+                      }
+                      disabled={!form.siteId}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      <option value="">Pas de 2e zone</option>
+                      {sites
+                        .filter((s) => s.id !== form.siteId)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
                 </div>
+                {sites.length < 2 && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                    Créez au moins 2 sites dans Réglages → Sites pour activer la 2e zone.
+                  </p>
+                )}
               </div>
-              <p className="text-xs text-slate-400 -mt-2">
-                L&apos;employé peut pointer (arrivée, pause, départ) s&apos;il se trouve dans l&apos;une ou l&apos;autre zone — par ex. bureau et usine.
-              </p>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   Téléphone WhatsApp
