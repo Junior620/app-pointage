@@ -5,6 +5,7 @@ import { CalendarDays } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
   "/": "Tableau de bord",
+  "/users": "Utilisateurs",
   "/employees": "Employés",
   "/attendance": "Pointages",
   "/breaks": "Pauses",
@@ -23,6 +24,9 @@ export default function Header({ userName, userRole }: HeaderProps) {
   const pathname = usePathname();
 
   const getTitle = () => {
+    if (pathname.startsWith("/users") && userRole !== "ADMIN") {
+      return "Pointage RH";
+    }
     if (pageTitles[pathname]) return pageTitles[pathname];
     for (const [path, title] of Object.entries(pageTitles)) {
       if (path !== "/" && pathname.startsWith(path)) return title;

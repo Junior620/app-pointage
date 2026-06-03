@@ -14,10 +14,12 @@ import {
   RefreshCw,
   Link2,
   CheckCircle2,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import NotificationsSettings from "./NotificationsSettings";
 
-type Tab = "sites" | "schedules" | "holidays";
+type Tab = "sites" | "schedules" | "holidays" | "notifications";
 
 interface Site {
   id: string;
@@ -214,10 +216,11 @@ export default function SettingsPage() {
     } catch (e) { console.error(e); }
   };
 
-  const tabs: { key: Tab; label: string; icon: typeof MapPin; count: number }[] = [
+  const tabs: { key: Tab; label: string; icon: typeof MapPin; count?: number }[] = [
     { key: "sites", label: "Sites", icon: MapPin, count: sites.length },
     { key: "schedules", label: "Horaires", icon: Clock, count: schedules.length },
     { key: "holidays", label: "Jours fériés", icon: Calendar, count: holidays.length },
+    { key: "notifications", label: "Alertes WhatsApp", icon: Bell },
   ];
 
   return (
@@ -250,12 +253,16 @@ export default function SettingsPage() {
                 >
                   <Icon className="w-4 h-4" />
                   {t.label}
-                  <span className={cn(
-                    "ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold",
-                    tab === t.key ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"
-                  )}>
-                    {t.count}
-                  </span>
+                  {t.count !== undefined && (
+                    <span
+                      className={cn(
+                        "ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold",
+                        tab === t.key ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-500"
+                      )}
+                    >
+                      {t.count}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -397,6 +404,9 @@ export default function SettingsPage() {
                   )}
                 </div>
               )}
+
+              {/* ========== NOTIFICATIONS ========== */}
+              {tab === "notifications" && <NotificationsSettings />}
 
               {/* ========== HOLIDAYS ========== */}
               {tab === "holidays" && (

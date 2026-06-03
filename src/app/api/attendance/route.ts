@@ -4,15 +4,30 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { parseDateInputForDbDate } from "@/lib/utils";
+import {
+  combineDateAndTime,
+  deriveCheckInStatus,
+  recalculateAttendanceFields,
+} from "@/lib/attendance-recalc";
+
+const timeHm = z.string().regex(/^\d{2}:\d{2}$/);
 
 const correctionSchema = z.object({
   id: z.string().min(1),
   checkInTime: z.string().datetime().optional(),
   checkOutTime: z.string().datetime().optional(),
+  checkInTimeHm: timeHm.optional(),
+  checkOutTimeHm: timeHm.optional(),
   checkInStatus: z.enum(["ON_TIME", "LATE"]).optional(),
   checkOutStatus: z.enum(["MANUAL", "AUTO"]).optional(),
   finalStatus: z.enum(["PRESENT", "ABSENT", "PERMISSION", "MISSION"]).optional(),
   comment: z.string().optional(),
+  breakStartTimeHm: timeHm.optional().nullable(),
+  breakEndTimeHm: timeHm.optional().nullable(),
+  breakComment: z.string().max(500).nullable().optional(),
+  clearCheckIn: z.boolean().optional(),
+  clearCheckOut: z.boolean().optional(),
+  clearBreak: z.boolean().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -108,13 +123,88 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Enregistrement non trouvé" }, { status: 404 });
     }
 
-    const data: Record<string, unknown> = {};
-    if (updates.checkInTime) data.checkInTime = new Date(updates.checkInTime);
-    if (updates.checkOutTime) data.checkOutTime = new Date(updates.checkOutTime);
-    if (updates.checkInStatus) data.checkInStatus = updates.checkInStatus;
+    let checkInTime = before.checkInTime;
+    let checkOutTime = before.checkOutTime;
+    let breakStartTime = before.breakStartTime;
+    let breakEndTime = before.breakEndTime;
+
+    if (updates.clearCheckIn) checkInTime = null;
+    if (updates.clearCheckOut) checkOutTime = null;
+    if (updates.clearBreak) {
+      breakStartTime = null;
+      breakEndTime = null;
+    }
+
+    if (updates.checkInTime) checkInTime = new Date(updates.checkInTime);
+    if (updates.checkOutTime) checkOutTime = new Date(updates.checkOutTime);
+    if (updates.checkInTimeHm) {
+      checkInTime = combineDateAndTime(before.date, updates.checkInTimeHm);
+    }
+    if (updates.checkOutTimeHm) {
+      checkOutTime = combineDateAndTime(before.date, updates.checkOutTimeHm);
+    }
+    if (updates.breakStartTimeHm === null) breakStartTime = null;
+    else if (updates.breakStartTimeHm) {
+      breakStartTime = combineDateAndTime(before.date, updates.breakStartTimeHm);
+    }
+    if (updates.breakEndTimeHm === null) breakEndTime = null;
+    else if (updates.breakEndTimeHm) {
+      breakEndTime = combineDateAndTime(before.date, updates.breakEndTimeHm);
+    }
+
+    const data: Record<string, unknown> = {
+      checkInTime,
+      checkOutTime,
+      breakStartTime,
+      breakEndTime,
+    };
+
+    if (updates.checkInStatus) {
+      data.checkInStatus = updates.checkInStatus;
+    } else if (
+      checkInTime &&
+      (updates.checkInTimeHm || updates.checkInTime)
+    ) {
+      data.checkInStatus = await deriveCheckInStatus(
+        before.employeeId,
+        before.date,
+        checkInTime
+      );
+    }
+
     if (updates.checkOutStatus) data.checkOutStatus = updates.checkOutStatus;
     if (updates.finalStatus) data.finalStatus = updates.finalStatus;
-    if (updates.comment) data.checkInComment = updates.comment;
+    if (updates.comment !== undefined) data.checkInComment = updates.comment;
+    if (updates.breakComment !== undefined) {
+      data.breakComment = updates.breakComment?.trim() || null;
+    }
+
+    if (updates.finalStatus === "ABSENT") {
+      data.checkInTime = null;
+      data.checkOutTime = null;
+      data.breakStartTime = null;
+      data.breakEndTime = null;
+      data.checkInStatus = null;
+      data.breakMinutes = 0;
+      data.breakDeductedMinutes = 0;
+      data.totalMinutes = null;
+    } else {
+      if (updates.finalStatus === "PRESENT" && !checkInTime) {
+        return NextResponse.json(
+          { error: "Indiquez une heure d'arrivée pour le statut Présent" },
+          { status: 400 }
+        );
+      }
+      const recalc = recalculateAttendanceFields({
+        checkInTime,
+        checkOutTime,
+        breakStartTime,
+        breakEndTime,
+      });
+      data.breakMinutes = recalc.breakMinutes;
+      data.breakDeductedMinutes = recalc.breakDeductedMinutes;
+      data.totalMinutes = recalc.totalMinutes;
+    }
 
     const record = await prisma.attendanceRecord.update({
       where: { id },

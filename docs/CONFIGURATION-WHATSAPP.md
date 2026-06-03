@@ -94,6 +94,20 @@ APP_BASE_URL=https://ton-app.vercel.app
 | `WHATSAPP_APP_SECRET` | Meta → Paramètres de l’app → Secret de l’application. |
 | `APP_BASE_URL` | URL de ton site (ex. `https://ton-app.vercel.app`). |
 | `WHATSAPP_BUSINESS_PHONE` | Numéro au format international **sans +** (ex. `237690000000`) pour le lien **wa.me** et le **QR code**. |
+| `WHATSAPP_RH_NOTIFY_PHONES` | Numéros WhatsApp des **RH et admins** à alerter quand un employé soumet une demande d’**autorisation** ou de **mission** (virgules). Ex. `237690000001,237690000002` |
+| `WHATSAPP_MISSION_NOTIFY_PHONES` | *(optionnel, rétrocompat.)* Même usage ; fusionné avec `WHATSAPP_RH_NOTIFY_PHONES`. |
+| `WHATSAPP_LEAVE_NOTIFY_PHONES` | *(optionnel, rétrocompat.)* Idem pour les autorisations uniquement. |
+| `WHATSAPP_HR_PHONE` | *(optionnel, rétrocompat.)* Un seul numéro RH (heures sup + notifications si liste vide). |
+
+Lorsqu’un employé envoie le formulaire **autorisation** (`12`) ou **mission** (`15`), tous les numéros configurés reçoivent un message WhatsApp avec le résumé de la demande.
+
+### Comptes RH / Admin et numéros WhatsApp
+
+**Créer un compte** (administrateur uniquement) : menu **Utilisateurs → Nouvel utilisateur** (email, mot de passe, rôle HR / Admin / DG). Nécessite `SUPABASE_SERVICE_ROLE_KEY` côté serveur.
+
+**Numéro WhatsApp** : **Paramètres → Alertes WhatsApp** (son propre numéro) ou colonne WhatsApp sur **Utilisateurs** (admin).
+
+Les numéros en base sont fusionnés avec `WHATSAPP_RH_NOTIFY_PHONES` (sans doublon). Un numéro ne peut pas être partagé avec une fiche **employé**.
 
 ---
 
@@ -106,6 +120,18 @@ Une page dédiée génère un **QR code** qui ouvre directement le chat WhatsApp
 - **Téléchargement** : `GET /api/qr-chatbot?download=1` pour forcer le téléchargement du PNG.
 
 Configure **`WHATSAPP_BUSINESS_PHONE`** (même numéro que celui utilisé pour l’API, au format international sans +). Tu peux afficher la page sur un écran, l’imprimer ou partager le lien pour que les employés scannent et ouvrent le chat en un clic.
+
+---
+
+## Message de bienvenue à la création d’un employé
+
+Lorsqu’un RH/Admin **crée un employé** avec un numéro WhatsApp renseigné, ou **ajoute le numéro** plus tard sur la fiche, l’app envoie automatiquement un message de bienvenue (matricule, rappel des commandes 1–14, lien QR si `NEXT_PUBLIC_APP_URL` est défini).
+
+| Variable | Rôle |
+|----------|------|
+| `WHATSAPP_EMPLOYEE_WELCOME` | `false` / `0` / `off` pour désactiver (activé par défaut). |
+
+**Limite Meta :** si l’employé n’a **jamais** écrit au numéro Business, l’envoi peut être refusé tant qu’un **modèle de message** (template) n’est pas approuvé chez Meta. Dans ce cas, l’employé peut quand même scanner le QR ou envoyer *Bonjour* pour ouvrir la session ; les notifications suivantes (validation absence, etc.) fonctionnent après ce premier contact.
 
 ---
 

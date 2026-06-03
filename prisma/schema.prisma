@@ -91,6 +91,8 @@ model User {
   name            String
   role            Role       @default(HR)
   active          Boolean    @default(true)
+  /** WhatsApp pour alertes RH (demandes employé, etc.) */
+  whatsappPhone   String?    @unique @map("whatsapp_phone")
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
   auditLogs       AuditLog[]
@@ -211,10 +213,20 @@ model LeaveRequest {
   @@map("leave_requests")
 }
 
+/** Compteur annuel pour les numéros d'ordre de mission (N/MM/AAAA). */
+model MissionOrderSequence {
+  year    Int @id
+  lastSeq Int @default(0) @map("last_seq")
+
+  @@map("mission_order_sequences")
+}
+
 model Mission {
   id               String        @id @default(cuid())
   employeeId       String        @map("employee_id")
   employee         Employee      @relation(fields: [employeeId], references: [id])
+  /** Numéro officiel ex. 3/06/2026 */
+  orderNumber      String?       @unique @map("order_number")
   startDate        DateTime      @map("start_date") @db.Date
   endDate          DateTime      @map("end_date") @db.Date
   reason           String

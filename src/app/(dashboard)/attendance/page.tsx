@@ -142,6 +142,12 @@ function toDateInputValue(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function isoToHm(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,10 +161,17 @@ export default function AttendancePage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [detailRecord, setDetailRecord] = useState<AttendanceRecord | null>(null);
+  const [userRole, setUserRole] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [editComment, setEditComment] = useState("");
   const [editFinalStatus, setEditFinalStatus] = useState("");
+  const [editCheckInStatus, setEditCheckInStatus] = useState("");
+  const [editCheckInHm, setEditCheckInHm] = useState("");
+  const [editCheckOutHm, setEditCheckOutHm] = useState("");
+  const [editBreakStartHm, setEditBreakStartHm] = useState("");
+  const [editBreakEndHm, setEditBreakEndHm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const canCorrect = userRole === "HR" || userRole === "ADMIN";
   const perPage = 20;
   const isSingleDay = !!dateFrom && !!dateTo && dateFrom === dateTo;
 
@@ -195,6 +208,13 @@ export default function AttendancePage() {
   useEffect(() => {
     fetchRecords();
   }, [fetchRecords]);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((json) => setUserRole(json.role ?? ""))
+      .catch(() => setUserRole(""));
+  }, []);
 
   const fetchDayPayload = useCallback(async () => {
     if (!isSingleDay) return;
@@ -288,21 +308,36 @@ export default function AttendancePage() {
     setEditMode(false);
     setEditComment(record.checkInComment ?? "");
     setEditFinalStatus(record.finalStatus);
+    setEditCheckInStatus(record.checkInStatus ?? "");
+    setEditCheckInHm(isoToHm(record.checkInTime));
+    setEditCheckOutHm(isoToHm(record.checkOutTime));
+    setEditBreakStartHm(isoToHm(record.breakStartTime));
+    setEditBreakEndHm(isoToHm(record.breakEndTime));
   };
 
   const handleEditSave = async () => {
     if (!detailRecord) return;
     setSubmitting(true);
     try {
-      await fetch("/api/attendance", {
+      const res = await fetch("/api/attendance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: detailRecord.id,
           comment: editComment,
           finalStatus: editFinalStatus,
+          checkInStatus: editCheckInStatus || undefined,
+          checkInTimeHm: editCheckInHm || undefined,
+          checkOutTimeHm: editCheckOutHm || undefined,
+          breakStartTimeHm: editBreakStartHm ? editBreakStartHm : null,
+          breakEndTimeHm: editBreakEndHm ? editBreakEndHm : null,
         }),
       });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(typeof json.error === "string" ? json.error : "Correction impossible");
+        return;
+      }
       setDetailRecord(null);
       fetchRecords();
     } catch (e) {
@@ -1042,6 +1077,68 @@ export default function AttendancePage() {
                       <option value="MISSION">Mission</option>
                     </select>
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Heure arrivée
+                      </label>
+                      <input
+                        type="time"
+                        value={editCheckInHm}
+                        onChange={(e) => setEditCheckInHm(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Statut arrivée
+                      </label>
+                      <select
+                        value={editCheckInStatus}
+                        onChange={(e) => setEditCheckInStatus(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="">—</option>
+                        <option value="ON_TIME">À l&apos;heure</option>
+                        <option value="LATE">Retard</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Heure départ
+                      </label>
+                      <input
+                        type="time"
+                        value={editCheckOutHm}
+                        onChange={(e) => setEditCheckOutHm(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Début pause
+                      </label>
+                      <input
+                        type="time"
+                        value={editBreakStartHm}
+                        onChange={(e) => setEditBreakStartHm(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Fin pause
+                      </label>
+                      <input
+                        type="time"
+                        value={editBreakEndHm}
+                        onChange={(e) => setEditBreakEndHm(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
+                      />
+                    </div>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       Commentaire
@@ -1070,7 +1167,7 @@ export default function AttendancePage() {
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : canCorrect ? (
                 <button
                   onClick={() => setEditMode(true)}
                   className="w-full h-10 inline-flex items-center justify-center gap-2 text-sm font-medium border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors"
@@ -1078,7 +1175,7 @@ export default function AttendancePage() {
                   <Pencil className="h-4 w-4" />
                   Corriger ce pointage
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

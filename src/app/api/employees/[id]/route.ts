@@ -5,6 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { normalizePhone } from "@/lib/whatsapp";
+import {
+  sendEmployeeWelcomeWhatsApp,
+  shouldSendWelcomeOnPhoneChange,
+} from "@/lib/employee-welcome";
 import { parseDateInputForDbDate } from "@/lib/utils";
 
 const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT"] as const;
@@ -162,7 +166,22 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       after: employee,
     });
 
-    return NextResponse.json({ data: employee });
+    let welcomeSent = false;
+    if (
+      employee.active &&
+      employee.whatsappPhone &&
+      shouldSendWelcomeOnPhoneChange(before.whatsappPhone, employee.whatsappPhone)
+    ) {
+      welcomeSent = await sendEmployeeWelcomeWhatsApp(employee.whatsappPhone, {
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        matricule: employee.matricule,
+        service: employee.service,
+        structure: employee.structure,
+      });
+    }
+
+    return NextResponse.json({ data: employee, welcomeSent });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });

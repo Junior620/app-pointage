@@ -5,6 +5,8 @@ import { verifyMissionFormToken } from "@/lib/mission-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { logPublicSubmission } from "@/lib/public-submission-log";
+import { createMissionWithOrderNumber } from "@/lib/mission-order-number";
+import { notifyRhAdminsWhatsApp } from "@/lib/rh-whatsapp-notify";
 
 const submitSchema = z.object({
   t: z.string().min(10),
@@ -58,49 +60,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const mission = await prisma.mission.create({
-      data: {
-        employeeId: employee.id,
-        startDate: start,
-        endDate: end,
-        reason: parsed.data.reason.trim(),
-        location: parsed.data.location?.trim() || null,
-        transport: parsed.data.transport?.trim() || null,
-        originStructure: employee.structure,
-        hostStructure: parsed.data.hostStructure || null,
-        submissionSource: "EMPLOYEE_WHATSAPP_FORM",
-      } as any,
-      include: { employee: true },
+    const mission = await createMissionWithOrderNumber({
+      employeeId: employee.id,
+      startDate: start,
+      endDate: end,
+      reason: parsed.data.reason.trim(),
+      location: parsed.data.location?.trim() || null,
+      transport: parsed.data.transport?.trim() || null,
+      originStructure: employee.structure,
+      hostStructure: parsed.data.hostStructure || null,
+      submissionSource: "EMPLOYEE_WHATSAPP_FORM",
     });
 
-    // Notification RH / admins (configurable)
-    const notifyPhones = (process.env.WHATSAPP_MISSION_NOTIFY_PHONES || "")
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
-    if (notifyPhones.length > 0) {
-      const startStr = mission.startDate.toLocaleDateString("fr-FR", {
-        weekday: "long",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-      const endStr = mission.endDate.toLocaleDateString("fr-FR", {
-        weekday: "long",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      });
-      const text =
-        `🆕 *Nouvelle demande de mission (employé)*\n\n` +
+    const startStr = mission.startDate.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const endStr = mission.endDate.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const orderLine = mission.orderNumber ? `N° ordre : *${mission.orderNumber}*\n` : "";
+    await notifyRhAdminsWhatsApp(
+      `🆕 *Nouvelle demande de mission (employé)*\n\n` +
         `Employé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\n` +
         `Service : ${employee.service}\n` +
+        orderLine +
         `Période : ${startStr} → ${endStr}\n` +
         (mission.location ? `Lieu : ${mission.location}\n` : "") +
         `Objet : ${mission.reason.slice(0, 600)}${mission.reason.length > 600 ? "…" : ""}\n\n` +
-        `➡️ À traiter dans le module *Missions* du dashboard.`;
-      await Promise.allSettled(notifyPhones.map((p) => sendWhatsAppMessage(p, text)));
-    }
+        `➡️ À traiter dans le module *Missions* du dashboard.`
+    );
 
     await logPublicSubmission({
       employeeId: employee.id,

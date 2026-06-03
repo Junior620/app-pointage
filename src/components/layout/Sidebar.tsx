@@ -17,11 +17,18 @@ import {
   X,
   Clock,
   Coffee,
+  UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navLinks = [
+const navLinks: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  adminOnly?: boolean;
+}[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/users", label: "Utilisateurs", icon: UserCog, adminOnly: true },
   { href: "/employees", label: "Employés", icon: Users },
   { href: "/attendance", label: "Pointages", icon: ClipboardCheck },
   { href: "/breaks", label: "Pauses", icon: Coffee },
@@ -72,7 +79,9 @@ export default function Sidebar({ userName, userRole, userEmail }: SidebarProps)
       </div>
 
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {navLinks.map((link) => {
+        {navLinks
+          .filter((link) => !link.adminOnly || userRole === "ADMIN") // menu Utilisateurs : ADMIN uniquement
+          .map((link) => {
           const Icon = link.icon;
           const active = isActive(link.href);
           return (
