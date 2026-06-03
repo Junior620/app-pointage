@@ -13,7 +13,7 @@ import {
   Hourglass,
   Download,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatTime } from "@/lib/utils";
 
 interface OvertimeRecord {
   id: string;
@@ -171,8 +171,8 @@ export default function OvertimePage() {
         service: r.employee.service,
         structure: r.employee.structure,
         date: new Date(r.date).toLocaleDateString("fr-FR"),
-        in: r.checkInTime ? new Date(r.checkInTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—",
-        out: r.checkOutTime ? new Date(r.checkOutTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—",
+        in: formatTime(r.checkInTime),
+        out: formatTime(r.checkOutTime),
         ot: formatOvertime(r.overtimeMinutes),
         reason: r.overtimeReason ?? "—",
         status: statusBadge[r.overtimeStatus ?? ""]?.label ?? r.overtimeStatus ?? "—",
@@ -397,19 +397,7 @@ export default function OvertimePage() {
                         })}
                       </td>
                       <td className="px-6 py-4 text-slate-600">
-                        {r.checkInTime
-                          ? new Date(r.checkInTime).toLocaleTimeString("fr-FR", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "—"}{" "}
-                        →{" "}
-                        {r.checkOutTime
-                          ? new Date(r.checkOutTime).toLocaleTimeString("fr-FR", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "—"}
+                        {formatTime(r.checkInTime)} → {formatTime(r.checkOutTime)}
                       </td>
                       <td className="px-6 py-4">
                         <span className="font-semibold text-violet-600">

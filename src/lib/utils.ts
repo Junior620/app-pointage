@@ -1,15 +1,37 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { APP_TIMEZONE, calendarPartsInAppTz } from "./timezone";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatTime(date: Date): string {
-  return date.toLocaleTimeString("fr-FR", {
+/** Heure affichée / exportée — toujours fuseau Douala (serveur Vercel = UTC). */
+export function formatTime(date: Date | string | null | undefined): string {
+  if (date == null) return "—";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: APP_TIMEZONE,
   });
+}
+
+/** « HH:MM » pour champs de correction (même fuseau que formatTime). */
+export function formatTimeHm(date: Date | string | null | undefined): string {
+  if (date == null) return "";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: APP_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
 }
 
 export function formatDate(date: Date): string {
@@ -96,9 +118,12 @@ export function isWorkingDay(date: Date): boolean {
   return d >= 1 && d <= 5;
 }
 
+/** Aujourd'hui (jour civil Douala) pour Prisma `@db.Date`. */
 export function todayDate(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const { year, month, day } = calendarPartsInAppTz(new Date());
+  return parseDateInputForDbDate(
+    `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+  );
 }
 
 /**
@@ -163,26 +188,4 @@ export function prismaPeriodOverlapAnd(
     out.push({ [fieldStart]: { lte: to } });
   }
   return out;
-}
-
-/** Missions approuvées « en cours » au dashboard : pas terminées et début ≤ J+7 (inclut une mission qui démarre demain). */
-export function prismaOngoingMissionWhere(todayStart: Date, todayEnd: Date, lookaheadDays = 7) {
-  const lookaheadEnd = new Date(todayEnd);
-  lookaheadEnd.setUTCDate(lookaheadEnd.getUTCDate() + lookaheadDays);
-  return {
-    status: "APPROVED" as const,
-    cancelledAt: null,
-    endDate: { gte: todayStart },
-    startDate: { lte: lookaheadEnd },
-  };
-}
-
-/** Autorisation approuvée couvrant le jour civil (période inclut aujourd'hui). */
-export function prismaOngoingLeaveWhere(todayStart: Date, todayEnd: Date) {
-  return {
-    status: "APPROVED" as const,
-    cancelledAt: null,
-    startDate: { lte: todayEnd },
-    endDate: { gte: todayStart },
-  };
 }

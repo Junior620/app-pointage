@@ -11,6 +11,8 @@ import {
 import type { GeoPoint } from "@/types";
 import type { CheckInStatus } from "@prisma/client";
 import { findMatchingWorkSite, getEmployeeWorkSites } from "./employee-sites";
+import { APP_TIMEZONE } from "./timezone";
+import { formatTime } from "./utils";
 
 type CheckResult = {
   success: boolean;
@@ -185,8 +187,6 @@ export async function verifyGeofence(
   return { allowed, distance };
 }
 
-const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
-
 export async function processCheckIn(
   employeeId: string,
   point: GeoPoint,
@@ -262,11 +262,7 @@ export async function processCheckIn(
     },
   });
 
-  const timeStr = now.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: APP_TIMEZONE,
-  });
+  const timeStr = formatTime(now);
 
   if (status === "LATE") {
     const lateMin = minutesBetween(graceEnd, now);
@@ -422,11 +418,7 @@ export async function processCheckOut(
     },
   });
 
-  const timeStr = now.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: APP_TIMEZONE,
-  });
+  const timeStr = formatTime(now);
   const hours = Math.floor(total / 60);
   const mins = total % 60;
   const leftEarly = !weekendOptionalWork && now < scheduleEnd;
@@ -453,11 +445,7 @@ export async function processCheckOut(
         msg += `\nℹ️ Retour de pause non pointé : pause comptée jusqu'au départ.`;
       }
       if (breakMeasuredMinutes > BREAK_EXPECTED_DURATION_MIN) {
-        msg += `\n⚠️ Pause supérieure à ${BREAK_EXPECTED_DURATION_MIN} min.`;
-        if (!record.breakComment) {
-          msg +=
-            "\n\nMerci d'indiquer *en une phrase* le motif de cette pause prolongée (répondez sur WhatsApp).";
-        }
+        msg += `\n⚠️ Pause supérieure à ${BREAK_EXPECTED_DURATION_MIN} min (signalement possible).`;
       }
     }
     if (weekendOptionalWork && overtime > 0) {
@@ -519,11 +507,7 @@ export async function processBreakStart(
     data: { breakStartTime: now, breakEndTime: null },
   });
 
-  const timeStr = now.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: APP_TIMEZONE,
-  });
+  const timeStr = formatTime(now);
 
   return {
     success: true,
@@ -576,11 +560,7 @@ export async function processBreakEnd(
     data: { breakEndTime: now, breakMinutes: breakMeasuredMinutes, breakDeductedMinutes },
   });
 
-  const timeStr = now.toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: APP_TIMEZONE,
-  });
+  const timeStr = formatTime(now);
   const breakH = Math.floor(breakMeasuredMinutes / 60);
   const breakM = breakMeasuredMinutes % 60;
 
@@ -591,8 +571,7 @@ export async function processBreakEnd(
         .toString()
         .padStart(2, "0")}.` +
       (breakMeasuredMinutes > BREAK_EXPECTED_DURATION_MIN
-        ? `\n⚠️ Cette pause dépasse la durée attendue (${BREAK_EXPECTED_DURATION_MIN} min).` +
-          "\n\nMerci d'indiquer *en une phrase* le motif de cette pause prolongée (répondez sur WhatsApp)."
+        ? `\n⚠️ Cette pause dépasse la durée attendue (${BREAK_EXPECTED_DURATION_MIN} min).`
         : ""),
     status: "BREAK_ENDED",
     breakMinutes: breakMeasuredMinutes,

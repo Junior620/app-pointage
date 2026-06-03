@@ -1,8 +1,8 @@
-/** Dates locales à minuit (aligné avec les filtres `<input type="date">`). */
+import { startOfAppDay } from "./timezone";
+
+/** Jour civil Douala à minuit (aligné filtres date + serveur UTC). */
 export function startOfLocalDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+  return startOfAppDay(d);
 }
 
 export function toInputDateLocal(d: Date): string {

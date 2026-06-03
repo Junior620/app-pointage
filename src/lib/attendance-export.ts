@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
 import { prisma } from "./prisma";
 import { startOfLocalDay, toInputDateLocal } from "./period-range";
-import { isWorkingDay, parseDateInputForDbDate } from "./utils";
+import { formatTime, isWorkingDay, parseDateInputForDbDate } from "./utils";
 
 /** Clé calendrier alignée sur les dates @db.Date (UTC midi). */
 function dateKeyFromDbDate(d: Date): string {
@@ -92,11 +92,6 @@ function statusFinalLabel(s: string): string {
     MISSION: "Mission",
   };
   return map[s] ?? s;
-}
-
-function fmtTime(d: Date | null): string {
-  if (!d) return "—";
-  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function fmtDuration(min: number | null): string {
@@ -239,11 +234,11 @@ export async function buildAttendanceExportBuffer(
         month: "2-digit",
         year: "numeric",
       }),
-      checkIn: fmtTime(line.checkInTime),
+      checkIn: formatTime(line.checkInTime),
       checkInStatus: statusArrivalLabel(line.checkInStatus),
-      checkOut: fmtTime(line.checkOutTime),
-      breakStart: fmtTime(line.breakStartTime),
-      breakEnd: fmtTime(line.breakEndTime),
+      checkOut: formatTime(line.checkOutTime),
+      breakStart: formatTime(line.breakStartTime),
+      breakEnd: formatTime(line.breakEndTime),
       breakMin: fmtDuration(line.breakMinutes),
       total: fmtDuration(line.totalMinutes),
       overtime: fmtDuration(line.overtimeMinutes),

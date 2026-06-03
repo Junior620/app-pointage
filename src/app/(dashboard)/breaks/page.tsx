@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Coffee, RefreshCw, Save } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-const BREAK_OVER_MIN = 60;
+import { Coffee, RefreshCw } from "lucide-react";
+import { cn, formatTime } from "@/lib/utils";
 
 type BreakRow = {
   id: string;
@@ -19,7 +17,6 @@ type BreakRow = {
   breakStartTime: string | null;
   breakEndTime: string | null;
   breakMinutes: number;
-  breakComment: string | null;
   checkInTime: string | null;
   checkOutTime: string | null;
   onBreak: boolean;
@@ -45,8 +42,6 @@ export default function BreaksPage() {
   const [serviceFilter, setServiceFilter] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [onlyOverExpected, setOnlyOverExpected] = useState(false);
-  const [commentEdits, setCommentEdits] = useState<Record<string, string>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
 
   const fetchBreaks = useCallback(async () => {
     setLoading(true);
@@ -57,13 +52,6 @@ export default function BreaksPage() {
       const res = await fetch(`/api/breaks?${params}`);
       const json = await res.json();
       setPayload(json);
-      const edits: Record<string, string> = {};
-      for (const row of (json.data ?? []) as BreakRow[]) {
-        if ((row.breakMinutes ?? 0) > BREAK_OVER_MIN) {
-          edits[row.id] = row.breakComment ?? "";
-        }
-      }
-      setCommentEdits(edits);
     } finally {
       setLoading(false);
     }
@@ -72,27 +60,6 @@ export default function BreaksPage() {
   useEffect(() => {
     fetchBreaks();
   }, [fetchBreaks]);
-
-  const saveComment = async (recordId: string) => {
-    setSavingId(recordId);
-    try {
-      const res = await fetch(`/api/breaks/${recordId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          breakComment: (commentEdits[recordId] ?? "").trim() || null,
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(typeof json.error === "string" ? json.error : "Erreur lors de l'enregistrement");
-        return;
-      }
-      await fetchBreaks();
-    } finally {
-      setSavingId(null);
-    }
-  };
 
   const stats = payload?.stats ?? {
     totalBreaks: 0,
@@ -111,10 +78,10 @@ export default function BreaksPage() {
             Suivi des pauses
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Suivi des départs/retours pause. Au-delà de 60 min, un motif employé ou RH est attendu.
+            Suivi des départs/retours pause et oublis de retour.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <input
             type="date"
             value={date}
@@ -174,100 +141,50 @@ export default function BreaksPage() {
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début pause</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Retour pause</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Motif (&gt; 60 min)</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-6 text-sm text-slate-500">
+                  <td colSpan={6} className="px-6 py-6 text-sm text-slate-500">
                     Chargement...
                   </td>
                 </tr>
               ) : (payload?.data ?? []).length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
                     Aucune pause enregistrée pour ce jour.
                   </td>
                 </tr>
               ) : (
-                (payload?.data ?? []).map((r) => {
-                  const overLimit = (r.breakMinutes ?? 0) > BREAK_OVER_MIN;
-                  return (
-                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                      <td className="px-6 py-3 font-medium text-slate-800">
-                        {r.employee.firstName} {r.employee.lastName}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">{r.employee.service}</td>
-                      <td className="px-6 py-3 text-slate-600">{toTime(r.breakStartTime)}</td>
-                      <td className="px-6 py-3 text-slate-600">{toTime(r.breakEndTime)}</td>
-                      <td className="px-6 py-3 text-slate-700">
-                        <span className={cn(overLimit && "font-semibold text-amber-700")}>
-                          {Math.floor((r.breakMinutes ?? 0) / 60)}h
-                          {((r.breakMinutes ?? 0) % 60).toString().padStart(2, "0")}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 min-w-[220px]">
-                        {overLimit ? (
-                          <div className="flex items-start gap-2">
-                            <textarea
-                              rows={2}
-                              value={commentEdits[r.id] ?? ""}
-                              onChange={(e) =>
-                                setCommentEdits((prev) => ({ ...prev, [r.id]: e.target.value }))
-                              }
-                              placeholder={
-                                r.breakComment
-                                  ? "Modifier le motif…"
-                                  : "Motif en attente (employé ou RH)…"
-                              }
-                              className={cn(
-                                "flex-1 rounded-lg border px-2 py-1.5 text-xs resize-y min-h-[2.5rem]",
-                                r.breakComment
-                                  ? "border-slate-200 bg-white"
-                                  : "border-amber-300 bg-amber-50/50"
-                              )}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => saveComment(r.id)}
-                              disabled={savingId === r.id}
-                              className="shrink-0 p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                              title="Enregistrer le motif"
-                            >
-                              <Save className={cn("h-4 w-4", savingId === r.id && "animate-pulse")} />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                            r.onBreak
-                              ? "bg-amber-50 text-amber-700"
-                              : r.missingReturn
-                                ? "bg-red-50 text-red-700"
-                                : overLimit && !r.breakComment
-                                  ? "bg-orange-50 text-orange-700"
-                                  : "bg-emerald-50 text-emerald-700"
-                          )}
-                        >
-                          {r.onBreak
-                            ? "En pause"
+                (payload?.data ?? []).map((r) => (
+                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-6 py-3 font-medium text-slate-800">
+                      {r.employee.firstName} {r.employee.lastName}
+                    </td>
+                    <td className="px-6 py-3 text-slate-600">{r.employee.service}</td>
+                    <td className="px-6 py-3 text-slate-600">{formatTime(r.breakStartTime)}</td>
+                    <td className="px-6 py-3 text-slate-600">{formatTime(r.breakEndTime)}</td>
+                    <td className="px-6 py-3 text-slate-700">
+                      {Math.floor((r.breakMinutes ?? 0) / 60)}h{((r.breakMinutes ?? 0) % 60).toString().padStart(2, "0")}
+                    </td>
+                    <td className="px-6 py-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                          r.onBreak
+                            ? "bg-amber-50 text-amber-700"
                             : r.missingReturn
-                              ? "Retour manquant"
-                              : overLimit && !r.breakComment
-                                ? "Motif manquant"
-                                : "Pause clôturée"}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
+                              ? "bg-red-50 text-red-700"
+                              : "bg-emerald-50 text-emerald-700"
+                        )}
+                      >
+                        {r.onBreak ? "En pause" : r.missingReturn ? "Retour manquant" : "Pause clôturée"}
+                      </span>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -277,10 +194,6 @@ export default function BreaksPage() {
   );
 }
 
-function toTime(value: string | null): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-}
 
 function StatCard({
   label,

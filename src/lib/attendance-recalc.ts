@@ -1,9 +1,8 @@
 import { prisma } from "./prisma";
 import { BREAK_EXPECTED_DURATION_MIN } from "./attendance-engine";
 import { minutesBetween, parseTimeString, isSaturdayOrSunday } from "./utils";
+import { APP_TIMEZONE } from "./timezone";
 import type { CheckInStatus } from "@prisma/client";
-
-const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
 
 export function computeBreakMinutesFromTimes(
   breakStartTime: Date | null,

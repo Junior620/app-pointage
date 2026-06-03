@@ -8,9 +8,7 @@ import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
 } from "@/lib/weekly-summary-text";
-import { utcCalendarDayBounds } from "@/lib/utils";
-import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
-import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
+import { formatTime, utcCalendarDayBounds } from "@/lib/utils";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -80,7 +78,15 @@ async function handleMessage(
   const normalizedPhone = normalizePhone(phone);
   const digitsOnly = normalizedPhone.replace(/\D/g, "");
 
-  const employee = await findEmployeeByWhatsappPhone(phone);
+  const employee = await prisma.employee.findFirst({
+    where: {
+      OR: [
+        { whatsappPhone: normalizedPhone },
+        { whatsappPhone: digitsOnly },
+        { whatsappPhone: `+${digitsOnly}` },
+      ],
+    },
+  });
 
     if (!employee) {
       console.log("[WhatsApp] Numéro non lié:", digitsOnly || normalizedPhone);
@@ -133,32 +139,23 @@ async function handleMessage(
       } else {
         let statusMsg = `📊 *Pointage du jour*\n`;
         if (record.checkInTime) {
-          const inTime = record.checkInTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          const inTime = formatTime(record.checkInTime);
           statusMsg += `\n✅ Arrivée: ${inTime} (${record.checkInStatus === "LATE" ? "En retard" : "À l'heure"})`;
         }
         if (record.checkOutTime) {
-          const outTime = record.checkOutTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          const outTime = formatTime(record.checkOutTime);
           statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
         } else {
           statusMsg += `\n⏳ Départ: Non encore pointé`;
         }
         if (record.breakStartTime) {
-          const breakStartTime = record.breakStartTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+          const breakStartTime = formatTime(record.breakStartTime);
           statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
           if (record.breakEndTime) {
-            const breakEndTime = record.breakEndTime.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+            const breakEndTime = formatTime(record.breakEndTime);
             statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
           } else {
             statusMsg += `\n⚠️ Retour pause: non pointé`;
-          }
-          if ((record.breakMinutes ?? 0) > 0) {
-            const bm = record.breakMinutes ?? 0;
-            statusMsg += `\n⏱️ Durée pause: ${Math.floor(bm / 60)}h${(bm % 60).toString().padStart(2, "0")}`;
-          }
-          if (record.breakComment) {
-            statusMsg += `\n📝 Motif pause: ${record.breakComment}`;
-          } else if ((record.breakMinutes ?? 0) > BREAK_EXPECTED_DURATION_MIN) {
-            statusMsg += `\n⚠️ Motif pause prolongée : en attente`;
           }
         }
         statusMsg += `\nStatut: ${record.finalStatus}`;
@@ -181,15 +178,9 @@ async function handleMessage(
       todayRecord.checkOutTime &&
       (todayRecord.overtimeMinutes ?? 0) > 0 &&
       !todayRecord.overtimeReason;
-    const awaitingBreakReason =
-      todayRecord &&
-      (todayRecord.breakMinutes ?? 0) > BREAK_EXPECTED_DURATION_MIN &&
-      !todayRecord.breakComment;
 
     const { intent, comment } = parseIntent(message.text.body, {
-      skipNumericMenuShortcuts: Boolean(
-        (awaitingOvertimeReason || awaitingBreakReason) && rawTrimmed
-      ),
+      skipNumericMenuShortcuts: Boolean(awaitingOvertimeReason && rawTrimmed),
     });
     console.log("[WhatsApp] Intent:", intent, "employé:", employee.id);
 
@@ -215,19 +206,6 @@ async function handleMessage(
         await sendWhatsAppMessage(
           phone,
           `Motif des heures sup enregistré : "${rawComment}". Merci. La RH validera vos heures.`
-        );
-        return;
-      } else if (
-        (record.breakMinutes ?? 0) > BREAK_EXPECTED_DURATION_MIN &&
-        !record.breakComment
-      ) {
-        await prisma.attendanceRecord.update({
-          where: { id: record.id },
-          data: { breakComment: rawComment },
-        });
-        await sendWhatsAppMessage(
-          phone,
-          `Motif de pause prolongée enregistré : "${rawComment}". Merci.`
         );
         return;
       } else if (record.checkOutTime && !record.checkOutComment) {
@@ -302,32 +280,20 @@ async function handleMessage(
         } else {
           let statusMsg = `📊 *Pointage du jour*\n`;
           if (record.checkInTime) {
-            const inTime = record.checkInTime.toLocaleTimeString("fr-FR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
+            const inTime = formatTime(record.checkInTime);
             statusMsg += `\n✅ Arrivée: ${inTime} (${record.checkInStatus === "LATE" ? "En retard" : "À l'heure"})`;
           }
           if (record.checkOutTime) {
-            const outTime = record.checkOutTime.toLocaleTimeString("fr-FR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
+            const outTime = formatTime(record.checkOutTime);
             statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
           } else {
             statusMsg += `\n⏳ Départ: Non encore pointé`;
           }
           if (record.breakStartTime) {
-            const breakStartTime = record.breakStartTime.toLocaleTimeString("fr-FR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
+            const breakStartTime = formatTime(record.breakStartTime);
             statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
             if (record.breakEndTime) {
-              const breakEndTime = record.breakEndTime.toLocaleTimeString("fr-FR", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
+              const breakEndTime = formatTime(record.breakEndTime);
               statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
             } else {
               statusMsg += `\n⚠️ Retour pause: non pointé`;
@@ -528,18 +494,8 @@ async function handleMyAttendance(
       day: "2-digit",
       month: "2-digit",
     });
-    const inTime = r.checkInTime
-      ? r.checkInTime.toLocaleTimeString("fr-FR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "—";
-    const outTime = r.checkOutTime
-      ? r.checkOutTime.toLocaleTimeString("fr-FR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "—";
+    const inTime = formatTime(r.checkInTime);
+    const outTime = formatTime(r.checkOutTime);
     const status =
       r.finalStatus === "PRESENT"
         ? "✅"
@@ -851,10 +807,7 @@ async function handleDayDetail(
   let msg = `📅 *Détail du ${target.toLocaleDateString("fr-FR")}* — ${firstName}\n\n`;
 
   if (record.checkInTime) {
-    const inStr = record.checkInTime.toLocaleTimeString("fr-FR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const inStr = formatTime(record.checkInTime);
     msg += `✅ Arrivée : ${inStr} ${
       record.checkInStatus === "LATE" ? "(en retard)" : ""
     }\n`;
@@ -863,10 +816,7 @@ async function handleDayDetail(
   }
 
   if (record.checkOutTime) {
-    const outStr = record.checkOutTime.toLocaleTimeString("fr-FR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const outStr = formatTime(record.checkOutTime);
     msg += `🚪 Départ : ${outStr} ${
       record.checkOutStatus === "AUTO" ? "(auto)" : "(manuel)"
     }\n`;

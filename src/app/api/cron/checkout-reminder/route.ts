@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
-import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
-
-const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
+import { formatTime, todayDate, isWeekend, parseTimeString } from "@/lib/utils";
+import { APP_TIMEZONE } from "@/lib/timezone";
 const CHECKOUT_REMIND_AFTER_MIN = 15;
 
 function isAuthorized(request: NextRequest): boolean {
@@ -68,16 +67,8 @@ export async function GET(request: NextRequest) {
       const remindUntil = new Date(remindAt.getTime() + 30 * 60 * 1000);
       if (now < remindAt || now >= remindUntil) continue;
 
-      const endLabel = endAt.toLocaleTimeString("fr-FR", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: APP_TIMEZONE,
-      });
-      const inTime = record.checkInTime!.toLocaleTimeString("fr-FR", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: APP_TIMEZONE,
-      });
+      const endLabel = formatTime(endAt);
+      const inTime = formatTime(record.checkInTime);
 
       await sendWhatsAppMessage(
         employee.whatsappPhone,

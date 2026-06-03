@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, formatTime } from "@/lib/utils";
 import Link from "next/link";
 import { ArrowLeft, Phone, MapPin, Hash, Building2, Landmark } from "lucide-react";
 import { resolveEmployeeStatsPeriod } from "@/lib/period-range";
@@ -338,9 +338,7 @@ export default async function EmployeeDetailPage({
                       {a.date.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}
                     </td>
                     <td className="py-2.5 text-slate-600">
-                      {a.checkInTime
-                        ? new Date(a.checkInTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-                        : "—"}
+                      {formatTime(a.checkInTime)}
                     </td>
                     <td className="py-2.5">
                       {a.checkInStatus ? (
@@ -360,7 +358,7 @@ export default async function EmployeeDetailPage({
                     </td>
                     <td className="py-2.5 text-slate-600">
                       {a.checkOutTime
-                        ? new Date(a.checkOutTime).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                        ? formatTime(a.checkOutTime)
                         : "—"}
                     </td>
                     <td className="py-2.5 text-slate-600">

@@ -17,7 +17,7 @@ import {
   MapPin,
   Timer,
 } from "lucide-react";
-import { cn, todayDate } from "@/lib/utils";
+import { cn, formatTime, formatTimeHm, todayDate } from "@/lib/utils";
 
 interface AttendanceRecord {
   id: string;
@@ -140,12 +140,6 @@ function toDateInputValue(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function isoToHm(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 export default function AttendancePage() {
@@ -309,10 +303,10 @@ export default function AttendancePage() {
     setEditComment(record.checkInComment ?? "");
     setEditFinalStatus(record.finalStatus);
     setEditCheckInStatus(record.checkInStatus ?? "");
-    setEditCheckInHm(isoToHm(record.checkInTime));
-    setEditCheckOutHm(isoToHm(record.checkOutTime));
-    setEditBreakStartHm(isoToHm(record.breakStartTime));
-    setEditBreakEndHm(isoToHm(record.breakEndTime));
+    setEditCheckInHm(formatTimeHm(record.checkInTime));
+    setEditCheckOutHm(formatTimeHm(record.checkOutTime));
+    setEditBreakStartHm(formatTimeHm(record.breakStartTime));
+    setEditBreakEndHm(formatTimeHm(record.breakEndTime));
   };
 
   const handleEditSave = async () => {
@@ -355,14 +349,6 @@ export default function AttendancePage() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const formatTime = (iso: string | null) => {
-    if (!iso) return "—";
-    return new Date(iso).toLocaleTimeString("fr-FR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
   };
 
   const formatDuration = (min: number | null) => {
