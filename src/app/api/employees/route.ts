@@ -16,6 +16,7 @@ const createEmployeeSchema = z.object({
   service: z.string().min(1, "Le service est requis"),
   structure: z.enum(STRUCTURES).default("SCPB"),
   siteId: z.string().optional(),
+  checkoutSiteId: z.string().optional(),
   whatsappPhone: z.string().optional(),
 });
 
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
     const [employees, total] = await Promise.all([
       prisma.employee.findMany({
         where,
-        include: { site: true },
+        include: { site: true, checkoutSite: true },
         skip,
         take: limit,
         orderBy: { lastName: "asc" },
@@ -134,12 +135,13 @@ export async function POST(request: NextRequest) {
       ...rest,
       matricule: finalMatricule,
       siteId: rest.siteId?.trim() || undefined,
+      checkoutSiteId: rest.checkoutSiteId?.trim() || undefined,
       whatsappPhone,
     };
 
     const employee = await prisma.employee.create({
       data,
-      include: { site: true },
+      include: { site: true, checkoutSite: true },
     });
 
     await createAuditLog({

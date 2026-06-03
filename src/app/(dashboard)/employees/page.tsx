@@ -41,10 +41,11 @@ interface Employee {
   service: string;
   structure: "SCPB" | "AFREXIA";
   whatsappPhone: string | null;
-  whatsappPhones?: { phone: string; sortOrder: number }[];
   active: boolean;
   siteId?: string | null;
   site?: { id: string; name: string } | null;
+  checkoutSiteId?: string | null;
+  checkoutSite?: { id: string; name: string } | null;
   departureDate?: string | null;
   departureReason?: DepartureReasonCode | null;
   departureNote?: string | null;
@@ -69,25 +70,13 @@ const employeeSchema = z.object({
   service: z.string().min(1, "Le service est requis"),
   structure: z.enum(["SCPB", "AFREXIA"]).default("SCPB"),
   whatsappPhone: z.string().optional(),
-  whatsappPhone2: z.string().optional(),
   siteId: z.string().optional(),
+  checkoutSiteId: z.string().optional(),
 });
 
 const createEmployeeSchema = employeeSchema.omit({ matricule: true });
 
 type EmployeeForm = z.infer<typeof employeeSchema>;
-
-const SERVICE_PRESETS = [
-  "IT",
-  "QHSE",
-  "RH",
-  "DAF",
-  "RAF",
-  "ST",
-  "RESPONSABLE TRANSIT (RT)",
-  "ASSISTANTE TRANSIT (AT)",
-  "DIRECTION GENERALE (DG)",
-];
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -107,8 +96,8 @@ export default function EmployeesPage() {
     service: "",
     structure: "SCPB",
     whatsappPhone: "",
-    whatsappPhone2: "",
     siteId: "",
+    checkoutSiteId: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -199,7 +188,7 @@ export default function EmployeesPage() {
   const totalEmployees = total;
   const activeCount = employees.filter((e) => e.active).length;
   const inactiveCount = employees.filter((e) => !e.active).length;
-  const whatsappCount = employees.filter((e) => (e.whatsappPhones?.length ?? (e.whatsappPhone ? 1 : 0)) > 0).length;
+  const whatsappCount = employees.filter((e) => e.whatsappPhone).length;
 
   const fetchAllEmployees = async (): Promise<Employee[]> => {
     const params = new URLSearchParams({
@@ -277,7 +266,7 @@ export default function EmployeesPage() {
 
   const exportPdf = async () => {
     const { jsPDF } = await import("jspdf");
-    const autoTable = (await import("jspdf-autotable")).default;
+    const { autoTable } = await import("jspdf-autotable");
     const all = await fetchAllEmployees();
 
     const doc = new jsPDF({ orientation: "landscape" });
@@ -345,7 +334,7 @@ export default function EmployeesPage() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", whatsappPhone2: "", siteId: "" });
+    setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", siteId: "", checkoutSiteId: "" });
     setErrors({});
     setModalOpen(true);
   };
@@ -358,9 +347,9 @@ export default function EmployeesPage() {
       lastName: emp.lastName,
       service: emp.service,
       structure: emp.structure ?? "SCPB",
-      whatsappPhone: emp.whatsappPhones?.[0]?.phone ?? emp.whatsappPhone ?? "",
-      whatsappPhone2: emp.whatsappPhones?.[1]?.phone ?? "",
+      whatsappPhone: emp.whatsappPhone ?? "",
       siteId: emp.siteId ?? emp.site?.id ?? "",
+      checkoutSiteId: emp.checkoutSiteId ?? emp.checkoutSite?.id ?? "",
     });
     setErrors({});
     setModalOpen(true);
@@ -391,12 +380,9 @@ export default function EmployeesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const json = await res.json().catch(() => ({}));
       if (res.ok) {
         setModalOpen(false);
         fetchEmployees();
-      } else {
-        setErrors({ whatsappPhone: typeof json.error === "string" ? json.error : "Enregistrement impossible." });
       }
     } catch (e) {
       console.error(e);
@@ -782,13 +768,10 @@ export default function EmployeesPage() {
                     </td>
                     {/* WhatsApp */}
                     <td className="px-6 py-4">
-                      {(emp.whatsappPhones?.length ?? (emp.whatsappPhone ? 1 : 0)) > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"
-                          title={(emp.whatsappPhones?.map((p) => p.phone) ?? (emp.whatsappPhone ? [emp.whatsappPhone] : [])).join(" · ")}
-                        >
+                      {emp.whatsappPhone ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                           <CheckCircle2 className="h-3.5 w-3.5" />
-                          {(emp.whatsappPhones?.length ?? 1)} num.
+                          Connecté
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
@@ -1018,23 +1001,21 @@ export default function EmployeesPage() {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Service
                   </label>
-                  <input
-                    list="employee-service-options"
+                  <select
                     value={form.service}
                     onChange={(e) =>
                       setForm({ ...form, service: e.target.value })
                     }
-                    placeholder="Choisir ou saisir manuellement"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-400"
-                  />
-                  <datalist id="employee-service-options">
-                    {Array.from(new Set([...SERVICE_PRESETS, ...services])).map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Vous pouvez sélectionner un service proposé ou le saisir librement.
-                  </p>
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Sélectionner un service</option>
+                    <option value="IT">IT</option>
+                    <option value="QHSE">QHSE</option>
+                    <option value="RH">RH</option>
+                    <option value="DAF">DAF</option>
+                    <option value="RAF">RAF</option>
+                    <option value="ST">ST</option>
+                  </select>
                   {errors.service && (
                     <p className="text-xs text-red-500 mt-1">
                       {errors.service}
@@ -1095,55 +1076,65 @@ export default function EmployeesPage() {
                   )}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Zone de travail (site)
-                </label>
-                <select
-                  value={form.siteId}
-                  onChange={(e) =>
-                    setForm({ ...form, siteId: e.target.value })
-                  }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                >
-                  <option value="">Aucun site</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  Requis pour valider le pointage par géolocalisation.
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Zone de travail 1
+                  </label>
+                  <select
+                    value={form.siteId}
+                    onChange={(e) =>
+                      setForm({ ...form, siteId: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                  >
+                    <option value="">Aucune</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Zone de travail 2 (optionnel)
+                  </label>
+                  <select
+                    value={form.checkoutSiteId}
+                    onChange={(e) =>
+                      setForm({ ...form, checkoutSiteId: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                  >
+                    <option value="">Une seule zone</option>
+                    {sites
+                      .filter((s) => s.id !== form.siteId)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </div>
+              <p className="text-xs text-slate-400 -mt-2">
+                L&apos;employé peut pointer (arrivée, pause, départ) s&apos;il se trouve dans l&apos;une ou l&apos;autre zone — par ex. bureau et usine.
+              </p>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  WhatsApp principal
+                  Téléphone WhatsApp
                 </label>
                 <input
                   value={form.whatsappPhone}
                   onChange={(e) =>
                     setForm({ ...form, whatsappPhone: e.target.value })
                   }
-                  placeholder="2376XXXXXXXX"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  WhatsApp secondaire <span className="text-slate-400 font-normal">(optionnel, max 2)</span>
-                </label>
-                <input
-                  value={form.whatsappPhone2}
-                  onChange={(e) =>
-                    setForm({ ...form, whatsappPhone2: e.target.value })
-                  }
-                  placeholder="2376XXXXXXXX"
+                  placeholder="+225XXXXXXXXXX"
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  Les deux numéros peuvent pointer et recevoir les mêmes notifications automatiques.
+                  Optionnel. L&apos;employé pourra aussi lier son numéro via l&apos;onboarding QR.
                 </p>
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">

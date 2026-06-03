@@ -21,6 +21,7 @@ const updateEmployeeBodySchema = z
     service: z.string().optional(),
     structure: z.enum(["SCPB", "AFREXIA"]).optional(),
     siteId: z.union([z.string(), z.null()]).optional(),
+    checkoutSiteId: z.union([z.string(), z.null()]).optional(),
     whatsappPhone: z.union([z.string(), z.null()]).optional(),
     active: z.boolean().optional(),
     departureDate: z.union([z.string(), z.null()]).optional(),
@@ -43,6 +44,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       where: { id },
       include: {
         site: true,
+        checkoutSite: true,
         attendances: {
           where: { date: { gte: thirtyDaysAgo } },
           orderBy: { date: "desc" },
@@ -85,6 +87,12 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     const siteIdValue =
       body.siteId !== undefined ? (typeof body.siteId === "string" ? body.siteId.trim() || null : null) : undefined;
+    const checkoutSiteIdValue =
+      body.checkoutSiteId !== undefined
+        ? typeof body.checkoutSiteId === "string"
+          ? body.checkoutSiteId.trim() || null
+          : null
+        : undefined;
     const rawPhone = typeof body.whatsappPhone === "string" ? body.whatsappPhone.trim() : "";
     const whatsappPhoneValue =
       body.whatsappPhone !== undefined
@@ -103,6 +111,12 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (body.siteId !== undefined) {
       data.site =
         siteIdValue === null ? { disconnect: true } : { connect: { id: siteIdValue } };
+    }
+    if (body.checkoutSiteId !== undefined) {
+      data.checkoutSite =
+        checkoutSiteIdValue === null
+          ? { disconnect: true }
+          : { connect: { id: checkoutSiteIdValue } };
     }
     if (body.whatsappPhone !== undefined) data.whatsappPhone = whatsappPhoneValue;
 

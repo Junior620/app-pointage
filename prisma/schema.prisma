@@ -115,6 +115,9 @@ model Employee {
   onboardingExpiry DateTime?          @map("onboarding_expiry")
   siteId           String?            @map("site_id")
   site             Site?              @relation(fields: [siteId], references: [id])
+  /** 2e zone de travail (optionnel) : pointage accepté dans la zone 1 ou la zone 2 */
+  checkoutSiteId   String?            @map("checkout_site_id")
+  checkoutSite     Site?              @relation("EmployeeCheckoutSite", fields: [checkoutSiteId], references: [id])
   departureDate    DateTime?          @map("departure_date") @db.Date
   departureReason  DepartureReason?   @map("departure_reason")
   departureNote    String?            @map("departure_note")
@@ -153,8 +156,9 @@ model Site {
   active    Boolean    @default(true)
   createdAt DateTime   @default(now()) @map("created_at")
   updatedAt DateTime   @updatedAt @map("updated_at")
-  employees Employee[]
-  schedules Schedule[]
+  employees         Employee[]
+  checkoutEmployees Employee[] @relation("EmployeeCheckoutSite")
+  schedules         Schedule[]
 
   @@map("sites")
 }
