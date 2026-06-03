@@ -60,10 +60,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
-
-  // Pages et API réservées aux administrateurs (métadonnées Supabase si présentes)
-  const isAdminOnlyPage =
-    pathname === "/users" || pathname.startsWith("/users/");
+  // Pages réservées aux administrateurs (rôle dans les métadonnées Supabase si présent)
+  const adminOnlyPaths = ["/users"];
+  const isAdminOnlyPage = adminOnlyPaths.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`)
+  );
   const isAdminOnlyApi = pathname.startsWith("/api/users");
 
   if (user && (isAdminOnlyPage || isAdminOnlyApi)) {

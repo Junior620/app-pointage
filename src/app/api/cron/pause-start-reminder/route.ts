@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
-import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
@@ -31,11 +30,10 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const sendAt = parseTimeString("12:30", today, APP_TIMEZONE);
   const sendUntil = new Date(sendAt.getTime() + 30 * 60 * 1000);
-  // Garde-fou: n'envoie pas avant l'heure cible, même si le cron se déclenche trop tôt.
   if (now < sendAt || now >= sendUntil) {
     return NextResponse.json({
       success: true,
-      message: `Hors fenêtre rappel pause début ($12:30)`,
+      message: "Hors fenêtre rappel pause début (12h30)",
       count: 0,
     });
   }
@@ -53,10 +51,9 @@ export async function GET(request: NextRequest) {
 
   let count = 0;
   for (const record of records) {
-    if (!record.employee.active) continue;
-    const phones = await getEmployeeWhatsappPhones(record.employeeId);
-    if (phones.length === 0) continue;
-    await sendWhatsAppToEmployee(record.employeeId,
+    if (!record.employee.active || !record.employee.whatsappPhone) continue;
+    await sendWhatsAppMessage(
+      record.employee.whatsappPhone,
       `☕ *Rappel pause (12h30)*\n\nBonjour ${record.employee.firstName}, c'est l'heure de la pause.\n\nTapez *début pause* ou *13* pour pointer votre départ en pause.`
     );
     count++;

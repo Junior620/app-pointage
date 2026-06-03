@@ -80,7 +80,7 @@ export default function Sidebar({ userName, userRole, userEmail }: SidebarProps)
 
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {navLinks
-          .filter((link) => !link.adminOnly || userRole === "ADMIN")
+          .filter((link) => !link.adminOnly || userRole === "ADMIN") // menu Utilisateurs : ADMIN uniquement
           .map((link) => {
           const Icon = link.icon;
           const active = isActive(link.href);

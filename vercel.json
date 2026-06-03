@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/checkout-reminder",
-      "schedule": "0 16 * * 1-5"
+      "schedule": "45 16 * * 1-5"
     },
     {
       "path": "/api/cron/auto-checkout",
@@ -22,11 +22,15 @@
     },
     {
       "path": "/api/cron/pause-start-reminder",
-      "schedule": "30 10 * * 1-5"
+      "schedule": "30 11 * * 1-5"
     },
     {
       "path": "/api/cron/pause-end-reminder",
-      "schedule": "30 11 * * 1-5"
+      "schedule": "30 12 * * 1-5"
+    },
+    {
+      "path": "/api/cron/pause-return-reminder",
+      "schedule": "45 12 * * 1-5"
     }
   ]
 }

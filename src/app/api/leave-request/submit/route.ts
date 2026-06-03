@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { verifyLeaveFormToken } from "@/lib/leave-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
-import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 import { logPublicSubmission } from "@/lib/public-submission-log";
 import { leaveAbsenceCategoryLabel } from "@/lib/leave-absence-labels";
 import { notifyRhAdminsWhatsApp } from "@/lib/rh-whatsapp-notify";
@@ -120,8 +119,9 @@ export async function POST(request: NextRequest) {
         `\n➡️ À traiter dans le module *Autorisations d'absence* du dashboard.`
     );
 
-    if (phonesFromEmployee(employee).length > 0) {
+    if (employee.whatsappPhone?.trim()) {
       try {
+        const rawPhone = employee.whatsappPhone.trim();
         const opts: Intl.DateTimeFormatOptions = {
           weekday: "long",
           day: "numeric",
@@ -130,8 +130,8 @@ export async function POST(request: NextRequest) {
         };
         const startStr = leave.startDate.toLocaleDateString("fr-FR", opts);
         const endStr = leave.endDate.toLocaleDateString("fr-FR", opts);
-        await sendWhatsAppToEmployeeEntity(
-          employee,
+        await sendWhatsAppMessage(
+          rawPhone,
           `✅ *Demande transmise aux RH*\n\nBonjour ${employee.firstName},\n\nVotre demande d'autorisation d'absence (formulaire web) a bien été envoyée.\n\n📅 *Période*\nDu ${startStr}\nau ${endStr}\n\n📝 *Motif*\n${leave.reason.slice(0, 500)}${leave.reason.length > 500 ? "…" : ""}\n\n⏳ Elle sera examinée par la RH ou la hiérarchie ; vous recevrez un message après validation ou refus.\n\n💡 Répondez *5* pour *Mes autorisations d'absence* en cours.`
         );
       } catch (e) {

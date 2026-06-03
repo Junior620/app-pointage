@@ -25,6 +25,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
 import { departureReasonLabel } from "@/lib/departure-labels";
+import EmployeesAttendanceExport from "./EmployeesAttendanceExport";
 
 type DepartureReasonCode =
   | "RESIGNATION"
@@ -124,7 +125,23 @@ export default function EmployeesPage() {
   const [departureNote, setDepartureNote] = useState("");
   const [departureSubmitting, setDepartureSubmitting] = useState(false);
   const [departureError, setDepartureError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [attendanceExportOpen, setAttendanceExportOpen] = useState(false);
   const perPage = 15;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === employees.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(employees.map((e) => e.id));
+    }
+  };
 
   const fetchEmployees = useCallback(async () => {
     setLoading(true);
@@ -504,7 +521,17 @@ export default function EmployeesPage() {
             Gestion des collaborateurs, des départs (motif et date) et du statut de présence.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setAttendanceExportOpen(true)}
+              className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-violet-200 bg-violet-50 text-sm font-medium text-violet-800 hover:bg-violet-100 transition-colors"
+            >
+              <Download className="h-4 w-4" />
+              Pointages ({selectedIds.length})
+            </button>
+          )}
           <button
             onClick={exportExcel}
             className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-emerald-200 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
@@ -622,6 +649,18 @@ export default function EmployeesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={
+                      employees.length > 0 &&
+                      selectedIds.length === employees.length
+                    }
+                    onChange={toggleSelectAll}
+                    className="rounded border-slate-300"
+                    aria-label="Tout sélectionner"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Employé
                 </th>
@@ -655,14 +694,14 @@ export default function EmployeesPage() {
               {loading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={9} className="px-6 py-4">
+                    <td colSpan={10} className="px-6 py-4">
                       <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
                     </td>
                   </tr>
                 ))
               ) : employees.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-16 text-center">
+                  <td colSpan={10} className="px-6 py-16 text-center">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
                     <p className="text-base font-semibold text-slate-700">
                       Aucun employé trouvé
@@ -689,6 +728,15 @@ export default function EmployeesPage() {
                     key={emp.id}
                     className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
                   >
+                    <td className="px-4 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(emp.id)}
+                        onChange={() => toggleSelect(emp.id)}
+                        className="rounded border-slate-300"
+                        aria-label={`Sélectionner ${emp.firstName} ${emp.lastName}`}
+                      />
+                    </td>
                     {/* Employé with avatar */}
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -1270,6 +1318,13 @@ export default function EmployeesPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {attendanceExportOpen && (
+        <EmployeesAttendanceExport
+          selectedIds={selectedIds}
+          onClose={() => setAttendanceExportOpen(false)}
+        />
       )}
     </div>
   );

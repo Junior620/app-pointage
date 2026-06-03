@@ -9,6 +9,7 @@ import { resolveEmployeeStatsPeriod } from "@/lib/period-range";
 import { departureReasonLabel } from "@/lib/departure-labels";
 import HrRemarks from "./HrRemarks";
 import EmployeePeriodNav from "./EmployeePeriodNav";
+import EmployeeAttendanceExport from "./EmployeeAttendanceExport";
 
 function getWorkingDays(from: Date, to: Date): Date[] {
   const days: Date[] = [];
@@ -294,6 +295,8 @@ export default async function EmployeeDetailPage({
           <p className="text-3xl font-bold text-slate-600 mt-1">{totalWorkDays}</p>
         </div>
       </div>
+
+      <EmployeeAttendanceExport employeeId={id} />
 
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h3 className="text-base font-semibold text-slate-800 mb-4">
