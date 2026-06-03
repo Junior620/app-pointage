@@ -41,6 +41,7 @@ interface Employee {
   service: string;
   structure: "SCPB" | "AFREXIA";
   whatsappPhone: string | null;
+  whatsappPhones?: { phone: string; sortOrder: number }[];
   active: boolean;
   siteId?: string | null;
   site?: { id: string; name: string } | null;
@@ -70,6 +71,7 @@ const employeeSchema = z.object({
   service: z.string().min(1, "Le service est requis"),
   structure: z.enum(["SCPB", "AFREXIA"]).default("SCPB"),
   whatsappPhone: z.string().optional(),
+  whatsappPhone2: z.string().optional(),
   siteId: z.string().optional(),
   checkoutSiteId: z.string().optional(),
 });
@@ -96,6 +98,7 @@ export default function EmployeesPage() {
     service: "",
     structure: "SCPB",
     whatsappPhone: "",
+    whatsappPhone2: "",
     siteId: "",
     checkoutSiteId: "",
   });
@@ -188,7 +191,9 @@ export default function EmployeesPage() {
   const totalEmployees = total;
   const activeCount = employees.filter((e) => e.active).length;
   const inactiveCount = employees.filter((e) => !e.active).length;
-  const whatsappCount = employees.filter((e) => e.whatsappPhone).length;
+  const whatsappCount = employees.filter(
+    (e) => (e.whatsappPhones?.length ?? (e.whatsappPhone ? 1 : 0)) > 0
+  ).length;
 
   const fetchAllEmployees = async (): Promise<Employee[]> => {
     const params = new URLSearchParams({
@@ -334,7 +339,17 @@ export default function EmployeesPage() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", siteId: "", checkoutSiteId: "" });
+    setForm({
+      matricule: "",
+      firstName: "",
+      lastName: "",
+      service: "",
+      structure: "SCPB",
+      whatsappPhone: "",
+      whatsappPhone2: "",
+      siteId: "",
+      checkoutSiteId: "",
+    });
     setErrors({});
     setModalOpen(true);
   };
@@ -347,7 +362,8 @@ export default function EmployeesPage() {
       lastName: emp.lastName,
       service: emp.service,
       structure: emp.structure ?? "SCPB",
-      whatsappPhone: emp.whatsappPhone ?? "",
+      whatsappPhone: emp.whatsappPhones?.[0]?.phone ?? emp.whatsappPhone ?? "",
+      whatsappPhone2: emp.whatsappPhones?.[1]?.phone ?? "",
       siteId: emp.siteId ?? emp.site?.id ?? "",
       checkoutSiteId: emp.checkoutSiteId ?? emp.checkoutSite?.id ?? "",
     });
@@ -380,9 +396,14 @@ export default function EmployeesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      const json = await res.json().catch(() => ({}));
       if (res.ok) {
         setModalOpen(false);
         fetchEmployees();
+      } else {
+        setErrors({
+          whatsappPhone: typeof json.error === "string" ? json.error : "Enregistrement impossible.",
+        });
       }
     } catch (e) {
       console.error(e);
@@ -768,10 +789,16 @@ export default function EmployeesPage() {
                     </td>
                     {/* WhatsApp */}
                     <td className="px-6 py-4">
-                      {emp.whatsappPhone ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                      {(emp.whatsappPhones?.length ?? (emp.whatsappPhone ? 1 : 0)) > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"
+                          title={(
+                            emp.whatsappPhones?.map((p) => p.phone) ??
+                            (emp.whatsappPhone ? [emp.whatsappPhone] : [])
+                          ).join(" · ")}
+                        >
                           <CheckCircle2 className="h-3.5 w-3.5" />
-                          Connecté
+                          {(emp.whatsappPhones?.length ?? 1)} num.
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
@@ -1144,18 +1171,35 @@ export default function EmployeesPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Téléphone WhatsApp
+                  WhatsApp principal
                 </label>
                 <input
                   value={form.whatsappPhone}
                   onChange={(e) =>
                     setForm({ ...form, whatsappPhone: e.target.value })
                   }
-                  placeholder="+225XXXXXXXXXX"
+                  placeholder="2376XXXXXXXX"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
+                />
+                {errors.whatsappPhone && (
+                  <p className="text-xs text-red-600 mt-1">{errors.whatsappPhone}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  WhatsApp secondaire{" "}
+                  <span className="text-slate-400 font-normal">(optionnel, max 2)</span>
+                </label>
+                <input
+                  value={form.whatsappPhone2}
+                  onChange={(e) =>
+                    setForm({ ...form, whatsappPhone2: e.target.value })
+                  }
+                  placeholder="2376XXXXXXXX"
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
                 />
                 <p className="text-xs text-slate-400 mt-1">
-                  Optionnel. L&apos;employé pourra aussi lier son numéro via l&apos;onboarding QR.
+                  Les deux numéros peuvent pointer et recevoir les mêmes notifications automatiques.
                 </p>
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">

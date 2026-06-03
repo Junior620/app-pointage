@@ -4,11 +4,13 @@ import type { DepartureReason, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
-import { normalizePhone } from "@/lib/whatsapp";
 import {
-  sendEmployeeWelcomeWhatsApp,
-  shouldSendWelcomeOnPhoneChange,
-} from "@/lib/employee-welcome";
+  EmployeeWhatsappError,
+  diffNewWhatsappPhones,
+  getEmployeeWhatsappPhones,
+  syncEmployeeWhatsappPhones,
+} from "@/lib/employee-whatsapp";
+import { sendEmployeeWelcomeWhatsAppToPhones } from "@/lib/employee-welcome";
 import { parseDateInputForDbDate } from "@/lib/utils";
 
 const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT"] as const;
@@ -23,6 +25,7 @@ const updateEmployeeBodySchema = z
     siteId: z.union([z.string(), z.null()]).optional(),
     checkoutSiteId: z.union([z.string(), z.null()]).optional(),
     whatsappPhone: z.union([z.string(), z.null()]).optional(),
+    whatsappPhone2: z.union([z.string(), z.null()]).optional(),
     active: z.boolean().optional(),
     departureDate: z.union([z.string(), z.null()]).optional(),
     departureReason: z.enum(DEPARTURE_REASONS).nullable().optional(),
@@ -45,6 +48,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       include: {
         site: true,
         checkoutSite: true,
+        whatsappPhones: { orderBy: { sortOrder: "asc" } },
         attendances: {
           where: { date: { gte: thirtyDaysAgo } },
           orderBy: { date: "desc" },
@@ -93,13 +97,6 @@ export async function PUT(request: NextRequest, context: RouteContext) {
           ? body.checkoutSiteId.trim() || null
           : null
         : undefined;
-    const rawPhone = typeof body.whatsappPhone === "string" ? body.whatsappPhone.trim() : "";
-    const whatsappPhoneValue =
-      body.whatsappPhone !== undefined
-        ? rawPhone
-          ? normalizePhone(rawPhone)
-          : null
-        : undefined;
 
     const data: Prisma.EmployeeUpdateInput = {};
 
@@ -118,7 +115,6 @@ export async function PUT(request: NextRequest, context: RouteContext) {
           ? { disconnect: true }
           : { connect: { id: checkoutSiteIdValue } };
     }
-    if (body.whatsappPhone !== undefined) data.whatsappPhone = whatsappPhoneValue;
 
     const becomingInactive = body.active === false && before.active === true;
     const reactivating = body.active === true;
@@ -168,7 +164,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const employee = await prisma.employee.update({
       where: { id },
       data,
-      include: { site: true },
+      include: {
+        site: true,
+        checkoutSite: true,
+        whatsappPhones: { orderBy: { sortOrder: "asc" } },
+      },
     });
 
     await createAuditLog({
@@ -181,21 +181,44 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     });
 
     let welcomeSent = false;
-    if (
-      employee.active &&
-      employee.whatsappPhone &&
-      shouldSendWelcomeOnPhoneChange(before.whatsappPhone, employee.whatsappPhone)
-    ) {
-      welcomeSent = await sendEmployeeWelcomeWhatsApp(employee.whatsappPhone, {
-        firstName: employee.firstName,
-        lastName: employee.lastName,
-        matricule: employee.matricule,
-        service: employee.service,
-        structure: employee.structure,
-      });
+    let employeeOut = employee;
+
+    if (body.whatsappPhone !== undefined || body.whatsappPhone2 !== undefined) {
+      const beforePhones = await getEmployeeWhatsappPhones(id);
+      const phone1 =
+        body.whatsappPhone !== undefined ? body.whatsappPhone : beforePhones[0] ?? "";
+      const phone2 =
+        body.whatsappPhone2 !== undefined ? body.whatsappPhone2 : beforePhones[1] ?? "";
+      try {
+        const afterPhones = await syncEmployeeWhatsappPhones(id, [phone1, phone2]);
+        const newPhones = diffNewWhatsappPhones(beforePhones, afterPhones);
+        employeeOut =
+          (await prisma.employee.findUnique({
+            where: { id },
+            include: {
+              site: true,
+              checkoutSite: true,
+              whatsappPhones: { orderBy: { sortOrder: "asc" } },
+            },
+          })) ?? employee;
+        if (employeeOut.active && newPhones.length > 0) {
+          welcomeSent = await sendEmployeeWelcomeWhatsAppToPhones(newPhones, {
+            firstName: employeeOut.firstName,
+            lastName: employeeOut.lastName,
+            matricule: employeeOut.matricule,
+            service: employeeOut.service,
+            structure: employeeOut.structure,
+          });
+        }
+      } catch (e) {
+        if (e instanceof EmployeeWhatsappError) {
+          return NextResponse.json({ error: e.message }, { status: 409 });
+        }
+        throw e;
+      }
     }
 
-    return NextResponse.json({ data: employee, welcomeSent });
+    return NextResponse.json({ data: employeeOut, welcomeSent });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
@@ -215,8 +238,6 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    // Timeouts : (1) Prisma transaction interactive ~5 s par défaut ; (2) Postgres/Supabase
-    // impose souvent ~8–10 s par requête (statement_timeout). On élève les deux.
     await prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SET LOCAL statement_timeout = '120s'`;

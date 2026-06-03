@@ -4,8 +4,12 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
-import { normalizePhone } from "@/lib/whatsapp";
-import { sendEmployeeWelcomeWhatsApp } from "@/lib/employee-welcome";
+import {
+  EmployeeWhatsappError,
+  getEmployeeWhatsappPhones,
+  syncEmployeeWhatsappPhones,
+} from "@/lib/employee-whatsapp";
+import { sendEmployeeWelcomeWhatsAppToPhones } from "@/lib/employee-welcome";
 
 const STRUCTURES = ["SCPB", "AFREXIA"] as const;
 
@@ -18,6 +22,7 @@ const createEmployeeSchema = z.object({
   siteId: z.string().optional(),
   checkoutSiteId: z.string().optional(),
   whatsappPhone: z.string().optional(),
+  whatsappPhone2: z.string().optional(),
 });
 
 /** Préfixe : STRUCTURE-SERVICE- (SCPB / AFREXIA). Suffixe numérique aléatoire, vérifié unique en base. */
@@ -44,7 +49,6 @@ async function generateUniqueMatricule(service: string, structure: string): Prom
     if (!taken) return candidate;
   }
 
-  // Collision improbable : élargir à 6 chiffres une fois
   for (let i = 0; i < 40; i++) {
     const suffix = String(randomInt(0, 1_000_000)).padStart(6, "0");
     const candidate = `${prefix}${suffix}`;
@@ -57,7 +61,7 @@ async function generateUniqueMatricule(service: string, structure: string): Prom
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    await requireRole(["HR", "ADMIN"]);
     const { searchParams } = request.nextUrl;
 
     const q = searchParams.get("q") || "";
@@ -86,7 +90,11 @@ export async function GET(request: NextRequest) {
     const [employees, total] = await Promise.all([
       prisma.employee.findMany({
         where,
-        include: { site: true, checkoutSite: true },
+        include: {
+          site: true,
+          checkoutSite: true,
+          whatsappPhones: { orderBy: { sortOrder: "asc" } },
+        },
         skip,
         take: limit,
         orderBy: { lastName: "asc" },
@@ -117,7 +125,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { matricule, whatsappPhone: whatsappPhoneInput, ...rest } = parsed.data;
+    const { matricule, whatsappPhone, whatsappPhone2, ...rest } = parsed.data;
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
       finalMatricule = await generateUniqueMatricule(rest.service, rest.structure);
@@ -128,20 +136,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
     }
 
-    const rawPhone = typeof whatsappPhoneInput === "string" ? whatsappPhoneInput.trim() : "";
-    const whatsappPhone = rawPhone ? normalizePhone(rawPhone) : undefined;
-
-    const data = {
-      ...rest,
-      matricule: finalMatricule,
-      siteId: rest.siteId?.trim() || undefined,
-      checkoutSiteId: rest.checkoutSiteId?.trim() || undefined,
-      whatsappPhone,
-    };
-
     const employee = await prisma.employee.create({
-      data,
-      include: { site: true, checkoutSite: true },
+      data: {
+        ...rest,
+        matricule: finalMatricule,
+        siteId: rest.siteId?.trim() || undefined,
+        checkoutSiteId: rest.checkoutSiteId?.trim() || undefined,
+      },
+      include: {
+        site: true,
+        checkoutSite: true,
+        whatsappPhones: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+
+    try {
+      await syncEmployeeWhatsappPhones(employee.id, [whatsappPhone, whatsappPhone2]);
+    } catch (e) {
+      await prisma.employee.delete({ where: { id: employee.id } });
+      if (e instanceof EmployeeWhatsappError) {
+        return NextResponse.json({ error: e.message }, { status: 409 });
+      }
+      throw e;
+    }
+
+    const refreshed = await prisma.employee.findUnique({
+      where: { id: employee.id },
+      include: {
+        site: true,
+        checkoutSite: true,
+        whatsappPhones: { orderBy: { sortOrder: "asc" } },
+      },
     });
 
     await createAuditLog({
@@ -149,21 +174,24 @@ export async function POST(request: NextRequest) {
       action: "CREATE",
       entity: "Employee",
       entityId: employee.id,
-      after: employee,
+      after: refreshed,
     });
 
     let welcomeSent = false;
-    if (employee.active && employee.whatsappPhone) {
-      welcomeSent = await sendEmployeeWelcomeWhatsApp(employee.whatsappPhone, {
-        firstName: employee.firstName,
-        lastName: employee.lastName,
-        matricule: employee.matricule,
-        service: employee.service,
-        structure: employee.structure,
-      });
+    if (refreshed?.active) {
+      const phones = await getEmployeeWhatsappPhones(refreshed.id);
+      if (phones.length > 0) {
+        welcomeSent = await sendEmployeeWelcomeWhatsAppToPhones(phones, {
+          firstName: refreshed.firstName,
+          lastName: refreshed.lastName,
+          matricule: refreshed.matricule,
+          service: refreshed.service,
+          structure: refreshed.structure,
+        });
+      }
     }
 
-    return NextResponse.json({ data: employee, welcomeSent }, { status: 201 });
+    return NextResponse.json({ data: refreshed, welcomeSent }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });

@@ -196,8 +196,6 @@ model AttendanceRecord {
   breakEndTime    DateTime?       @map("break_end_time")
   breakDeductedMinutes Int?       @default(0) @map("break_deducted_minutes")
   breakMinutes    Int?            @default(0) @map("break_minutes")
-  /** Motif si pause mesurée > durée attendue (60 min) */
-  breakComment    String?         @map("break_comment")
   totalMinutes       Int?            @map("total_minutes")
   overtimeMinutes    Int?            @default(0) @map("overtime_minutes")
   overtimeStatus     OvertimeStatus? @map("overtime_status")
