@@ -44,6 +44,8 @@ interface Employee {
   active: boolean;
   siteId?: string | null;
   site?: { id: string; name: string } | null;
+  checkoutSiteId?: string | null;
+  checkoutSite?: { id: string; name: string } | null;
   departureDate?: string | null;
   departureReason?: DepartureReasonCode | null;
   departureNote?: string | null;
@@ -69,6 +71,7 @@ const employeeSchema = z.object({
   structure: z.enum(["SCPB", "AFREXIA"]).default("SCPB"),
   whatsappPhone: z.string().optional(),
   siteId: z.string().optional(),
+  checkoutSiteId: z.string().optional(),
 });
 
 const createEmployeeSchema = employeeSchema.omit({ matricule: true });
@@ -94,6 +97,7 @@ export default function EmployeesPage() {
     structure: "SCPB",
     whatsappPhone: "",
     siteId: "",
+    checkoutSiteId: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -262,7 +266,7 @@ export default function EmployeesPage() {
 
   const exportPdf = async () => {
     const { jsPDF } = await import("jspdf");
-    const autoTable = (await import("jspdf-autotable")).default;
+    const { autoTable } = await import("jspdf-autotable");
     const all = await fetchAllEmployees();
 
     const doc = new jsPDF({ orientation: "landscape" });
@@ -330,7 +334,7 @@ export default function EmployeesPage() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", siteId: "" });
+    setForm({ matricule: "", firstName: "", lastName: "", service: "", structure: "SCPB", whatsappPhone: "", siteId: "", checkoutSiteId: "" });
     setErrors({});
     setModalOpen(true);
   };
@@ -345,6 +349,7 @@ export default function EmployeesPage() {
       structure: emp.structure ?? "SCPB",
       whatsappPhone: emp.whatsappPhone ?? "",
       siteId: emp.siteId ?? emp.site?.id ?? "",
+      checkoutSiteId: emp.checkoutSiteId ?? emp.checkoutSite?.id ?? "",
     });
     setErrors({});
     setModalOpen(true);
@@ -1071,28 +1076,51 @@ export default function EmployeesPage() {
                   )}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Zone de travail (site)
-                </label>
-                <select
-                  value={form.siteId}
-                  onChange={(e) =>
-                    setForm({ ...form, siteId: e.target.value })
-                  }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                >
-                  <option value="">Aucun site</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  Requis pour valider le pointage par géolocalisation.
-                </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Zone de travail 1
+                  </label>
+                  <select
+                    value={form.siteId}
+                    onChange={(e) =>
+                      setForm({ ...form, siteId: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                  >
+                    <option value="">Aucune</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Zone de travail 2 (optionnel)
+                  </label>
+                  <select
+                    value={form.checkoutSiteId}
+                    onChange={(e) =>
+                      setForm({ ...form, checkoutSiteId: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
+                  >
+                    <option value="">Une seule zone</option>
+                    {sites
+                      .filter((s) => s.id !== form.siteId)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </div>
+              <p className="text-xs text-slate-400 -mt-2">
+                L&apos;employé peut pointer (arrivée, pause, départ) s&apos;il se trouve dans l&apos;une ou l&apos;autre zone — par ex. bureau et usine.
+              </p>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                   Téléphone WhatsApp

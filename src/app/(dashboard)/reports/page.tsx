@@ -130,6 +130,7 @@ export default function ReportsPage() {
   const [service, setService] = useState("");
   const [structure, setStructure] = useState("");
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -207,16 +208,21 @@ export default function ReportsPage() {
     if (!dateFrom || !dateTo) return;
     setLoading(true);
     try {
-      const searchTrimmed = employeeSearch.trim();
       const params = new URLSearchParams({
         dateFrom,
         dateTo,
         ...(service.trim() && { service: service.trim() }),
         ...(structure && { structure }),
-        ...(searchTrimmed && { search: searchTrimmed }),
+        ...(selectedEmployeeId && { employeeId: selectedEmployeeId }),
+        ...(!selectedEmployeeId &&
+          employeeSearch.trim() && { search: employeeSearch.trim() }),
       });
       const res = await fetch(`/api/reports?${params}`);
       const json = await res.json();
+      if (!res.ok) {
+        alert(typeof json.error === "string" ? json.error : "Impossible de générer le rapport");
+        return;
+      }
       setRows(json.data ?? []);
       setSummary(json.summary ?? null);
       setByDay(json.charts?.byDay ?? []);
@@ -233,7 +239,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, service, structure, employeeSearch]);
+  }, [dateFrom, dateTo, service, structure, employeeSearch, selectedEmployeeId]);
 
   const handleSort = (field: keyof ReportRow) => {
     if (sortField === field) {
@@ -251,7 +257,16 @@ export default function ReportsPage() {
     return sortDir === "asc" ? (va as number) - (vb as number) : (vb as number) - (va as number);
   });
 
+  const exportFileSuffix = selectedEmployeeId
+    ? `_employe`
+    : "";
+
   const exportExcel = async () => {
+    if (rows.length === 0) {
+      alert("Aucune donnée à exporter. Générez d'abord un rapport.");
+      return;
+    }
+    try {
     const ExcelJS = (await import("exceljs")).default;
     const workbook = new ExcelJS.Workbook();
 
@@ -280,7 +295,23 @@ export default function ReportsPage() {
     const allSheet = workbook.addWorksheet("Tous");
     allSheet.columns = cols;
     styleHeader(allSheet);
-    rows.forEach((row) => allSheet.addRow(row));
+    rows.forEach((row) =>
+      allSheet.addRow({
+        matricule: row.matricule,
+        name: row.name,
+        structure: row.structure,
+        service: row.service,
+        totalDays: row.totalDays,
+        presents: row.presents,
+        absents: row.absents,
+        retards: row.retards,
+        missions: row.missions,
+        permissions: row.permissions,
+        totalHours: row.totalHours,
+        overtimeHours: row.overtimeHours,
+        punctualityRate: row.punctualityRate,
+      })
+    );
     if (summary) {
       allSheet.addRow({});
       allSheet.addRow({ matricule: "RÉSUMÉ" });
@@ -297,7 +328,23 @@ export default function ReportsPage() {
       const sheet = workbook.addWorksheet(struct);
       sheet.columns = cols;
       styleHeader(sheet);
-      structRows.forEach((row) => sheet.addRow(row));
+      structRows.forEach((row) =>
+        sheet.addRow({
+          matricule: row.matricule,
+          name: row.name,
+          structure: row.structure,
+          service: row.service,
+          totalDays: row.totalDays,
+          presents: row.presents,
+          absents: row.absents,
+          retards: row.retards,
+          missions: row.missions,
+          permissions: row.permissions,
+          totalHours: row.totalHours,
+          overtimeHours: row.overtimeHours,
+          punctualityRate: row.punctualityRate,
+        })
+      );
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -305,14 +352,23 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `rapport_${dateFrom}_${dateTo}.xlsx`;
+    a.download = `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'export Excel.");
+    }
   };
 
   const exportPdf = async () => {
+    if (rows.length === 0) {
+      alert("Aucune donnée à exporter. Générez d'abord un rapport.");
+      return;
+    }
+    try {
     const { jsPDF } = await import("jspdf");
-    const autoTable = (await import("jspdf-autotable")).default;
+    const { autoTable } = await import("jspdf-autotable");
 
     const doc = new jsPDF({ orientation: "landscape" });
     doc.setFontSize(16);
@@ -377,7 +433,11 @@ export default function ReportsPage() {
       });
     }
 
-    doc.save(`rapport_${dateFrom}_${dateTo}.pdf`);
+    doc.save(`rapport_${dateFrom}_${dateTo}${exportFileSuffix}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'export PDF.");
+    }
   };
 
   const SortIcon = ({ field }: { field: keyof ReportRow }) => {
@@ -472,11 +532,27 @@ export default function ReportsPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 <input
                   value={employeeSearch}
-                  onChange={(e) => setEmployeeSearch(e.target.value)}
+                  onChange={(e) => {
+                    setEmployeeSearch(e.target.value);
+                    setSelectedEmployeeId(null);
+                  }}
                   onFocus={() => employeeSearch.trim().length >= 2 && employeeSuggestions.length > 0 && setShowEmployeeDropdown(true)}
                   placeholder="Rechercher (nom, prénom, matricule)…"
-                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-slate-400"
+                  className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-slate-400"
                 />
+                {selectedEmployeeId && (
+                  <button
+                    type="button"
+                    title="Effacer la sélection"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-medium"
+                    onClick={() => {
+                      setSelectedEmployeeId(null);
+                      setEmployeeSearch("");
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
                 {loadingSuggestions && (
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">…</span>
                 )}
@@ -488,7 +564,8 @@ export default function ReportsPage() {
                           type="button"
                           className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                           onClick={() => {
-                            setEmployeeSearch(`${emp.lastName} ${emp.firstName}`);
+                            setSelectedEmployeeId(emp.id);
+                            setEmployeeSearch(`${emp.lastName} ${emp.firstName} (${emp.matricule})`);
                             setShowEmployeeDropdown(false);
                             setEmployeeSuggestions([]);
                           }}

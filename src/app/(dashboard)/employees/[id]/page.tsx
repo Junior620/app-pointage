@@ -70,6 +70,7 @@ export default async function EmployeeDetailPage({
     where: { id },
     include: {
       site: true,
+      checkoutSite: true,
       attendances: {
         where: { date: { gte: rangeFrom, lte: rangeTo } },
         orderBy: { date: "desc" },
@@ -204,7 +205,13 @@ export default async function EmployeeDetailPage({
               {employee.site && (
                 <span className="flex items-center gap-1.5">
                   <MapPin className="w-4 h-4" />
-                  {employee.site.name}
+                  Zone 1 : {employee.site.name}
+                </span>
+              )}
+              {employee.checkoutSite && employee.checkoutSite.id !== employee.site?.id && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4" />
+                  Zone 2 : {employee.checkoutSite.name}
                 </span>
               )}
             </div>

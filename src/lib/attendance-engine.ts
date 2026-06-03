@@ -10,6 +10,7 @@ import {
 } from "./utils";
 import type { GeoPoint } from "@/types";
 import type { CheckInStatus } from "@prisma/client";
+import { findMatchingWorkSite, getEmployeeWorkSites } from "./employee-sites";
 
 type CheckResult = {
   success: boolean;
@@ -22,7 +23,10 @@ type CheckResult = {
 async function getScheduleForEmployee(employeeId: string) {
   const employee = await prisma.employee.findUnique({
     where: { id: employeeId },
-    include: { site: { include: { schedules: true } } },
+    include: {
+      site: { include: { schedules: true } },
+      checkoutSite: true,
+    },
   });
 
   if (!employee?.site?.schedules?.[0]) return null;
@@ -139,9 +143,14 @@ export async function verifyGeofence(
   point: GeoPoint,
   actionType: string
 ): Promise<{ allowed: boolean; distance: number }> {
-  const data = await getScheduleForEmployee(employeeId);
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    include: { site: true, checkoutSite: true },
+  });
 
-  if (!data) {
+  const workSites = employee ? getEmployeeWorkSites(employee) : [];
+
+  if (!employee || workSites.length === 0) {
     await prisma.fraudAttempt.create({
       data: {
         employeeId,
@@ -154,12 +163,12 @@ export async function verifyGeofence(
     return { allowed: false, distance: -1 };
   }
 
-  const center: GeoPoint = {
-    lat: data.site.centerLat,
-    lng: data.site.centerLng,
-  };
-  const distance = haversineDistance(point, center);
-  const allowed = isWithinZone(point, center, data.site.radiusM);
+  const { allowed, distance } = findMatchingWorkSite(
+    employee,
+    point,
+    isWithinZone,
+    haversineDistance
+  );
 
   if (!allowed) {
     await prisma.fraudAttempt.create({
@@ -167,13 +176,13 @@ export async function verifyGeofence(
         employeeId,
         lat: point.lat,
         lng: point.lng,
-        distanceM: Math.round(distance),
+        distanceM: distance,
         type: actionType,
       },
     });
   }
 
-  return { allowed, distance: Math.round(distance) };
+  return { allowed, distance };
 }
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
@@ -210,7 +219,7 @@ export async function processCheckIn(
   if (!geo.allowed) {
     return {
       success: false,
-      message: `Vous n'êtes pas dans la zone de travail (${geo.distance}m). Pointage refusé.`,
+      message: `Vous n'êtes dans aucune de vos zones de travail (à ${geo.distance} m). Pointage refusé.`,
     };
   }
 
@@ -303,7 +312,7 @@ export async function processCheckOut(
   if (!geo.allowed) {
     return {
       success: false,
-      message: `Vous n'êtes pas dans la zone de travail (${geo.distance}m). Pointage refusé.`,
+      message: `Vous n'êtes dans aucune de vos zones de travail (à ${geo.distance} m). Pointage refusé.`,
     };
   }
 
@@ -497,7 +506,7 @@ export async function processBreakStart(
   if (!geo.allowed) {
     return {
       success: false,
-      message: `Vous n'êtes pas dans la zone de travail (${geo.distance}m). Pointage refusé.`,
+      message: `Vous n'êtes dans aucune de vos zones de travail (à ${geo.distance} m). Pointage refusé.`,
     };
   }
 
@@ -552,7 +561,7 @@ export async function processBreakEnd(
   if (!geo.allowed) {
     return {
       success: false,
-      message: `Vous n'êtes pas dans la zone de travail (${geo.distance}m). Pointage refusé.`,
+      message: `Vous n'êtes dans aucune de vos zones de travail (à ${geo.distance} m). Pointage refusé.`,
     };
   }
 
