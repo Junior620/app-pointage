@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Plus, UserCog, X, Shield, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -31,8 +30,6 @@ const emptyForm = {
 };
 
 export default function UsersAdminClient({ currentUserId }: { currentUserId: string }) {
-  const router = useRouter();
-  const [accessOk, setAccessOk] = useState(false);
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -57,12 +54,11 @@ export default function UsersAdminClient({ currentUserId }: { currentUserId: str
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
-    if (!accessOk) return;
     void load();
-  }, [accessOk, load]);
+  }, [load]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,14 +127,6 @@ export default function UsersAdminClient({ currentUserId }: { currentUserId: str
     }
     await load();
   };
-
-  if (!accessOk) {
-    return (
-      <div className="flex items-center justify-center py-24 text-slate-500 text-sm">
-        Vérification des droits…
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
