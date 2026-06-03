@@ -1,7 +1,16 @@
 import ExcelJS from "exceljs";
 import { prisma } from "./prisma";
 import { startOfLocalDay, toInputDateLocal } from "./period-range";
-import { isWorkingDay } from "./utils";
+import { isWorkingDay, parseDateInputForDbDate } from "./utils";
+
+/** Clé calendrier alignée sur les dates @db.Date (UTC midi). */
+function dateKeyFromDbDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function dateKeyFromLocalDay(d: Date): string {
+  return toInputDateLocal(startOfLocalDay(d));
+}
 
 export type AttendanceExportPreset = "week" | "month" | "custom";
 
@@ -102,6 +111,9 @@ export async function fetchAttendanceExportLines(
 ): Promise<AttendanceExportLine[]> {
   if (employeeIds.length === 0) return [];
 
+  const rangeFromDb = parseDateInputForDbDate(toInputDateLocal(from));
+  const rangeToDb = parseDateInputForDbDate(toInputDateLocal(to));
+
   const employees = await prisma.employee.findMany({
     where: { id: { in: employeeIds } },
     select: {
@@ -118,25 +130,20 @@ export async function fetchAttendanceExportLines(
   const records = await prisma.attendanceRecord.findMany({
     where: {
       employeeId: { in: employeeIds },
-      date: { gte: from, lte: to },
+      date: { gte: rangeFromDb, lte: rangeToDb },
     },
     orderBy: [{ date: "asc" }, { employeeId: "asc" }],
   });
 
   const recordByKey = new Map<string, (typeof records)[number]>(
-    records.map((r) => {
-      const dk = `${r.date.getUTCFullYear()}-${String(r.date.getUTCMonth() + 1).padStart(2, "0")}-${String(r.date.getUTCDate()).padStart(2, "0")}`;
-      return [`${r.employeeId}:${dk}`, r];
-    })
+    records.map((r) => [`${r.employeeId}:${dateKeyFromDbDate(r.date)}`, r])
   );
 
   const holidays = await prisma.holiday.findMany({
-    where: { date: { gte: from, lte: to } },
+    where: { date: { gte: rangeFromDb, lte: rangeToDb } },
     select: { date: true },
   });
-  const holidaySet = new Set(
-    holidays.map((h) => h.date.toISOString().slice(0, 10))
-  );
+  const holidaySet = new Set(holidays.map((h) => dateKeyFromDbDate(h.date)));
 
   const lines: AttendanceExportLine[] = [];
 
@@ -144,8 +151,8 @@ export async function fetchAttendanceExportLines(
     const cursor = startOfLocalDay(new Date(from));
     const end = startOfLocalDay(new Date(to));
     while (cursor <= end) {
-      const key = `${emp.id}:${toInputDateLocal(cursor)}`;
-      const dayKey = toInputDateLocal(cursor);
+      const dayKey = dateKeyFromLocalDay(cursor);
+      const key = `${emp.id}:${dayKey}`;
       const isWork = isWorkingDay(cursor) && !holidaySet.has(dayKey);
       if (!isWork) {
         cursor.setDate(cursor.getDate() + 1);

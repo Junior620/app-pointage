@@ -173,7 +173,20 @@ export async function PUT(request: NextRequest) {
     }
 
     if (updates.checkOutStatus) data.checkOutStatus = updates.checkOutStatus;
-    if (updates.finalStatus) data.finalStatus = updates.finalStatus;
+    if (updates.finalStatus) {
+      data.finalStatus = updates.finalStatus;
+      if (
+        updates.finalStatus === "PRESENT" &&
+        checkInTime &&
+        !updates.checkInStatus
+      ) {
+        data.checkInStatus = await deriveCheckInStatus(
+          before.employeeId,
+          before.date,
+          checkInTime
+        );
+      }
+    }
     if (updates.comment !== undefined) data.checkInComment = updates.comment;
     if (updates.breakComment !== undefined) {
       data.breakComment = updates.breakComment?.trim() || null;

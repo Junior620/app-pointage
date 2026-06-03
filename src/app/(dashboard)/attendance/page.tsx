@@ -319,19 +319,29 @@ export default function AttendancePage() {
     if (!detailRecord) return;
     setSubmitting(true);
     try {
+      const payload: Record<string, unknown> = {
+        id: detailRecord.id,
+        comment: editComment,
+        finalStatus: editFinalStatus,
+        checkInStatus: editCheckInStatus || undefined,
+        checkInTimeHm: editCheckInHm || undefined,
+        checkOutTimeHm: editCheckOutHm || undefined,
+      };
+      if (editBreakStartHm) {
+        payload.breakStartTimeHm = editBreakStartHm;
+      } else if (detailRecord.breakStartTime) {
+        payload.breakStartTimeHm = null;
+      }
+      if (editBreakEndHm) {
+        payload.breakEndTimeHm = editBreakEndHm;
+      } else if (detailRecord.breakEndTime) {
+        payload.breakEndTimeHm = null;
+      }
+
       const res = await fetch("/api/attendance", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: detailRecord.id,
-          comment: editComment,
-          finalStatus: editFinalStatus,
-          checkInStatus: editCheckInStatus || undefined,
-          checkInTimeHm: editCheckInHm || undefined,
-          checkOutTimeHm: editCheckOutHm || undefined,
-          breakStartTimeHm: editBreakStartHm ? editBreakStartHm : null,
-          breakEndTimeHm: editBreakEndHm ? editBreakEndHm : null,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {

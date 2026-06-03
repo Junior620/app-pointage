@@ -5,15 +5,19 @@ type EmployeeWithSites = {
   checkoutSite: Site | null;
 };
 
-/** Jusqu'à 2 zones : pointage accepté si l'employé est dans l'une ou l'autre (tous types de pointage). */
+function isSiteEligible(site: Site | null): site is Site {
+  return Boolean(site && site.active);
+}
+
+/** Jusqu'à 2 zones actives : pointage accepté si l'employé est dans l'une ou l'autre. */
 export function getEmployeeWorkSites(employee: EmployeeWithSites): Site[] {
   const sites: Site[] = [];
-  if (employee.site) sites.push(employee.site);
-  if (
-    employee.checkoutSite &&
-    employee.checkoutSite.id !== employee.site?.id
-  ) {
-    sites.push(employee.checkoutSite);
+  const seen = new Set<string>();
+
+  for (const site of [employee.site, employee.checkoutSite]) {
+    if (!isSiteEligible(site) || seen.has(site.id)) continue;
+    seen.add(site.id);
+    sites.push(site);
   }
   return sites;
 }

@@ -5,6 +5,7 @@ import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
+const STANDARD_LUNCH_END = "13:30";
 
 function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
@@ -29,12 +30,12 @@ export async function GET(request: NextRequest) {
   }
 
   const now = new Date();
-  const sendAt = parseTimeString("13:30", today, APP_TIMEZONE);
-  const sendUntil = new Date(sendAt.getTime() + 30 * 60 * 1000);
-  if (now < sendAt || now >= sendUntil) {
+  const windowStart = parseTimeString(STANDARD_LUNCH_END, today, APP_TIMEZONE);
+  const windowUntil = new Date(windowStart.getTime() + 45 * 60 * 1000);
+  if (now < windowStart || now >= windowUntil) {
     return NextResponse.json({
       success: true,
-      message: "Hors fenêtre rappel fin de pause (13h30)",
+      message: `Hors fenêtre rappel fin de pause (${STANDARD_LUNCH_END})`,
       count: 0,
     });
   }
@@ -56,10 +57,14 @@ export async function GET(request: NextRequest) {
   for (const record of records) {
     if (!record.employee.active || !record.employee.whatsappPhone) continue;
 
-    const expectedEnd = new Date(
+    const lunchEnd = parseTimeString(STANDARD_LUNCH_END, today, APP_TIMEZONE);
+    const pauseEndFromStart = new Date(
       record.breakStartTime!.getTime() + BREAK_EXPECTED_DURATION_MIN * 60 * 1000
     );
-    if (now < expectedEnd) continue;
+    const expectedReturn = new Date(
+      Math.max(lunchEnd.getTime(), pauseEndFromStart.getTime())
+    );
+    if (now < expectedReturn) continue;
 
     await sendWhatsAppMessage(
       record.employee.whatsappPhone,
