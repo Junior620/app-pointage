@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee } from "@/lib/employee-whatsapp";
 import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
@@ -20,9 +20,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, message: "Week-end — pas de rappel pause", count: 0 });
   }
 
-  const holiday = await prisma.holiday.findFirst({
-    where: { date: new Date(today.getFullYear(), today.getMonth(), today.getDate()) },
-  });
+  const holiday = await prisma.holiday.findFirst({ where: { date: today } });
   if (holiday) {
     return NextResponse.json({ success: true, message: "Jour férié — pas de rappel pause", count: 0 });
   }
@@ -43,20 +41,28 @@ export async function GET(request: NextRequest) {
       date: today,
       checkInTime: { not: null },
       checkOutTime: null,
+      breakStartTime: null,
     },
     include: {
-      employee: { select: { firstName: true, whatsappPhone: true, active: true } },
+      employee: {
+        select: { id: true, firstName: true, whatsappPhone: true, active: true },
+      },
     },
   });
 
   let count = 0;
   for (const record of records) {
-    if (!record.employee.active || !record.employee.whatsappPhone) continue;
-    await sendWhatsAppMessage(
-      record.employee.whatsappPhone,
-      `☕ *Rappel pause (12h30)*\n\nBonjour ${record.employee.firstName}, c'est l'heure de la pause.\n\nTapez *début pause* ou *13* pour pointer votre départ en pause.`
-    );
-    count++;
+    if (!record.employee.active) continue;
+    const text =
+      `☕ *Rappel pause (12h30)*\n\n` +
+      `Bonjour ${record.employee.firstName}, c'est l'heure de la pause déjeuner.\n\n` +
+      `Tapez *début pause* ou *13* pour pointer votre départ en pause.`;
+    try {
+      await sendWhatsAppToEmployee(record.employee.id, text);
+      count++;
+    } catch (e) {
+      console.error("[pause-start-reminder]", record.employee.id, e);
+    }
   }
 
   return NextResponse.json({ success: true, message: `Rappel pause début envoyé à ${count} employé(s)`, count });
