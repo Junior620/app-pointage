@@ -13,16 +13,12 @@
       "schedule": "5 17 * * 1-6"
     },
     {
-      "path": "/api/cron/weekly-summary",
-      "schedule": "0 12 * * 6"
-    },
-    {
       "path": "/api/cron/overtime-reminder",
       "schedule": "0 8 * * 1-5"
     },
     {
       "path": "/api/cron/pause-start-reminder",
-      "schedule": "*/5 11 * * 1-5"
+      "schedule": "30 11 * * 1-5"
     },
     {
       "path": "/api/cron/pause-end-reminder",
