@@ -27,7 +27,7 @@ export default function QrChatbotPage() {
           <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 flex items-start gap-3 text-left">
             <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-amber-800">QR code non disponible</p>
+              <p className="text-sm font-medium text-amber-800">QR code non disponibles</p>
               <p className="text-xs text-amber-700 mt-1">
                 Configurez <code className="bg-amber-100 px-1 rounded">WHATSAPP_BUSINESS_PHONE</code> dans les variables d&apos;environnement (format international sans +, ex. 237690000000).
               </p>
