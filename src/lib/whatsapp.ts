@@ -118,10 +118,9 @@ export async function sendWhatsAppLocationRequest(
       type: "text",
       text: {
         body:
-          `📍 Pour valider votre pointage, *cliquez sur le lien* ci-dessous.\n\n` +
-          `Votre position sera enregistrée *à l’instant* (GPS en direct).\n\n` +
-          `${geolocUrl}\n\n` +
-          `Ouvrez le lien puis appuyez sur « Récupérer ma position maintenant ».`,
+          `📍 *Pointage GPS*\n\nCliquez sur le lien ci-dessous : votre position sera récupérée et le pointage enregistré *automatiquement*.\n\n` +
+          `Autorisez la localisation si le navigateur le demande.\n\n` +
+          `${geolocUrl}`,
       },
     }),
   });
