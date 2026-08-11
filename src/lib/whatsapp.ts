@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { buildGeolocUrl } from "./geoloc-link";
 
 const WHATSAPP_API_URL = "https://graph.facebook.com/v21.0";
 
@@ -103,7 +104,7 @@ export async function sendWhatsAppLocationRequest(
 
   const toNumber = toWhatsAppPhone(to);
   const base = baseUrl?.startsWith("http://") || baseUrl?.startsWith("https://") ? baseUrl : `http://${baseUrl || "localhost:3000"}`;
-  const geolocUrl = `${base.replace(/\/$/, "")}/geoloc?phone=${encodeURIComponent(toNumber)}&action=${action}`;
+  const geolocUrl = buildGeolocUrl(base, toNumber, action);
   const apiUrl = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
   const response = await fetch(apiUrl, {
@@ -118,8 +119,7 @@ export async function sendWhatsAppLocationRequest(
       type: "text",
       text: {
         body:
-          `📍 *Pointage GPS*\n\nCliquez sur le lien ci-dessous : votre position sera récupérée et le pointage enregistré *automatiquement*.\n\n` +
-          `Autorisez la localisation si le navigateur le demande.\n\n` +
+          `📍 *Pointage GPS*\n\nCliquez sur le *lien d'aujourd'hui* ci-dessous (valable 15 min).\nNe réutilisez pas un ancien lien.\n\n` +
           `${geolocUrl}`,
       },
     }),

@@ -25,6 +25,8 @@ function GeolocForm() {
   const searchParams = useSearchParams();
   const phone = searchParams.get("phone") ?? "";
   const action = searchParams.get("action") ?? "";
+  const exp = searchParams.get("exp") ?? "";
+  const sig = searchParams.get("sig") ?? "";
 
   const [geoError, setGeoError] = useState("");
   const [geoLoading, setGeoLoading] = useState(false);
@@ -33,11 +35,13 @@ function GeolocForm() {
   const [lateReason, setLateReason] = useState("");
   const [lateSubmitting, setLateSubmitting] = useState(false);
   const [lateSent, setLateSent] = useState(false);
+  const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const hasStartedRef = useRef(false);
   const hasSubmittedRef = useRef(false);
 
   const isValidAction = VALID_ACTIONS.includes(action as GeolocAction);
+  const needsConfirm = action === "CHECK_OUT";
 
   const submitPointage = useCallback(
     async (lat: number, lng: number) => {
@@ -48,13 +52,16 @@ function GeolocForm() {
         const res = await fetch("/api/geoloc", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, lat, lng, action }),
+          body: JSON.stringify({ phone, lat, lng, action, exp, sig }),
         });
         const json = await res.json();
         const data = json.data ?? json;
         setResult({
           success: res.ok,
-          message: data.message ?? (res.ok ? "Pointage enregistré" : "Erreur"),
+          message:
+            data.message ??
+            json.error ??
+            (res.ok ? "Pointage enregistré" : "Erreur"),
           status: data.status,
           needsLateReason: Boolean(res.ok && data.status === "LATE" && data.needsLateReason),
         });
@@ -66,13 +73,14 @@ function GeolocForm() {
         setGeoLoading(false);
       }
     },
-    [phone, action]
+    [phone, action, exp, sig]
   );
 
   const requestGeolocation = useCallback(() => {
     setGeoLoading(true);
     setGeoError("");
     setResult(null);
+    setPendingCoords(null);
     hasSubmittedRef.current = false;
 
     if (!navigator.geolocation) {
@@ -83,7 +91,14 @@ function GeolocForm() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        void submitPointage(position.coords.latitude, position.coords.longitude);
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setGeoLoading(false);
+        if (needsConfirm) {
+          setPendingCoords({ lat, lng });
+          return;
+        }
+        void submitPointage(lat, lng);
       },
       (error) => {
         switch (error.code) {
@@ -105,7 +120,7 @@ function GeolocForm() {
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
-  }, [submitPointage]);
+  }, [submitPointage, needsConfirm]);
 
   useEffect(() => {
     if (!phone || !isValidAction) {
@@ -247,6 +262,32 @@ function GeolocForm() {
             <p className="text-slate-400 text-xs mt-2">
               Autorisez la localisation si le navigateur le demande
             </p>
+          </div>
+        )}
+
+        {pendingCoords && !busy && (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+              Position récupérée. Vous allez enregistrer votre <strong>départ</strong>.
+              Confirmez uniquement si vous quittez réellement le site.
+            </div>
+            <button
+              type="button"
+              onClick={() => void submitPointage(pendingCoords.lat, pendingCoords.lng)}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl"
+            >
+              Confirmer le départ
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingCoords(null);
+                hasStartedRef.current = false;
+              }}
+              className="w-full py-2 text-sm text-slate-500"
+            >
+              Annuler
+            </button>
           </div>
         )}
 

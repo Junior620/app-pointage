@@ -14,6 +14,7 @@ import {
 } from "@/lib/employee-whatsapp";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { todayDate } from "@/lib/utils";
+import { verifyGeolocLink } from "@/lib/geoloc-link";
 
 const geolocSchema = z.object({
   phone: z.string().min(1, "Le numéro de téléphone est requis"),
@@ -21,6 +22,8 @@ const geolocSchema = z.object({
   lng: z.number().optional(),
   action: z.enum(["CHECK_IN", "CHECK_OUT", "BREAK_START", "BREAK_END", "LATE_REASON"]),
   comment: z.string().optional(),
+  exp: z.union([z.string(), z.number()]).optional(),
+  sig: z.string().optional(),
 });
 
 async function notifyEmployee(
@@ -50,6 +53,18 @@ export async function POST(request: NextRequest) {
     }
 
     const { phone, action, comment } = parsed.data;
+
+    if (action !== "LATE_REASON") {
+      const link = verifyGeolocLink({
+        phone,
+        action,
+        exp: parsed.data.exp,
+        sig: parsed.data.sig,
+      });
+      if (!link.ok) {
+        return NextResponse.json({ error: link.message }, { status: 400 });
+      }
+    }
 
     const employee = await findEmployeeByWhatsappPhone(phone);
     if (!employee) {
