@@ -205,6 +205,10 @@ model AttendanceRecord {
   overtimeValidatedBy String?        @map("overtime_validated_by")
   overtimeValidatedAt DateTime?      @map("overtime_validated_at")
   finalStatus        FinalStatus     @default(PRESENT) @map("final_status")
+  /** Motif type de correction RH */
+  correctionReason   String?         @map("correction_reason")
+  /** Justificatif (URL Storage) */
+  correctionDocument String?         @map("correction_document")
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 

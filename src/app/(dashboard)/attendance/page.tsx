@@ -18,6 +18,11 @@ import {
   Timer,
 } from "lucide-react";
 import { cn, formatTime, formatTimeHm, todayDate } from "@/lib/utils";
+import {
+  CORRECTION_REASON_CODES,
+  CORRECTION_REASON_LABELS,
+  overtimeToHm,
+} from "@/lib/correction-reasons";
 
 interface AttendanceRecord {
   id: string;
@@ -41,6 +46,10 @@ interface AttendanceRecord {
   totalMinutes: number | null;
   overtimeMinutes: number | null;
   overtimeStatus: string | null;
+  overtimeReason?: string | null;
+  breakComment?: string | null;
+  correctionReason?: string | null;
+  correctionDocument?: string | null;
   finalStatus: string;
 }
 
@@ -142,6 +151,20 @@ function toDateInputValue(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function countInclusiveDays(from: string, to: string, workingDaysOnly: boolean): number {
+  const start = new Date(`${from}T12:00:00Z`);
+  const end = new Date(`${to}T12:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return 0;
+  let n = 0;
+  const cursor = new Date(start);
+  while (cursor.getTime() <= end.getTime()) {
+    const dow = cursor.getUTCDay();
+    if (!workingDaysOnly || (dow >= 1 && dow <= 5)) n += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return n;
+}
+
 export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,8 +185,20 @@ export default function AttendancePage() {
   const [editCheckInStatus, setEditCheckInStatus] = useState("");
   const [editCheckInHm, setEditCheckInHm] = useState("");
   const [editCheckOutHm, setEditCheckOutHm] = useState("");
+  const [editCheckOutStatus, setEditCheckOutStatus] = useState("");
   const [editBreakStartHm, setEditBreakStartHm] = useState("");
   const [editBreakEndHm, setEditBreakEndHm] = useState("");
+  const [editCheckOutComment, setEditCheckOutComment] = useState("");
+  const [editBreakComment, setEditBreakComment] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [editOvertimeHm, setEditOvertimeHm] = useState("");
+  const [editOvertimeStatus, setEditOvertimeStatus] = useState("");
+  const [editOvertimeReason, setEditOvertimeReason] = useState("");
+  const [editCheckInHmInitial, setEditCheckInHmInitial] = useState("");
+  const [bulkFrom, setBulkFrom] = useState("");
+  const [bulkTo, setBulkTo] = useState("");
+  const [bulkWorkingDays, setBulkWorkingDays] = useState(true);
+  const [docFile, setDocFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const canCorrect = userRole === "HR" || userRole === "ADMIN";
   const perPage = 20;
@@ -297,54 +332,166 @@ export default function AttendancePage() {
         (r) => r.finalStatus === "MISSION" || r.finalStatus === "PERMISSION"
       ).length;
 
-  const openDetail = (record: AttendanceRecord) => {
+  const fillEditForm = (record: AttendanceRecord, startInEdit = false) => {
     setDetailRecord(record);
-    setEditMode(false);
-    setEditComment(record.checkInComment ?? "");
+    setEditMode(startInEdit);
+    setEditComment((record.checkInComment ?? "").replace(/^\[[^\]]+\]\s*/, ""));
     setEditFinalStatus(record.finalStatus);
     setEditCheckInStatus(record.checkInStatus ?? "");
-    setEditCheckInHm(formatTimeHm(record.checkInTime));
+    const inHm = formatTimeHm(record.checkInTime);
+    setEditCheckInHm(inHm);
+    setEditCheckInHmInitial(inHm);
     setEditCheckOutHm(formatTimeHm(record.checkOutTime));
+    setEditCheckOutStatus(record.checkOutStatus ?? "");
     setEditBreakStartHm(formatTimeHm(record.breakStartTime));
     setEditBreakEndHm(formatTimeHm(record.breakEndTime));
+    setEditCheckOutComment(record.checkOutComment ?? "");
+    setEditBreakComment(record.breakComment ?? "");
+    setEditReason(record.correctionReason ?? "");
+    setEditOvertimeHm(overtimeToHm(record.overtimeMinutes));
+    setEditOvertimeStatus(record.overtimeStatus ?? "");
+    setEditOvertimeReason(record.overtimeReason ?? "");
+    setBulkFrom(record.date.split("T")[0]);
+    setBulkTo(record.date.split("T")[0]);
+    setBulkWorkingDays(true);
+    setDocFile(null);
+  };
+
+  const openDetail = (record: AttendanceRecord) => fillEditForm(record, false);
+
+  const openCreateForEmployee = (emp: DayAttendanceRow) => {
+    fillEditForm(
+      {
+        id: "",
+        date: dateFrom,
+        employee: {
+          id: emp.id,
+          firstName: emp.firstName,
+          lastName: emp.lastName,
+          matricule: emp.matricule,
+          service: emp.service,
+        },
+        checkInTime: null,
+        checkInStatus: null,
+        checkInComment: null,
+        checkOutTime: null,
+        checkOutStatus: null,
+        checkOutComment: null,
+        breakStartTime: null,
+        breakEndTime: null,
+        breakMinutes: null,
+        totalMinutes: null,
+        overtimeMinutes: null,
+        overtimeStatus: null,
+        overtimeReason: null,
+        breakComment: null,
+        correctionReason: null,
+        correctionDocument: null,
+        finalStatus: "PRESENT",
+      },
+      true
+    );
+  };
+
+  const buildCorrectionPayload = () => {
+    const arrivalChanged = editCheckInHm !== editCheckInHmInitial;
+    const payload: Record<string, unknown> = {
+      comment: editComment,
+      finalStatus: editFinalStatus,
+      checkInTimeHm: editCheckInHm || undefined,
+      checkOutTimeHm: editCheckOutHm || undefined,
+      clearCheckIn: !editCheckInHm && Boolean(detailRecord?.checkInTime),
+      clearCheckOut: !editCheckOutHm && Boolean(detailRecord?.checkOutTime),
+      clearBreak:
+        !editBreakStartHm &&
+        !editBreakEndHm &&
+        Boolean(detailRecord?.breakStartTime || detailRecord?.breakEndTime),
+      checkOutComment: editCheckOutComment || null,
+      breakComment: editBreakComment || null,
+      correctionReason: editReason || null,
+      overtimeHm: editOvertimeHm || (detailRecord?.overtimeMinutes ? "00:00" : undefined),
+      overtimeStatus: editOvertimeHm ? editOvertimeStatus || null : null,
+      overtimeReason: editOvertimeReason || null,
+    };
+    if (arrivalChanged) {
+      payload.recalculateCheckInStatus = true;
+      if (editCheckInStatus) payload.checkInStatus = editCheckInStatus;
+    } else if (editCheckInStatus) {
+      payload.checkInStatus = editCheckInStatus;
+    }
+    if (editCheckOutHm && editCheckOutStatus) {
+      payload.checkOutStatus = editCheckOutStatus;
+    }
+    if (editBreakStartHm) payload.breakStartTimeHm = editBreakStartHm;
+    else if (detailRecord?.breakStartTime) payload.breakStartTimeHm = null;
+    if (editBreakEndHm) payload.breakEndTimeHm = editBreakEndHm;
+    else if (detailRecord?.breakEndTime) payload.breakEndTimeHm = null;
+    return payload;
   };
 
   const handleEditSave = async () => {
     if (!detailRecord) return;
     setSubmitting(true);
     try {
-      const payload: Record<string, unknown> = {
-        id: detailRecord.id,
-        comment: editComment,
-        finalStatus: editFinalStatus,
-        checkInStatus: editCheckInStatus || undefined,
-        checkInTimeHm: editCheckInHm || undefined,
-        checkOutTimeHm: editCheckOutHm || undefined,
-        clearCheckOut: !editCheckOutHm && Boolean(detailRecord.checkOutTime),
-      };
-      if (editBreakStartHm) {
-        payload.breakStartTimeHm = editBreakStartHm;
-      } else if (detailRecord.breakStartTime) {
-        payload.breakStartTimeHm = null;
-      }
-      if (editBreakEndHm) {
-        payload.breakEndTimeHm = editBreakEndHm;
-      } else if (detailRecord.breakEndTime) {
-        payload.breakEndTimeHm = null;
+      const payload = buildCorrectionPayload();
+      const isNew = !detailRecord.id;
+      const applyBulk = bulkFrom && bulkTo && bulkFrom !== bulkTo;
+
+      if (applyBulk) {
+        const dayCount = countInclusiveDays(bulkFrom, bulkTo, bulkWorkingDays);
+        const n = window.confirm(
+          `Appliquer cette correction sur ${dayCount} jour(s) du ${bulkFrom} au ${bulkTo} pour ${detailRecord.employee.firstName} ${detailRecord.employee.lastName} ?`
+        );
+        if (!n) {
+          setSubmitting(false);
+          return;
+        }
+        const res = await fetch("/api/attendance/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            employeeId: detailRecord.employee.id,
+            from: bulkFrom,
+            to: bulkTo,
+            workingDaysOnly: bulkWorkingDays,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(typeof json.error === "string" ? json.error : "Correction groupée impossible");
+          return;
+        }
+      } else {
+        const res = await fetch("/api/attendance", {
+          method: isNew ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            isNew
+              ? { ...payload, employeeId: detailRecord.employee.id, date: detailRecord.date.split("T")[0] }
+              : { ...payload, id: detailRecord.id }
+          ),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(typeof json.error === "string" ? json.error : "Correction impossible");
+          return;
+        }
+        const savedId = json.data?.id as string | undefined;
+        if (docFile && savedId) {
+          const fd = new FormData();
+          fd.append("file", docFile);
+          const up = await fetch(`/api/attendance/${savedId}/document`, { method: "POST", body: fd });
+          if (!up.ok) {
+            const uj = await up.json().catch(() => ({}));
+            alert(typeof uj.error === "string" ? uj.error : "Justificatif non envoyé (correction enregistrée).");
+          }
+        }
       }
 
-      const res = await fetch("/api/attendance", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(typeof json.error === "string" ? json.error : "Correction impossible");
-        return;
-      }
       setDetailRecord(null);
       fetchRecords();
+      fetchDayPayload();
     } catch (e) {
       console.error(e);
     } finally {
@@ -431,9 +578,19 @@ export default function AttendancePage() {
                       {e.matricule} — {e.service} — {e.structure}
                     </p>
                   </div>
-                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700">
-                    Absent
-                  </span>
+                  {canCorrect ? (
+                    <button
+                      type="button"
+                      onClick={() => openCreateForEmployee(e)}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      Créer / corriger ce jour
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700">
+                      Absent
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1053,6 +1210,32 @@ export default function AttendancePage() {
                       </p>
                     </div>
                   )}
+                  {detailRecord.correctionReason && (
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <p className="text-xs font-medium text-slate-500 mb-1">Motif type</p>
+                      <p className="text-sm text-slate-700">
+                        {CORRECTION_REASON_LABELS[
+                          detailRecord.correctionReason as keyof typeof CORRECTION_REASON_LABELS
+                        ] ?? detailRecord.correctionReason}
+                      </p>
+                    </div>
+                  )}
+                  {detailRecord.breakComment && (
+                    <div className="rounded-xl border border-slate-200 p-4">
+                      <p className="text-xs font-medium text-slate-500 mb-1">Motif pause</p>
+                      <p className="text-sm text-slate-700">{detailRecord.breakComment}</p>
+                    </div>
+                  )}
+                  {detailRecord.correctionDocument && detailRecord.id && (
+                    <a
+                      href={`/api/attendance/${detailRecord.id}/document`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-sm text-blue-600 hover:underline"
+                    >
+                      Voir le justificatif
+                    </a>
+                  )}
                 </div>
               )}
 
@@ -1082,9 +1265,21 @@ export default function AttendancePage() {
                       <input
                         type="time"
                         value={editCheckInHm}
-                        onChange={(e) => setEditCheckInHm(e.target.value)}
+                        onChange={(e) => {
+                          setEditCheckInHm(e.target.value);
+                          setEditCheckInStatus("");
+                        }}
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
                       />
+                      {editCheckInHm && (
+                        <button
+                          type="button"
+                          onClick={() => setEditCheckInHm("")}
+                          className="mt-1.5 text-xs font-medium text-red-600 hover:text-red-700"
+                        >
+                          Supprimer l&apos;arrivée
+                        </button>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -1095,7 +1290,7 @@ export default function AttendancePage() {
                         onChange={(e) => setEditCheckInStatus(e.target.value)}
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
                       >
-                        <option value="">—</option>
+                        <option value="">Auto (selon horaire)</option>
                         <option value="ON_TIME">À l&apos;heure</option>
                         <option value="LATE">Retard</option>
                       </select>
@@ -1120,6 +1315,20 @@ export default function AttendancePage() {
                         </button>
                       )}
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Type départ
+                      </label>
+                      <select
+                        value={editCheckOutStatus}
+                        onChange={(e) => setEditCheckOutStatus(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="">—</option>
+                        <option value="MANUAL">Manuel</option>
+                        <option value="AUTO">Auto</option>
+                      </select>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -1143,23 +1352,165 @@ export default function AttendancePage() {
                         onChange={(e) => setEditBreakEndHm(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
                       />
+                      {(editBreakStartHm || editBreakEndHm) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditBreakStartHm("");
+                            setEditBreakEndHm("");
+                            setEditBreakComment("");
+                          }}
+                          className="mt-1.5 text-xs font-medium text-red-600 hover:text-red-700"
+                        >
+                          Supprimer la pause
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Commentaire
+                      Motif type
+                    </label>
+                    <select
+                      value={editReason}
+                      onChange={(e) => setEditReason(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
+                    >
+                      <option value="">—</option>
+                      {CORRECTION_REASON_CODES.map((code) => (
+                        <option key={code} value={code}>
+                          {CORRECTION_REASON_LABELS[code]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Commentaire arrivée
                     </label>
                     <textarea
                       value={editComment}
                       onChange={(e) => setEditComment(e.target.value)}
-                      rows={3}
-                      placeholder="Motif de la correction..."
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 resize-none placeholder:text-slate-400"
+                      rows={2}
+                      placeholder="Détail de la correction..."
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Commentaire départ
+                    </label>
+                    <textarea
+                      value={editCheckOutComment}
+                      onChange={(e) => setEditCheckOutComment(e.target.value)}
+                      rows={2}
+                      placeholder="Départ anticipé, panne réseau..."
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Motif pause (si &gt; 60 min)
+                    </label>
+                    <input
+                      value={editBreakComment}
+                      onChange={(e) => setEditBreakComment(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Heures sup. (HH:MM)
+                      </label>
+                      <input
+                        type="time"
+                        value={editOvertimeHm}
+                        onChange={(e) => setEditOvertimeHm(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        Statut HS
+                      </label>
+                      <select
+                        value={editOvertimeStatus}
+                        onChange={(e) => setEditOvertimeStatus(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
+                      >
+                        <option value="">—</option>
+                        <option value="PENDING">En attente</option>
+                        <option value="APPROVED">Validé</option>
+                        <option value="REJECTED">Refusé</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Motif heures sup.
+                    </label>
+                    <input
+                      value={editOvertimeReason}
+                      onChange={(e) => setEditOvertimeReason(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Justificatif (PDF, JPEG, PNG — max 5 Mo)
+                    </label>
+                    <input
+                      type="file"
+                      accept="application/pdf,image/jpeg,image/png"
+                      onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+                      className="w-full text-sm"
+                    />
+                    {detailRecord.correctionDocument && detailRecord.id && (
+                      <a
+                        href={`/api/attendance/${detailRecord.id}/document`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-xs text-blue-600"
+                      >
+                        Justificatif actuel
+                      </a>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-slate-700">Appliquer aussi sur une période</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={bulkFrom}
+                        onChange={(e) => setBulkFrom(e.target.value)}
+                        className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
+                      />
+                      <input
+                        type="date"
+                        value={bulkTo}
+                        onChange={(e) => setBulkTo(e.target.value)}
+                        className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={bulkWorkingDays}
+                        onChange={(e) => setBulkWorkingDays(e.target.checked)}
+                      />
+                      Jours ouvrés seulement
+                    </label>
+                    <p className="text-[11px] text-slate-400">
+                      Laissez les deux dates identiques pour corriger uniquement ce jour.
+                    </p>
                   </div>
                   <div className="flex gap-3">
                     <button
-                      onClick={() => setEditMode(false)}
+                      onClick={() => {
+                        if (!detailRecord.id) setDetailRecord(null);
+                        else setEditMode(false);
+                      }}
                       className="flex-1 h-10 text-sm font-medium text-slate-600 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
                     >
                       Annuler
@@ -1169,7 +1520,11 @@ export default function AttendancePage() {
                       disabled={submitting}
                       className="flex-1 h-10 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
                     >
-                      {submitting ? "Enregistrement..." : "Enregistrer"}
+                      {submitting
+                        ? "Enregistrement..."
+                        : detailRecord.id
+                          ? "Enregistrer"
+                          : "Créer ce jour"}
                     </button>
                   </div>
                 </div>
