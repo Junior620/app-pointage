@@ -42,6 +42,21 @@ export async function GET(request: NextRequest) {
 /** Meta exige un 200 en quelques secondes ; sinon il réessaie (délai de plusieurs minutes). */
 export const maxDuration = 30;
 
+/** wamid déjà traités (réessais Meta du même message). */
+const processedWamids = new Map<string, number>();
+const WAMID_TTL_MS = 24 * 60 * 60 * 1000;
+
+function alreadyProcessedWamid(id: string | undefined): boolean {
+  if (!id) return false;
+  const now = Date.now();
+  for (const [key, ts] of processedWamids) {
+    if (now - ts > WAMID_TTL_MS) processedWamids.delete(key);
+  }
+  if (processedWamids.has(id)) return true;
+  processedWamids.set(id, now);
+  return false;
+}
+
 async function processWhatsAppPayload(body: WhatsAppWebhookPayload) {
   if (body.object !== "whatsapp_business_account") return;
 
@@ -51,6 +66,10 @@ async function processWhatsAppPayload(body: WhatsAppWebhookPayload) {
       if (!messages) continue;
 
       for (const message of messages) {
+        if (alreadyProcessedWamid(message.id)) {
+          console.log("[WhatsApp] Message déjà traité (réessai Meta), ignore", message.id);
+          continue;
+        }
         console.log("[WhatsApp] Message reçu de", message.from, "type:", message.type);
         try {
           await handleMessage(message.from, message);
@@ -76,6 +95,63 @@ export async function POST(request: NextRequest) {
     // Toujours 200 : un 500 fait réessayer Meta pendant ~10 min.
     return NextResponse.json({ status: "ok" });
   }
+}
+
+async function sendCheckInLink(
+  phone: string,
+  employeeId: string,
+  normalizedPhone: string,
+  comment?: string
+) {
+  const today = todayDate();
+  const record = await prisma.attendanceRecord.findUnique({
+    where: { employeeId_date: { employeeId, date: today } },
+  });
+  if (record?.checkInTime) {
+    await sendWhatsAppMessage(
+      phone,
+      `Votre arrivée est déjà enregistrée aujourd'hui à ${formatTime(record.checkInTime)}. Aucun nouveau lien n'est nécessaire.`
+    );
+    return;
+  }
+  pendingActions.set(normalizedPhone, {
+    intent: "CHECK_IN",
+    comment,
+    timestamp: Date.now(),
+  });
+  await sendWhatsAppLocationRequest(phone, "CHECK_IN");
+}
+
+async function sendCheckOutLink(
+  phone: string,
+  employeeId: string,
+  normalizedPhone: string,
+  comment?: string
+) {
+  const today = todayDate();
+  const record = await prisma.attendanceRecord.findUnique({
+    where: { employeeId_date: { employeeId, date: today } },
+  });
+  if (record?.checkOutTime) {
+    await sendWhatsAppMessage(
+      phone,
+      `Votre départ est déjà enregistré aujourd'hui à ${formatTime(record.checkOutTime)}. Aucun nouveau lien n'est nécessaire.`
+    );
+    return;
+  }
+  if (!record?.checkInTime) {
+    await sendWhatsAppMessage(
+      phone,
+      "Aucune arrivée enregistrée aujourd'hui. Envoyez *1* pour pointer votre arrivée d'abord."
+    );
+    return;
+  }
+  pendingActions.set(normalizedPhone, {
+    intent: "CHECK_OUT",
+    comment,
+    timestamp: Date.now(),
+  });
+  await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
 }
 
 async function handleMessage(
@@ -128,11 +204,9 @@ async function handleMessage(
   if (message.type === "interactive" && message.interactive?.button_reply) {
     const id = message.interactive.button_reply.id;
     if (id === "BTN_ARRIVE") {
-      pendingActions.set(normalizedPhone, { intent: "CHECK_IN", timestamp: Date.now() });
-      await sendWhatsAppLocationRequest(phone, "CHECK_IN");
+      await sendCheckInLink(phone, employee.id, normalizedPhone);
     } else if (id === "BTN_DEPART") {
-      pendingActions.set(normalizedPhone, { intent: "CHECK_OUT", timestamp: Date.now() });
-      await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
+      await sendCheckOutLink(phone, employee.id, normalizedPhone);
     } else if (id === "BTN_STATUT") {
       const today = todayDate();
       const record = await prisma.attendanceRecord.findUnique({
@@ -236,21 +310,11 @@ async function handleMessage(
 
     switch (intent) {
       case "CHECK_IN":
-        pendingActions.set(normalizedPhone, {
-          intent: "CHECK_IN",
-          comment,
-          timestamp: Date.now(),
-        });
-        await sendWhatsAppLocationRequest(phone, "CHECK_IN");
+        await sendCheckInLink(phone, employee.id, normalizedPhone, comment);
         break;
 
       case "CHECK_OUT":
-        pendingActions.set(normalizedPhone, {
-          intent: "CHECK_OUT",
-          comment,
-          timestamp: Date.now(),
-        });
-        await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
+        await sendCheckOutLink(phone, employee.id, normalizedPhone, comment);
         break;
 
       case "BREAK_START":
