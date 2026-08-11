@@ -170,10 +170,14 @@ export function parseIntent(
     return { intent: "HELP" };
   }
 
+  // 1 / 2 / pause : toujours le pointage, même si un motif d'heures sup est attendu.
+  if (normalized === "1") return { intent: "CHECK_IN" };
+  if (normalized === "2") return { intent: "CHECK_OUT" };
+  if (normalized === "13") return { intent: "BREAK_START" };
+  if (normalized === "14") return { intent: "BREAK_END" };
+
   // Réponse par numéro : 5 = autorisations d'absence en cours ; 11 = absences constatées au pointage (3 mois)
   if (!options?.skipNumericMenuShortcuts) {
-    if (normalized === "1") return { intent: "CHECK_IN" };
-    if (normalized === "2") return { intent: "CHECK_OUT" };
     if (normalized === "3") return { intent: "STATUS" };
     if (normalized === "4") return { intent: "MY_ATTENDANCE" };
     if (normalized === "5") return { intent: "MY_PERMISSIONS" };
@@ -190,8 +194,6 @@ export function parseIntent(
     if (normalized === "10") return { intent: "MY_WEEK_SUMMARY" };
     if (normalized === "11") return { intent: "MY_ABSENCES" };
     if (normalized === "12") return { intent: "DEMAND_LEAVE_FORM" };
-    if (normalized === "13") return { intent: "BREAK_START" };
-    if (normalized === "14") return { intent: "BREAK_END" };
     if (normalized === "15") return { intent: "DEMAND_MISSION_FORM" };
   }
 

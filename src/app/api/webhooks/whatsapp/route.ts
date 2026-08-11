@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
 import { parseIntent, getWelcomeMessage } from "@/lib/intent-parser";
@@ -8,7 +8,8 @@ import {
   buildWeeklySummaryWhatsAppMessage,
   getCurrentWeekRangeUtc,
 } from "@/lib/weekly-summary-text";
-import { formatTime, utcCalendarDayBounds } from "@/lib/utils";
+import { formatTime, todayDate, utcCalendarDayBounds } from "@/lib/utils";
+import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -38,30 +39,42 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body: WhatsAppWebhookPayload = await request.json();
+/** Meta exige un 200 en quelques secondes ; sinon il réessaie (délai de plusieurs minutes). */
+export const maxDuration = 30;
 
-    if (body.object !== "whatsapp_business_account") {
-      return NextResponse.json({ status: "ignored" });
-    }
+async function processWhatsAppPayload(body: WhatsAppWebhookPayload) {
+  if (body.object !== "whatsapp_business_account") return;
 
-    for (const entry of body.entry) {
-      for (const change of entry.changes) {
-        const messages = change.value.messages;
-        if (!messages) continue;
+  for (const entry of body.entry) {
+    for (const change of entry.changes) {
+      const messages = change.value.messages;
+      if (!messages) continue;
 
-        for (const message of messages) {
-          console.log("[WhatsApp] Message reçu de", message.from, "type:", message.type);
+      for (const message of messages) {
+        console.log("[WhatsApp] Message reçu de", message.from, "type:", message.type);
+        try {
           await handleMessage(message.from, message);
+        } catch (err) {
+          console.error("[WhatsApp] handleMessage", message.from, err);
+          await sendWhatsAppMessage(
+            message.from,
+            "Le service a rencontré une erreur. Renvoyez *1* (arrivée) ou *2* (départ) pour recevoir le lien de pointage."
+          ).catch(() => {});
         }
       }
     }
+  }
+}
 
+export async function POST(request: NextRequest) {
+  try {
+    const body: WhatsAppWebhookPayload = await request.json();
+    after(() => processWhatsAppPayload(body));
     return NextResponse.json({ status: "ok" });
   } catch (error) {
     console.error("[WhatsApp] Webhook error:", error);
-    return NextResponse.json({ status: "error" }, { status: 500 });
+    // Toujours 200 : un 500 fait réessayer Meta pendant ~10 min.
+    return NextResponse.json({ status: "ok" });
   }
 }
 
@@ -78,15 +91,7 @@ async function handleMessage(
   const normalizedPhone = normalizePhone(phone);
   const digitsOnly = normalizedPhone.replace(/\D/g, "");
 
-  const employee = await prisma.employee.findFirst({
-    where: {
-      OR: [
-        { whatsappPhone: normalizedPhone },
-        { whatsappPhone: digitsOnly },
-        { whatsappPhone: `+${digitsOnly}` },
-      ],
-    },
-  });
+  const employee = await findEmployeeByWhatsappPhone(phone);
 
     if (!employee) {
       console.log("[WhatsApp] Numéro non lié:", digitsOnly || normalizedPhone);
@@ -129,8 +134,7 @@ async function handleMessage(
       pendingActions.set(normalizedPhone, { intent: "CHECK_OUT", timestamp: Date.now() });
       await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
     } else if (id === "BTN_STATUT") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = todayDate();
       const record = await prisma.attendanceRecord.findUnique({
         where: { employeeId_date: { employeeId: employee.id, date: today } },
       });
@@ -167,8 +171,7 @@ async function handleMessage(
 
   // Message texte
   if (message.type === "text" && message.text) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = todayDate();
     const todayRecord = await prisma.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId: employee.id, date: today } },
     });
@@ -267,8 +270,7 @@ async function handleMessage(
         break;
 
       case "STATUS": {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const today = todayDate();
         const record = await prisma.attendanceRecord.findUnique({
           where: {
             employeeId_date: { employeeId: employee.id, date: today },
