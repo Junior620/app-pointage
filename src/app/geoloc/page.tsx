@@ -36,28 +36,47 @@ function GeolocForm() {
   const [lateSubmitting, setLateSubmitting] = useState(false);
   const [lateSent, setLateSent] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [earlyConfirm, setEarlyConfirm] = useState<{ message: string; scheduledEnd?: string } | null>(null);
 
   const hasStartedRef = useRef(false);
   const hasSubmittedRef = useRef(false);
 
   const isValidAction = VALID_ACTIONS.includes(action as GeolocAction);
-  const needsConfirm = action === "CHECK_OUT";
 
   const submitPointage = useCallback(
-    async (lat: number, lng: number) => {
+    async (lat: number, lng: number, confirmEarlyCheckout = false) => {
       if (hasSubmittedRef.current) return;
       hasSubmittedRef.current = true;
       setSubmitting(true);
+      setEarlyConfirm(null);
       try {
         const res = await fetch("/api/geoloc", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, lat, lng, action, exp, sig }),
+          body: JSON.stringify({
+            phone,
+            lat,
+            lng,
+            action,
+            exp,
+            sig,
+            confirmEarlyCheckout: confirmEarlyCheckout || undefined,
+          }),
         });
         const json = await res.json();
         const data = json.data ?? json;
+        if (data.needsEarlyConfirm) {
+          hasSubmittedRef.current = false;
+          setPendingCoords({ lat, lng });
+          setEarlyConfirm({
+            message: data.message ?? "Vous partez avant la fin de journée prévue.",
+            scheduledEnd: data.scheduledEnd,
+          });
+          return;
+        }
+        setPendingCoords(null);
         setResult({
-          success: res.ok,
+          success: res.ok && data.success !== false,
           message:
             data.message ??
             json.error ??
@@ -81,6 +100,7 @@ function GeolocForm() {
     setGeoError("");
     setResult(null);
     setPendingCoords(null);
+    setEarlyConfirm(null);
     hasSubmittedRef.current = false;
 
     if (!navigator.geolocation) {
@@ -94,10 +114,6 @@ function GeolocForm() {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         setGeoLoading(false);
-        if (needsConfirm) {
-          setPendingCoords({ lat, lng });
-          return;
-        }
         void submitPointage(lat, lng);
       },
       (error) => {
@@ -120,7 +136,7 @@ function GeolocForm() {
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
-  }, [submitPointage, needsConfirm]);
+  }, [submitPointage]);
 
   useEffect(() => {
     if (!phone || !isValidAction) {
@@ -265,23 +281,23 @@ function GeolocForm() {
           </div>
         )}
 
-        {pendingCoords && !busy && (
+        {pendingCoords && earlyConfirm && !busy && (
           <div className="space-y-4">
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
-              Position récupérée. Vous allez enregistrer votre <strong>départ</strong>.
-              Confirmez uniquement si vous quittez réellement le site.
+              Position vérifiée. {earlyConfirm.message}
             </div>
             <button
               type="button"
-              onClick={() => void submitPointage(pendingCoords.lat, pendingCoords.lng)}
+              onClick={() => void submitPointage(pendingCoords.lat, pendingCoords.lng, true)}
               className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl"
             >
-              Confirmer le départ
+              Confirmer le départ anticipé
             </button>
             <button
               type="button"
               onClick={() => {
                 setPendingCoords(null);
+                setEarlyConfirm(null);
                 hasStartedRef.current = false;
               }}
               className="w-full py-2 text-sm text-slate-500"

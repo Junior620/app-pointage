@@ -22,6 +22,7 @@ const geolocSchema = z.object({
   lng: z.number().optional(),
   action: z.enum(["CHECK_IN", "CHECK_OUT", "BREAK_START", "BREAK_END", "LATE_REASON"]),
   comment: z.string().optional(),
+  confirmEarlyCheckout: z.boolean().optional(),
   exp: z.union([z.string(), z.number()]).optional(),
   sig: z.string().optional(),
 });
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { phone, action, comment } = parsed.data;
+    const { phone, action, comment, confirmEarlyCheckout } = parsed.data;
 
     if (action !== "LATE_REASON") {
       const link = verifyGeolocLink({
@@ -120,10 +121,24 @@ export async function POST(request: NextRequest) {
       action === "CHECK_IN"
         ? await processCheckIn(employee.id, point, comment)
         : action === "CHECK_OUT"
-          ? await processCheckOut(employee.id, point, comment)
+          ? await processCheckOut(employee.id, point, comment, {
+              confirmEarlyCheckout,
+            })
           : action === "BREAK_START"
             ? await processBreakStart(employee.id, point)
             : await processBreakEnd(employee.id, point);
+
+    if (result.needsEarlyConfirm) {
+      return NextResponse.json({
+        data: {
+          success: false,
+          needsEarlyConfirm: true,
+          message: result.message,
+          scheduledEnd: result.scheduledEnd,
+          earlyMinutes: result.earlyMinutes,
+        },
+      });
+    }
 
     if (result.message) {
       await notifyEmployee(employee, phone, result.message);

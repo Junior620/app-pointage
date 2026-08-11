@@ -20,6 +20,9 @@ type CheckResult = {
   status?: string;
   overtimeMinutes?: number;
   breakMinutes?: number;
+  needsEarlyConfirm?: boolean;
+  scheduledEnd?: string;
+  earlyMinutes?: number;
 };
 
 async function getScheduleForEmployee(employeeId: string) {
@@ -284,7 +287,8 @@ export async function processCheckIn(
 export async function processCheckOut(
   employeeId: string,
   point: GeoPoint,
-  comment?: string
+  comment?: string,
+  options?: { confirmEarlyCheckout?: boolean }
 ): Promise<CheckResult> {
   const now = new Date();
   const today = todayDate();
@@ -328,6 +332,21 @@ export async function processCheckOut(
     APP_TIMEZONE
   );
 
+  const weekendOptionalWork = isSaturdayOrSunday(today);
+  const leftEarlyPreview = !weekendOptionalWork && now < scheduleEnd;
+  if (leftEarlyPreview && !options?.confirmEarlyCheckout) {
+    const earlyMin = minutesBetween(now, scheduleEnd);
+    const endStr = formatTime(scheduleEnd);
+    return {
+      success: false,
+      needsEarlyConfirm: true,
+      scheduledEnd: endStr,
+      earlyMinutes: earlyMin,
+      status: "EARLY",
+      message: `Votre horaire de fin est ${endStr} (encore ${earlyMin} min). Confirmez uniquement si vous quittez vraiment le site maintenant.`,
+    };
+  }
+
   const grossTotal = minutesBetween(record.checkInTime, now);
   const breakMeasuredMinutes = computeBreakMinutes(
     record.breakStartTime,
@@ -342,8 +361,6 @@ export async function processCheckOut(
   const otWindowEnd = new Date(today);
   otWindowEnd.setHours(OVERTIME_END_HOUR, 0, 0, 0);
   const effectiveCheckoutForOvertime = now > otWindowEnd ? otWindowEnd : now;
-
-  const weekendOptionalWork = isSaturdayOrSunday(today);
 
   let overtime: number;
   if (weekendOptionalWork) {
