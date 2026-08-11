@@ -159,6 +159,16 @@ export async function PUT(request: NextRequest) {
       breakEndTime,
     };
 
+    if (updates.clearCheckOut || checkOutTime === null) {
+      data.checkOutStatus = null;
+      data.checkOutLat = null;
+      data.checkOutLng = null;
+      data.checkOutComment = null;
+      data.overtimeMinutes = 0;
+      data.overtimeStatus = null;
+      data.overtimeReason = null;
+    }
+
     if (updates.checkInStatus) {
       data.checkInStatus = updates.checkInStatus;
     } else if (

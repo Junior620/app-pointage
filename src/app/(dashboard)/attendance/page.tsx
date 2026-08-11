@@ -320,6 +320,7 @@ export default function AttendancePage() {
         checkInStatus: editCheckInStatus || undefined,
         checkInTimeHm: editCheckInHm || undefined,
         checkOutTimeHm: editCheckOutHm || undefined,
+        clearCheckOut: !editCheckOutHm && Boolean(detailRecord.checkOutTime),
       };
       if (editBreakStartHm) {
         payload.breakStartTimeHm = editBreakStartHm;
@@ -1109,6 +1110,15 @@ export default function AttendancePage() {
                         onChange={(e) => setEditCheckOutHm(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
                       />
+                      {editCheckOutHm && (
+                        <button
+                          type="button"
+                          onClick={() => setEditCheckOutHm("")}
+                          className="mt-1.5 text-xs font-medium text-red-600 hover:text-red-700"
+                        >
+                          Supprimer le départ
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
