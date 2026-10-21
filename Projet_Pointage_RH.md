@@ -1,6 +1,6 @@
 # Projet Pointage RH — Documentation technique
 
-> Document de référence pour développeurs et agents IA. Dernière mise à jour du contenu : **2026-04-11**.
+> Document de référence pour développeurs et agents IA. Dernière mise à jour du contenu : **2026-10-21**.
 
 ---
 
@@ -233,33 +233,53 @@ await prisma.attendanceRecord.update({ data: { checkOutTime: now, overtimeMinute
 | Page | Comportement |
 |------|----------------|
 | **Permissions** (`/leaves`) | Export **Excel** côté client (dynamic `import("exceljs")`), données via `GET /api/leaves` paginée (100/lot) avec les **filtres** courants. Ne pas utiliser `GET /api/reports?type=leaves` (inexistant / erreur dates). |
-| **Missions** (`/missions`) | Excel (+ PDF jsPDF selon UI) ; `fetchAllMissions` avec `limit` API plafonné — pagination côté client si besoin. |
-| **Rapports** (`/reports`) | Nécessite **dateFrom** et **dateTo** ; export XLSX / PDF depuis l’UI une fois les dates renseignées. |
-| **Employés** | Export Excel depuis la page liste. |
-| **Pointages / Heures sup** | Exports selon implémentation des pages (ExcelJS / colonnes dédiées). |
+| **Missions** (`/missions`) | Excel (+ récapitulatif paie) et PDF ; `fetchAllMissions` enchaîne les pages de 100. |
+| **Rapports** (`/reports`) | S'ouvre sur le mois en cours ; export XLSX / PDF du rapport affiché. |
+| **Employés** | Excel / PDF via `fetchAllEmployees` (`src/lib/fetch-all-employees.ts`, pages de 100) ; export des pointages des employés cochés. |
+| **Heures sup** | Excel ; pagination par lots de 100. |
+
+> **Règle** : toutes les API de liste plafonnent `limit` à **100**. Un export ou une liste déroulante qui demande `limit=1000` ou `10000` ne reçoit que 100 lignes : toujours paginer (voir `fetchAllEmployees`).
 
 ---
 
-## 8. UX / UI
+## 8. UX / UI et marque
 
-### 8.1 Menu latéral (dashboard)
+### 8.1 Navigation (dashboard)
 
-| Lien | Chemin |
-|------|--------|
-| Dashboard | `/` |
-| Employés | `/employees` |
-| Pointages | `/attendance` |
-| Heures sup | `/overtime` |
-| Permissions | `/leaves` |
-| Missions | `/missions` |
-| Paramètres | `/settings` |
-| Rapports | `/reports` |
+Source unique : `src/lib/navigation.ts` (`NAV_GROUPS`), lue par le menu latéral, le fil d'Ariane et les titres d'onglet.
 
-### 8.2 Patterns UX notables
+| Groupe | Pages |
+|--------|-------|
+| Pilotage | Tableau de bord `/`, Rapports `/reports` |
+| Présences | Pointages `/attendance`, Pauses `/breaks`, Heures sup `/overtime` |
+| Demandes | Autorisations d'absence `/leaves`, Missions `/missions` |
+| Administration | Employés `/employees`, Utilisateurs `/users` (ADMIN), Paramètres `/settings` |
 
-- **Permissions & Missions** : filtres (statut, dates, service, employé), **pagination** avec résumé « X–Y sur Z » toujours visible après chargement ; boutons Précédent/Suivant si plusieurs pages.
-- **Employés** : création avec matricule auto ou saisi ; suppression réservée **ADMIN** ; transaction suppression avec `SET LOCAL statement_timeout` + timeouts Prisma étendus pour gros historiques.
-- **Dashboard** : KPIs incluant missions / permissions en cours selon évolutions récentes.
+Compteurs « à traiter » (heures sup, autorisations et missions en attente) : `GET /api/nav-counts`, partagés par `useNavCounts()` (`src/lib/use-nav-counts.ts`). Après une décision, appeler `refreshNavCounts()`.
+
+### 8.2 Marque et couleurs
+
+| Élément | Où |
+|---------|----|
+| Couleurs (`brand-*`, `scpb-*`, `afrexia-*`, `ink-*`) | `@theme` dans `src/app/globals.css` — valeurs **provisoires** à remplacer par les couleurs officielles. |
+| Logos des structures | `src/lib/brand.ts` (`STRUCTURE_BRANDS`) : chemin du logo clair (`logo`) et pour fond sombre (`logoOnDark`). Tant que `logo` vaut `null`, un monogramme coloré s'affiche. |
+| Fichiers de logo | `public/brand/` (ex. `scpb.svg`, `afrexia.svg`, ou PNG ≥ 512 px). |
+| Pictogramme de l'application | `src/components/brand/BrandMark.tsx`, favicon `src/app/icon.svg`, icône iOS `src/app/apple-icon.tsx`. |
+| Couleurs des graphiques | `src/lib/chart-colors.ts`. |
+
+**Remplacer un logo** : déposer le fichier dans `public/brand/`, puis renseigner son chemin dans `STRUCTURE_BRANDS` (ex. `logo: "/brand/scpb.svg"`). Écrans RH : les deux logos côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
+
+### 8.3 Composants partagés (`src/components/ui/`)
+
+`Button` / `ButtonLink`, `Card`, `Field` + `Input` / `Select` / `Textarea`, `Badge`, `StatusBadge` / `StructureBadge` (libellés dans `src/lib/status-labels.ts`), `StatTile`, `PageHeader`, `FilterBar`, `Table`, `Pagination`, `EmptyState` / `Skeleton`, `Modal` (Échap, focus, panneau latéral `variant="drawer"`), `useConfirm()` et `useToast()` (montés à la racine par `Providers`). **Ne plus utiliser `alert()` / `confirm()`.**
+
+### 8.4 Patterns UX
+
+- **Filtres dans l'adresse** (`useUrlFilters`, `src/lib/use-url-filters.ts`) sur Pointages, Employés, Autorisations, Missions, Heures sup, Pauses, Rapports, Paramètres : ils survivent au rechargement et se partagent par lien (ex. `/overtime?status=PENDING`).
+- **Indicateurs cliquables** (`StatTile`) : filtrent la liste correspondante.
+- **Décisions** (approuver, refuser, annuler, supprimer) : confirmation pour les actions destructrices, notification de résultat dans tous les cas.
+- **Pages publiques** (`PublicShell`) : géoloc, formulaires WhatsApp, onboarding, QR code, confidentialité. La page `/geoloc` vérifie d'abord le lien via `GET /api/geoloc/context`, puis demande la position.
+- **Employés** : création avec matricule auto ; suppression réservée **ADMIN** (transaction avec `SET LOCAL statement_timeout`) ; préférer « Enregistrer un départ ».
 
 ---
 
@@ -273,6 +293,7 @@ await prisma.attendanceRecord.update({ data: { checkOutTime: now, overtimeMinute
 | **Webhook WhatsApp** | Route publique ; validation par Meta (token vérification GET). |
 | **RLS Supabase** | Migration `20260403120000_enable_rls_public_tables` : **RLS activée** sur les tables `public` listées (linter 0013). Pas de policies permissives : PostgREST `anon`/`authenticated` sans accès aux lignes par défaut ; Prisma (rôle propriétaire / privilégié) conserve l’accès. |
 | **Politique confidentialité** | `/privacy` en route publique dans le middleware Supabase. |
+| **Liens de pointage** | Signés HMAC, valables 15 min (`src/lib/geoloc-link.ts`). Le motif de retard (`LATE_REASON`) exige aussi la signature du lien d'arrivée. `GET /api/geoloc/context` ne renvoie prénom et structure qu'avec une signature valide. |
 
 ---
 
@@ -298,6 +319,14 @@ await prisma.attendanceRecord.update({ data: { checkOutTime: now, overtimeMinute
 | 2026-04 | WhatsApp : répondre **« 2 »** pour motif heures sup lançait **Départ** | Conflit menu numérique (2 = départ) ; **motif en texte libre** + `parseIntent(..., { skipNumericMenuShortcuts })` tant qu’un `overtimeReason` est attendu. |
 | 2026-04 | Linter Supabase **RLS disabled** | Migration SQL activation RLS sur tables `public` applicatives (+ `_prisma_migrations`). |
 | 2026-04-11 | **Samedi** : pointage traité comme **retard** vs horaire de semaine | `isSaturdayOrSunday` : pas de `LATE` le week-end ; **dimanche** : pointage autorisé (avant : refus). Départ : dimanche = même logique heures sup que samedi. |
+| 2026-10-21 | Motif de retard enregistrable sans lien signé (numéro seul) | `LATE_REASON` vérifie `exp`/`sig` du lien d'arrivée. |
+| 2026-10-21 | Exports Employés / Missions / Heures sup et listes d'employés tronqués à 100 | Pagination par lots de 100 (`fetchAllEmployees`, boucles d'export). |
+| 2026-10-21 | Compteurs Employés calculés sur la seule page affichée | `GET /api/employees` renvoie `stats` (actifs, inactifs, WhatsApp) sur toute la sélection. |
+| 2026-10-21 | Fiche employé : samedis et jours avant embauche / après départ comptés comme absences | Jours ouvrés = lundi–vendredi hors fériés, bornés par l'embauche et le départ ; week-ends travaillés affichés. |
+| 2026-10-21 | Paramètres : fenêtre fermée comme « enregistré » même si l'API refusait | Réponse vérifiée, erreur affichée ; lecture seule pour le DG. |
+| 2026-10-21 | Titre « Heures sup » absent de l'en-tête ; police Geist jamais appliquée ; date d'en-tête décalée entre 23 h et minuit | Navigation centralisée, `font-family` corrigée, date calculée au fuseau Douala côté navigateur. |
+| 2026-10-21 | Pauses : jour par défaut en UTC (la veille entre minuit et 1 h) | Jour au fuseau Douala (`todayDate()`). |
+| 2026-10-21 | Pagination limitée aux pages 1 à 5 (Employés) | Composant `Pagination` avec fenêtre autour de la page courante. |
 
 ---
 
@@ -311,6 +340,7 @@ await prisma.attendanceRecord.update({ data: { checkOutTime: now, overtimeMinute
 | 2026-04-03 | §7, §8 | Export permissions Excel client ; pagination missions/permissions. |
 | 2026-04-11 | §6, §11, dashboard | Week-end : pas de retard à l’arrivée ; pointage dimanche ; message dashboard week-end. |
 | 2026-04-11 | §6, annexes env | Défaut heures sup semaine : début fenêtre **18h30** (au lieu de 18h00). Planning type seed : arrivée 8h, marge 30 min, fin 17h30. |
+| 2026-10-21 | §7, §8, §9, §11 | Refonte UI/UX et marque : composants partagés, navigation groupée avec compteurs, filtres dans l'adresse, pages publiques `PublicShell`, `GET /api/nav-counts`, `GET /api/geoloc/context`, corrections listées au §11. |
 
 ---
 
