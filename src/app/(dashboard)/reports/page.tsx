@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { getReportPresetRange, getLast30DaysRange, toInputDateLocal } from "@/lib/period-range";
 import {
   FileSpreadsheet,
   FileText,
   Search,
-  BarChart3,
   TrendingUp,
   Clock,
   Users,
@@ -16,19 +15,25 @@ import {
   ChevronDown,
   ChevronUp,
   CalendarDays,
+  RefreshCw,
+  X,
+  type LucideIcon,
 } from "lucide-react";
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { cn } from "@/lib/utils";
+import { CHART_COLORS, CHART_SERIES, CHART_TOOLTIP_STYLE } from "@/lib/chart-colors";
+import { useUrlFilters } from "@/lib/use-url-filters";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { StructureBadge } from "@/components/ui/StatusBadge";
+import { Button } from "@/components/ui/Button";
+import { Input, Select } from "@/components/ui/Field";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
+import { Table, THead, Th, Tr, Td, TableMessageRow } from "@/components/ui/Table";
+import { EmptyState, Skeleton } from "@/components/ui/EmptyState";
+import { StatTile } from "@/components/ui/StatTile";
+import { useToast } from "@/components/ui/Toaster";
 
 interface ReportRow {
   id: string;
@@ -89,68 +94,76 @@ interface Summary {
   avgPunctuality: number;
 }
 
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  color,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string | number;
-  sub?: string;
-  color: string;
-}) {
-  const colors: Record<string, string> = {
-    emerald: "bg-emerald-50 text-emerald-600",
-    amber: "bg-amber-50 text-amber-600",
-    red: "bg-red-50 text-red-600",
-    blue: "bg-blue-50 text-blue-600",
-  };
+interface ReportData {
+  rows: ReportRow[];
+  summary: Summary | null;
+  byDay: DayData[];
+  byService: ServiceData[];
+  topPresents: ReportRow[];
+  topRetards: ReportRow[];
+  topOvertime: ReportRow[];
+  topOvertimeIssues: OvertimeIssueRow[];
+  overtimeByService: OvertimeByServiceData[];
+}
+
+type EmployeeSuggestion = { id: string; firstName: string; lastName: string; matricule: string; service: string; label: string };
+
+const initials = (name: string) =>
+  name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2);
+
+const frDate = (d: string, withYear = true) =>
+  new Date(`${d}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "short", ...(withYear && { year: "numeric" }) });
+
+function presetRanges() {
+  const last30 = getLast30DaysRange();
+  const month = getReportPresetRange("month");
+  const quarter = getReportPresetRange("quarter");
+  const year = getReportPresetRange("year");
+  return [
+    { key: "30d", label: "30 derniers jours", from: toInputDateLocal(last30.from), to: toInputDateLocal(last30.to) },
+    { key: "month", label: "Mois en cours", from: toInputDateLocal(month.from), to: toInputDateLocal(month.to) },
+    { key: "quarter", label: "Trimestre", from: toInputDateLocal(quarter.from), to: toInputDateLocal(quarter.to) },
+    { key: "year", label: "Année", from: toInputDateLocal(year.from), to: toInputDateLocal(year.to) },
+  ];
+}
+
+export default function ReportsPage() {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colors[color]}`}>
-        <Icon className="w-6 h-6" />
-      </div>
-      <div>
-        <p className="text-sm text-slate-500">{label}</p>
-        <p className="text-2xl font-bold text-slate-800">{value}</p>
-        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
-      </div>
-    </div>
+    <Suspense fallback={null}>
+      <ReportsContent />
+    </Suspense>
   );
 }
 
-const SERVICE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
+function ReportsContent() {
+  const toast = useToast();
+  const presets = presetRanges();
+  const monthPreset = presets[1];
+  const [filters, setFilters] = useUrlFilters({ from: monthPreset.from, to: monthPreset.to, service: "", structure: "" });
+  const dateFrom = filters.from;
+  const dateTo = filters.to;
+  const service = filters.service;
+  const structure = filters.structure;
 
-export default function ReportsPage() {
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [service, setService] = useState("");
-  const [structure, setStructure] = useState("");
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<ReportRow[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [byDay, setByDay] = useState<DayData[]>([]);
-  const [byService, setByService] = useState<ServiceData[]>([]);
-  const [topPresents, setTopPresents] = useState<ReportRow[]>([]);
-  const [topRetards, setTopRetards] = useState<ReportRow[]>([]);
-  const [topOvertime, setTopOvertime] = useState<ReportRow[]>([]);
-  const [topOvertimeIssues, setTopOvertimeIssues] = useState<OvertimeIssueRow[]>([]);
-  const [overtimeByService, setOvertimeByService] = useState<OvertimeByServiceData[]>([]);
+  const [report, setReport] = useState<ReportData | null>(null);
   const [services, setServices] = useState<string[]>([]);
-  const [generated, setGenerated] = useState(false);
   const [sortField, setSortField] = useState<keyof ReportRow>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [employeeSuggestions, setEmployeeSuggestions] = useState<{ id: string; firstName: string; lastName: string; matricule: string; service: string; label: string }[]>([]);
+  const [employeeSuggestions, setEmployeeSuggestions] = useState<EmployeeSuggestion[]>([]);
   const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const employeeInputRef = useRef<HTMLDivElement>(null);
+  const searchTimer = useRef<number | undefined>(undefined);
 
-  // Charger la liste des services au montage pour le filtre
   useEffect(() => {
     fetch("/api/reports/services")
       .then((res) => res.json())
@@ -161,7 +174,7 @@ export default function ReportsPage() {
   // Suggestions employés (autocomplete) avec debounce
   useEffect(() => {
     const q = employeeSearch.trim();
-    if (q.length < 2) {
+    if (q.length < 2 || selectedEmployeeId) {
       setEmployeeSuggestions([]);
       setShowEmployeeDropdown(false);
       return;
@@ -179,9 +192,8 @@ export default function ReportsPage() {
         .finally(() => setLoadingSuggestions(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [employeeSearch, service]);
+  }, [employeeSearch, service, selectedEmployeeId]);
 
-  // Clic extérieur pour fermer le dropdown employé
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (employeeInputRef.current && !employeeInputRef.current.contains(e.target as Node)) {
@@ -192,20 +204,10 @@ export default function ReportsPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const applyPeriodPreset = useCallback((kind: "30d" | "month" | "quarter" | "year") => {
-    if (kind === "30d") {
-      const { from, to } = getLast30DaysRange();
-      setDateFrom(toInputDateLocal(from));
-      setDateTo(toInputDateLocal(to));
-      return;
-    }
-    const { from, to } = getReportPresetRange(kind);
-    setDateFrom(toInputDateLocal(from));
-    setDateTo(toInputDateLocal(to));
-  }, []);
+  const datesValid = Boolean(dateFrom && dateTo && dateFrom <= dateTo);
 
   const generate = useCallback(async () => {
-    if (!dateFrom || !dateTo) return;
+    if (!dateFrom || !dateTo || dateFrom > dateTo) return;
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -214,42 +216,50 @@ export default function ReportsPage() {
         ...(service.trim() && { service: service.trim() }),
         ...(structure && { structure }),
         ...(selectedEmployeeId && { employeeId: selectedEmployeeId }),
-        ...(!selectedEmployeeId &&
-          employeeSearch.trim() && { search: employeeSearch.trim() }),
+        ...(!selectedEmployeeId && appliedSearch.trim() && { search: appliedSearch.trim() }),
       });
       const res = await fetch(`/api/reports?${params}`);
       const json = await res.json();
       if (!res.ok) {
-        alert(typeof json.error === "string" ? json.error : "Impossible de générer le rapport");
+        toast.error(typeof json.error === "string" ? json.error : "Impossible de générer le rapport");
         return;
       }
-      setRows(json.data ?? []);
-      setSummary(json.summary ?? null);
-      setByDay(json.charts?.byDay ?? []);
-      setByService(json.charts?.byService ?? []);
-      setTopPresents(json.rankings?.topPresents ?? []);
-      setTopRetards(json.rankings?.topRetards ?? []);
-      setTopOvertime(json.rankings?.topOvertime ?? []);
-      setTopOvertimeIssues(json.rankings?.topOvertimeIssues ?? []);
-      setOvertimeByService(json.overtimeByService ?? []);
-      setServices(json.services ?? []);
-      setGenerated(true);
+      setReport({
+        rows: json.data ?? [],
+        summary: json.summary ?? null,
+        byDay: json.charts?.byDay ?? [],
+        byService: json.charts?.byService ?? [],
+        topPresents: json.rankings?.topPresents ?? [],
+        topRetards: json.rankings?.topRetards ?? [],
+        topOvertime: json.rankings?.topOvertime ?? [],
+        topOvertimeIssues: json.rankings?.topOvertimeIssues ?? [],
+        overtimeByService: json.overtimeByService ?? [],
+      });
+      if (json.services) setServices(json.services);
     } catch (e) {
       console.error(e);
+      toast.error("Erreur réseau : le rapport n'a pas pu être généré.");
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, service, structure, employeeSearch, selectedEmployeeId]);
+  }, [dateFrom, dateTo, service, structure, appliedSearch, selectedEmployeeId, toast]);
+
+  // Le rapport se recalcule dès qu'un filtre change.
+  useEffect(() => {
+    void generate();
+  }, [generate]);
 
   const handleSort = (field: keyof ReportRow) => {
     if (sortField === field) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
-      setSortDir(field === "name" ? "asc" : "desc");
+      setSortDir(field === "name" || field === "matricule" || field === "service" || field === "structure" ? "asc" : "desc");
     }
   };
 
+  const rows = report?.rows ?? [];
+  const summary = report?.summary ?? null;
   const sortedRows = [...rows].sort((a, b) => {
     const va = a[sortField];
     const vb = b[sortField];
@@ -257,823 +267,665 @@ export default function ReportsPage() {
     return sortDir === "asc" ? (va as number) - (vb as number) : (vb as number) - (va as number);
   });
 
-  const exportFileSuffix = selectedEmployeeId
-    ? `_employe`
-    : "";
+  const exportFileSuffix = selectedEmployeeId ? "_employe" : "";
+  const periodLabel = datesValid ? `${frDate(dateFrom, false)} → ${frDate(dateTo)}` : "";
 
-  const exportExcel = async () => {
+  const runExport = async (kind: "excel" | "pdf") => {
     if (rows.length === 0) {
-      alert("Aucune donnée à exporter. Générez d'abord un rapport.");
+      toast.warning("Aucune donnée à exporter sur cette sélection.");
       return;
     }
+    setExporting(kind);
     try {
-    const ExcelJS = (await import("exceljs")).default;
-    const workbook = new ExcelJS.Workbook();
-
-    const cols = [
-      { header: "Matricule", key: "matricule", width: 18 },
-      { header: "Nom", key: "name", width: 25 },
-      { header: "Structure", key: "structure", width: 12 },
-      { header: "Service", key: "service", width: 12 },
-      { header: "Jours", key: "totalDays", width: 10 },
-      { header: "Présents", key: "presents", width: 12 },
-      { header: "Absents", key: "absents", width: 12 },
-      { header: "Retards", key: "retards", width: 12 },
-      { header: "Missions", key: "missions", width: 12 },
-      { header: "Autorisations d'absence", key: "permissions", width: 18 },
-      { header: "Heures", key: "totalHours", width: 12 },
-      { header: "Heures sup", key: "overtimeHours", width: 12 },
-      { header: "Ponctualité (%)", key: "punctualityRate", width: 16 },
-    ];
-
-    const styleHeader = (sheet: import("exceljs").Worksheet) => {
-      const headerRow = sheet.getRow(1);
-      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-    };
-
-    const allSheet = workbook.addWorksheet("Tous");
-    allSheet.columns = cols;
-    styleHeader(allSheet);
-    rows.forEach((row) =>
-      allSheet.addRow({
-        matricule: row.matricule,
-        name: row.name,
-        structure: row.structure,
-        service: row.service,
-        totalDays: row.totalDays,
-        presents: row.presents,
-        absents: row.absents,
-        retards: row.retards,
-        missions: row.missions,
-        permissions: row.permissions,
-        totalHours: row.totalHours,
-        overtimeHours: row.overtimeHours,
-        punctualityRate: row.punctualityRate,
-      })
-    );
-    if (summary) {
-      allSheet.addRow({});
-      allSheet.addRow({ matricule: "RÉSUMÉ" });
-      allSheet.addRow({ matricule: "Taux présence", name: `${summary.presenceRate}%` });
-      allSheet.addRow({ matricule: "Retards totaux", name: String(summary.totalRetards) });
-      allSheet.addRow({ matricule: "Absences totales", name: String(summary.totalAbsences) });
-      allSheet.addRow({ matricule: "Heures totales", name: `${summary.totalHours}h` });
-      allSheet.addRow({ matricule: "Heures sup totales", name: `${summary.totalOvertimeHours}h` });
-    }
-
-    for (const struct of ["SCPB", "AFREXIA"] as const) {
-      const structRows = rows.filter((r) => r.structure === struct);
-      if (structRows.length === 0) continue;
-      const sheet = workbook.addWorksheet(struct);
-      sheet.columns = cols;
-      styleHeader(sheet);
-      structRows.forEach((row) =>
-        sheet.addRow({
-          matricule: row.matricule,
-          name: row.name,
-          structure: row.structure,
-          service: row.service,
-          totalDays: row.totalDays,
-          presents: row.presents,
-          absents: row.absents,
-          retards: row.retards,
-          missions: row.missions,
-          permissions: row.permissions,
-          totalHours: row.totalHours,
-          overtimeHours: row.overtimeHours,
-          punctualityRate: row.punctualityRate,
-        })
-      );
-    }
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
+      if (kind === "excel") await exportExcel(rows, summary, `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.xlsx`);
+      else await exportPdf(rows, summary, periodLabel, `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.pdf`);
     } catch (e) {
       console.error(e);
-      alert("Erreur lors de l'export Excel.");
+      toast.error(kind === "excel" ? "Erreur lors de l'export Excel." : "Erreur lors de l'export PDF.");
+    } finally {
+      setExporting(null);
     }
   };
 
-  const exportPdf = async () => {
-    if (rows.length === 0) {
-      alert("Aucune donnée à exporter. Générez d'abord un rapport.");
-      return;
-    }
-    try {
-    const { jsPDF } = await import("jspdf");
-    const { autoTable } = await import("jspdf-autotable");
+  const clearEmployee = () => {
+    setSelectedEmployeeId(null);
+    setEmployeeSearch("");
+    setAppliedSearch("");
+  };
 
-    const doc = new jsPDF({ orientation: "landscape" });
-    doc.setFontSize(16);
-    doc.text(`Rapport de pointage`, 14, 18);
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Rapports"
+        description={
+          periodLabel ? (
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <CalendarDays className="h-4 w-4" />
+              {periodLabel}
+              {summary && (
+                <span>
+                  · {summary.totalEmployees} employé{summary.totalEmployees > 1 ? "s" : ""}
+                </span>
+              )}
+            </span>
+          ) : (
+            "Analyses et indicateurs de pointage"
+          )
+        }
+        actions={
+          <>
+            <Button variant="secondary" size="icon" onClick={() => void generate()} aria-label="Actualiser" title="Actualiser" disabled={!datesValid}>
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void runExport("excel")}
+              loading={exporting === "excel"}
+              disabled={exporting !== null || rows.length === 0}
+              icon={<FileSpreadsheet className="h-4 w-4 text-emerald-600" />}
+            >
+              Excel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void runExport("pdf")}
+              loading={exporting === "pdf"}
+              disabled={exporting !== null || rows.length === 0}
+              icon={<FileText className="h-4 w-4 text-red-600" />}
+            >
+              PDF
+            </Button>
+          </>
+        }
+      />
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-fit" role="group" aria-label="Période rapide">
+          {presets.map((p) => {
+            const active = dateFrom === p.from && dateTo === p.to;
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setFilters({ from: p.from, to: p.to })}
+                aria-pressed={active}
+                className={cn(
+                  "h-8 flex-1 rounded-lg px-3 text-xs font-medium transition-colors sm:flex-none",
+                  active ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <FilterBar>
+          <FilterField label="Du">
+            <Input type="date" value={dateFrom} onChange={(e) => setFilters({ from: e.target.value })} aria-invalid={!datesValid && Boolean(dateFrom && dateTo)} />
+          </FilterField>
+          <FilterField label="Au">
+            <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setFilters({ to: e.target.value })} aria-invalid={!datesValid && Boolean(dateFrom && dateTo)} />
+          </FilterField>
+          <FilterField label="Service">
+            <Select value={service} onChange={(e) => setFilters({ service: e.target.value })}>
+              <option value="">Tous les services</option>
+              {services.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          </FilterField>
+          <FilterField label="Structure">
+            <Select value={structure} onChange={(e) => setFilters({ structure: e.target.value })}>
+              <option value="">Toutes</option>
+              <option value="SCPB">SCPB</option>
+              <option value="AFREXIA">AFREXIA</option>
+            </Select>
+          </FilterField>
+          <FilterField label="Employé" className="sm:col-span-2 lg:min-w-[260px] lg:flex-1">
+            <div className="relative" ref={employeeInputRef}>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={employeeSearch}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEmployeeSearch(v);
+                  setSelectedEmployeeId(null);
+                  window.clearTimeout(searchTimer.current);
+                  searchTimer.current = window.setTimeout(() => setAppliedSearch(v), 500);
+                }}
+                onFocus={() => employeeSearch.trim().length >= 2 && employeeSuggestions.length > 0 && setShowEmployeeDropdown(true)}
+                placeholder="Nom, prénom ou matricule…"
+                className="pl-9 pr-9"
+                role="combobox"
+                aria-expanded={showEmployeeDropdown && employeeSuggestions.length > 0}
+                aria-controls="report-employee-list"
+                aria-autocomplete="list"
+              />
+              {(selectedEmployeeId || employeeSearch) && (
+                <button
+                  type="button"
+                  title="Effacer"
+                  aria-label="Effacer l'employé"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  onClick={clearEmployee}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+              {loadingSuggestions && !employeeSearch && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">…</span>}
+              {showEmployeeDropdown && employeeSuggestions.length > 0 && (
+                <ul
+                  id="report-employee-list"
+                  role="listbox"
+                  className="absolute left-0 right-0 z-20 mt-1 max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  {employeeSuggestions.map((emp) => (
+                    <li key={emp.id} role="option" aria-selected={false}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => {
+                          window.clearTimeout(searchTimer.current);
+                          setSelectedEmployeeId(emp.id);
+                          setEmployeeSearch(`${emp.lastName} ${emp.firstName} (${emp.matricule})`);
+                          setAppliedSearch("");
+                          setShowEmployeeDropdown(false);
+                          setEmployeeSuggestions([]);
+                        }}
+                      >
+                        <span className="font-medium">
+                          {emp.lastName} {emp.firstName}
+                        </span>
+                        {emp.service && <span className="text-xs text-slate-400">— {emp.service}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </FilterField>
+        </FilterBar>
+        {!datesValid && dateFrom && dateTo && (
+          <p className="text-sm text-red-600">La date de fin doit être postérieure à la date de début.</p>
+        )}
+      </div>
+
+      {!report && loading && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-[104px] rounded-2xl" />
+            ))}
+          </div>
+          <Skeleton className="h-80 rounded-2xl" />
+        </div>
+      )}
+
+      {!report && !loading && (
+        <Card>
+          <EmptyState icon={CalendarDays} title="Choisissez une période" description="Sélectionnez un raccourci ou deux dates pour afficher les analyses." />
+        </Card>
+      )}
+
+      {report && (
+        <div className={cn("space-y-6 transition-opacity", loading && "opacity-60")}>
+          {summary && (
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+              <StatTile icon={TrendingUp} label="Taux de présence" value={`${summary.presenceRate} %`} tone="success" sub={`Ponctualité moyenne ${summary.avgPunctuality} %`} />
+              <StatTile icon={AlertTriangle} label="Retards" value={summary.totalRetards} tone="warning" sub="sur la période" />
+              <StatTile icon={UserX} label="Absences" value={summary.totalAbsences} tone="danger" sub="sur la période" />
+              <StatTile icon={Clock} label="Heures travaillées" value={`${summary.totalHours} h`} tone="brand" sub={`dont ${summary.totalOvertimeHours} h sup`} />
+            </div>
+          )}
+
+          {(report.byDay.length > 0 || report.byService.length > 0 || report.overtimeByService.length > 0) && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {report.byDay.length > 0 && (
+                <ChartCard title="Taux de présence par jour" icon={TrendingUp} iconClass="text-emerald-500">
+                  <LineChart data={report.byDay} margin={{ top: 8, right: 12, left: -8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} minTickGap={16} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickFormatter={(v) => `${v}%`} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(value: number) => [`${value} %`, "Présence"]} />
+                    <Line type="monotone" dataKey="presenceRate" stroke={CHART_COLORS.present} strokeWidth={2.5} dot={{ r: 3, fill: CHART_COLORS.present }} activeDot={{ r: 5 }} />
+                  </LineChart>
+                </ChartCard>
+              )}
+              {report.byDay.length > 0 && (
+                <ChartCard title="Retards par jour" icon={AlertTriangle} iconClass="text-amber-500">
+                  <BarChart data={report.byDay} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} minTickGap={16} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: "#f1f5f9" }} formatter={(value: number) => [value, "Retards"]} />
+                    <Bar dataKey="retards" radius={[6, 6, 0, 0]} fill={CHART_COLORS.late} />
+                  </BarChart>
+                </ChartCard>
+              )}
+              {report.byService.length > 0 && (
+                <ChartCard title="Absences par service" icon={UserX} iconClass="text-red-500">
+                  <ServiceBars data={report.byService} dataKey="absences" label="Absences" />
+                </ChartCard>
+              )}
+              {report.byService.length > 0 && (
+                <ChartCard title="Heures travaillées par service" icon={Clock} iconClass="text-brand-500">
+                  <ServiceBars data={report.byService} dataKey="heures" label="Heures" unit="h" />
+                </ChartCard>
+              )}
+              {report.overtimeByService.length > 0 && (
+                <ChartCard title="Heures supplémentaires par service" icon={Clock} iconClass="text-violet-500">
+                  <ServiceBars data={report.overtimeByService} dataKey="overtimeHours" label="H. sup" unit="h" />
+                </ChartCard>
+              )}
+            </div>
+          )}
+
+          {(report.topPresents.length > 0 || report.topRetards.length > 0 || report.topOvertime.length > 0 || report.topOvertimeIssues.length > 0) && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {report.topPresents.length > 0 && (
+                <RankingList
+                  title="Top présences"
+                  icon={Trophy}
+                  iconClass="text-emerald-500"
+                  tone="success"
+                  items={report.topPresents.map((e) => ({ id: e.id, name: e.name, sub: e.service, value: `${e.presents} j`, extra: `${e.totalHours} h` }))}
+                />
+              )}
+              {report.topRetards.length > 0 && (
+                <RankingList
+                  title="Top retards"
+                  icon={AlertTriangle}
+                  iconClass="text-amber-500"
+                  tone="warning"
+                  items={report.topRetards.map((e) => ({
+                    id: e.id,
+                    name: e.name,
+                    sub: e.service,
+                    value: `${e.retards} retard${e.retards > 1 ? "s" : ""}`,
+                    extra: `Ponctualité ${e.punctualityRate} %`,
+                  }))}
+                />
+              )}
+              {report.topOvertime.length > 0 && (
+                <RankingList
+                  title="Top heures sup (validées)"
+                  icon={Clock}
+                  iconClass="text-violet-500"
+                  tone="violet"
+                  items={report.topOvertime.map((e) => ({ id: e.id, name: e.name, sub: e.service, value: `${e.overtimeHours} h` }))}
+                />
+              )}
+              {report.topOvertimeIssues.length > 0 && (
+                <RankingList
+                  title="Heures sup non validées / refusées"
+                  icon={AlertTriangle}
+                  iconClass="text-red-500"
+                  tone="danger"
+                  items={report.topOvertimeIssues.map((e) => ({
+                    id: e.id,
+                    name: e.name,
+                    sub: `${e.service} · ${e.requests} demande${e.requests > 1 ? "s" : ""} en suspens`,
+                    value: `${e.overtimeHours} h`,
+                  }))}
+                />
+              )}
+            </div>
+          )}
+
+          <Card className="overflow-hidden">
+            <CardHeader
+              title="Détail par employé"
+              description={`${rows.length} employé${rows.length > 1 ? "s" : ""} · cliquez sur un en-tête pour trier`}
+              icon={<Users className="h-5 w-5 text-slate-400" />}
+              className="pb-4"
+            />
+            <Table>
+              <THead>
+                <tr>
+                  <SortTh field="matricule" label="Matricule" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="name" label="Nom" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="structure" label="Structure" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="service" label="Service" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="presents" label="Présents" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="absents" label="Absents" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="retards" label="Retards" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="missions" label="Missions" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="permissions" label="Autor." align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="totalHours" label="Heures" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="overtimeHours" label="H. sup" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh field="punctualityRate" label="Ponctualité" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                </tr>
+              </THead>
+              <tbody>
+                {sortedRows.length === 0 ? (
+                  <TableMessageRow cols={12}>
+                    <EmptyState icon={UserX} title="Aucun pointage trouvé pour cette période" />
+                  </TableMessageRow>
+                ) : (
+                  sortedRows.map((r) => (
+                    <Tr key={r.id}>
+                      <Td className="font-mono text-xs text-slate-500">{r.matricule}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">
+                            {initials(r.name)}
+                          </span>
+                          <span className="whitespace-nowrap font-medium text-slate-800">{r.name}</span>
+                        </div>
+                      </Td>
+                      <Td>
+                        <StructureBadge value={r.structure} />
+                      </Td>
+                      <Td className="text-slate-500">{r.service}</Td>
+                      <Td align="center" className="font-medium tabular-nums text-emerald-600">{r.presents}</Td>
+                      <Td align="center">{r.absents > 0 ? <Badge tone="danger">{r.absents}</Badge> : <span className="text-slate-300">0</span>}</Td>
+                      <Td align="center">{r.retards > 0 ? <Badge tone="warning">{r.retards}</Badge> : <span className="text-slate-300">0</span>}</Td>
+                      <Td align="center" className="font-medium tabular-nums text-violet-600">{r.missions || <span className="text-slate-300">0</span>}</Td>
+                      <Td align="center" className="font-medium tabular-nums text-sky-600">{r.permissions || <span className="text-slate-300">0</span>}</Td>
+                      <Td align="center" className="font-medium tabular-nums">{r.totalHours} h</Td>
+                      <Td align="center" className="font-medium tabular-nums text-violet-600">
+                        {r.overtimeHours > 0 ? `${r.overtimeHours} h` : <span className="text-slate-300">0</span>}
+                      </Td>
+                      <Td align="center">
+                        <Badge tone={r.punctualityRate >= 90 ? "success" : r.punctualityRate >= 70 ? "warning" : "danger"}>{r.punctualityRate} %</Badge>
+                      </Td>
+                    </Tr>
+                  ))
+                )}
+              </tbody>
+            </Table>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SortTh({
+  field,
+  label,
+  align = "left",
+  sortField,
+  sortDir,
+  onSort,
+}: {
+  field: keyof ReportRow;
+  label: string;
+  align?: "left" | "center";
+  sortField: keyof ReportRow;
+  sortDir: "asc" | "desc";
+  onSort: (field: keyof ReportRow) => void;
+}) {
+  const active = sortField === field;
+  return (
+    <Th align={align} aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : undefined}>
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className={cn("inline-flex items-center gap-1 uppercase tracking-wide hover:text-slate-800", active && "text-slate-800")}
+      >
+        {label}
+        {active && sortDir === "asc" ? (
+          <ChevronUp className="h-3 w-3 text-brand-600" />
+        ) : (
+          <ChevronDown className={cn("h-3 w-3", active ? "text-brand-600" : "text-slate-300")} />
+        )}
+      </button>
+    </Th>
+  );
+}
+
+function ChartCard({
+  title,
+  icon: Icon,
+  iconClass,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  iconClass: string;
+  children: React.ReactElement;
+}) {
+  return (
+    <Card>
+      <CardHeader title={title} icon={<Icon className={cn("h-5 w-5", iconClass)} />} />
+      <div className="px-2 pb-4 pt-3 sm:px-4">
+        <ResponsiveContainer width="100%" height={260}>
+          {children}
+        </ResponsiveContainer>
+      </div>
+    </Card>
+  );
+}
+
+function ServiceBars<T extends { service: string }>({
+  data,
+  dataKey,
+  label,
+  unit = "",
+}: {
+  data: T[];
+  dataKey: keyof T & string;
+  label: string;
+  unit?: string;
+}) {
+  return (
+    <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+      <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
+      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickFormatter={(v) => `${v}${unit}`} tickLine={false} axisLine={false} />
+      <YAxis type="category" dataKey="service" tick={{ fontSize: 11, fill: CHART_COLORS.axis }} width={90} tickLine={false} axisLine={false} />
+      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: "#f1f5f9" }} formatter={(value: number) => [`${value}${unit ? ` ${unit}` : ""}`, label]} />
+      <Bar dataKey={dataKey} radius={[0, 6, 6, 0]}>
+        {data.map((_, i) => (
+          <Cell key={i} fill={CHART_SERIES[i % CHART_SERIES.length]} />
+        ))}
+      </Bar>
+    </BarChart>
+  );
+}
+
+const RANK_TONES: Record<"success" | "warning" | "violet" | "danger", string> = {
+  success: "bg-emerald-100 text-emerald-700",
+  warning: "bg-amber-100 text-amber-700",
+  violet: "bg-violet-100 text-violet-700",
+  danger: "bg-red-100 text-red-700",
+};
+
+const VALUE_TONES: Record<"success" | "warning" | "violet" | "danger", string> = {
+  success: "text-emerald-600",
+  warning: "text-amber-600",
+  violet: "text-violet-600",
+  danger: "text-red-600",
+};
+
+function RankingList({
+  title,
+  icon: Icon,
+  iconClass,
+  tone,
+  items,
+}: {
+  title: string;
+  icon: LucideIcon;
+  iconClass: string;
+  tone: Extract<BadgeTone, "success" | "warning" | "violet" | "danger">;
+  items: { id: string; name: string; sub: string; value: string; extra?: string }[];
+}) {
+  return (
+    <Card>
+      <CardHeader title={title} icon={<Icon className={cn("h-5 w-5", iconClass)} />} />
+      <ol className="space-y-1 px-3 pb-4 pt-3 sm:px-4">
+        {items.map((emp, i) => (
+          <li key={emp.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+            <span
+              className={cn(
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                i === 0 ? RANK_TONES[tone] : "bg-slate-100 text-slate-500"
+              )}
+            >
+              {i + 1}
+            </span>
+            <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold", RANK_TONES[tone])}>
+              {initials(emp.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-slate-800">{emp.name}</p>
+              <p className="truncate text-xs text-slate-500">{emp.sub}</p>
+            </div>
+            <div className="text-right">
+              <p className={cn("text-sm font-bold tabular-nums", VALUE_TONES[tone])}>{emp.value}</p>
+              {emp.extra && <p className="text-xs text-slate-500">{emp.extra}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
+const REPORT_COLUMNS = [
+  { header: "Matricule", key: "matricule", width: 18 },
+  { header: "Nom", key: "name", width: 25 },
+  { header: "Structure", key: "structure", width: 12 },
+  { header: "Service", key: "service", width: 12 },
+  { header: "Jours", key: "totalDays", width: 10 },
+  { header: "Présents", key: "presents", width: 12 },
+  { header: "Absents", key: "absents", width: 12 },
+  { header: "Retards", key: "retards", width: 12 },
+  { header: "Missions", key: "missions", width: 12 },
+  { header: "Autorisations d'absence", key: "permissions", width: 18 },
+  { header: "Heures", key: "totalHours", width: 12 },
+  { header: "Heures sup", key: "overtimeHours", width: 12 },
+  { header: "Ponctualité (%)", key: "punctualityRate", width: 16 },
+];
+
+async function exportExcel(rows: ReportRow[], summary: Summary | null, filename: string) {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+
+  const styleHeader = (sheet: import("exceljs").Worksheet) => {
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+  };
+
+  const toRow = (row: ReportRow) => ({
+    matricule: row.matricule,
+    name: row.name,
+    structure: row.structure,
+    service: row.service,
+    totalDays: row.totalDays,
+    presents: row.presents,
+    absents: row.absents,
+    retards: row.retards,
+    missions: row.missions,
+    permissions: row.permissions,
+    totalHours: row.totalHours,
+    overtimeHours: row.overtimeHours,
+    punctualityRate: row.punctualityRate,
+  });
+
+  const allSheet = workbook.addWorksheet("Tous");
+  allSheet.columns = REPORT_COLUMNS;
+  styleHeader(allSheet);
+  rows.forEach((row) => allSheet.addRow(toRow(row)));
+  if (summary) {
+    allSheet.addRow({});
+    allSheet.addRow({ matricule: "RÉSUMÉ" });
+    allSheet.addRow({ matricule: "Taux présence", name: `${summary.presenceRate}%` });
+    allSheet.addRow({ matricule: "Retards totaux", name: String(summary.totalRetards) });
+    allSheet.addRow({ matricule: "Absences totales", name: String(summary.totalAbsences) });
+    allSheet.addRow({ matricule: "Heures totales", name: `${summary.totalHours}h` });
+    allSheet.addRow({ matricule: "Heures sup totales", name: `${summary.totalOvertimeHours}h` });
+  }
+
+  for (const struct of ["SCPB", "AFREXIA"] as const) {
+    const structRows = rows.filter((r) => r.structure === struct);
+    if (structRows.length === 0) continue;
+    const sheet = workbook.addWorksheet(struct);
+    sheet.columns = REPORT_COLUMNS;
+    styleHeader(sheet);
+    structRows.forEach((row) => sheet.addRow(toRow(row)));
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportPdf(rows: ReportRow[], summary: Summary | null, periodLabel: string, filename: string) {
+  const { jsPDF } = await import("jspdf");
+  const { autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF({ orientation: "landscape" });
+  doc.setFontSize(16);
+  doc.text("Rapport de pointage", 14, 18);
+  doc.setFontSize(10);
+  doc.setTextColor(100);
+  doc.text(`Période : ${periodLabel}`, 14, 26);
+
+  if (summary) {
     doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Période : ${dateFrom} → ${dateTo}`, 14, 26);
+    doc.setTextColor(0);
+    doc.text(
+      `Présence : ${summary.presenceRate}%  |  Retards : ${summary.totalRetards}  |  Absences : ${summary.totalAbsences}  |  Heures : ${summary.totalHours}h  |  H. sup : ${summary.totalOvertimeHours}h`,
+      14,
+      34
+    );
+  }
 
-    if (summary) {
-      doc.setFontSize(10);
-      doc.setTextColor(0);
-      doc.text(
-        `Présence : ${summary.presenceRate}%  |  Retards : ${summary.totalRetards}  |  Absences : ${summary.totalAbsences}  |  Heures : ${summary.totalHours}h`,
-        14,
-        34
-      );
-    }
+  autoTable(doc, {
+    startY: 42,
+    head: [["Matricule", "Nom", "Structure", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Heures", "H. sup", "Ponctualité"]],
+    body: rows.map((r) => [
+      r.matricule,
+      r.name,
+      r.structure,
+      r.service,
+      r.totalDays,
+      r.presents,
+      r.absents,
+      r.retards,
+      r.missions,
+      `${r.totalHours}h`,
+      `${r.overtimeHours}h`,
+      `${r.punctualityRate}%`,
+    ]),
+    theme: "striped",
+    headStyles: { fillColor: [37, 99, 235] },
+    styles: { fontSize: 8 },
+  });
 
+  for (const label of ["SCPB", "AFREXIA"] as const) {
+    const structRows = rows.filter((r) => r.structure === label);
+    if (structRows.length === 0) continue;
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.setTextColor(0);
+    doc.text(`Récapitulatif — ${label}`, 14, 18);
+    doc.setFontSize(10);
+    const totalH = structRows.reduce((s, r) => s + r.totalHours, 0);
+    const totalOt = structRows.reduce((s, r) => s + r.overtimeHours, 0);
+    const totalAbs = structRows.reduce((s, r) => s + r.absents, 0);
+    const totalRet = structRows.reduce((s, r) => s + r.retards, 0);
+    doc.text(`Employés : ${structRows.length} | Heures : ${totalH}h | H. sup : ${totalOt}h | Absences : ${totalAbs} | Retards : ${totalRet}`, 14, 26);
     autoTable(doc, {
-      startY: 42,
-      head: [["Matricule", "Nom", "Structure", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Heures", "H. sup", "Ponctualité"]],
-      body: rows.map((r) => [
-        r.matricule,
-        r.name,
-        r.structure,
-        r.service,
-        r.totalDays,
-        r.presents,
-        r.absents,
-        r.retards,
-        r.missions,
-        `${r.totalHours}h`,
-        `${r.overtimeHours}h`,
-        `${r.punctualityRate}%`,
-      ]),
+      startY: 34,
+      head: [["Matricule", "Nom", "Service", "Présents", "Absents", "Retards", "Heures", "H. sup", "Ponctualité"]],
+      body: structRows.map((r) => [r.matricule, r.name, r.service, r.presents, r.absents, r.retards, `${r.totalHours}h`, `${r.overtimeHours}h`, `${r.punctualityRate}%`]),
       theme: "striped",
       headStyles: { fillColor: [37, 99, 235] },
       styles: { fontSize: 8 },
     });
+  }
 
-    const scpbRows = rows.filter((r) => r.structure === "SCPB");
-    const afrexiaRows = rows.filter((r) => r.structure === "AFREXIA");
-    for (const [label, structRows] of [["SCPB", scpbRows], ["AFREXIA", afrexiaRows]] as const) {
-      if (structRows.length === 0) continue;
-      doc.addPage();
-      doc.setFontSize(14);
-      doc.setTextColor(0);
-      doc.text(`Récapitulatif — ${label}`, 14, 18);
-      doc.setFontSize(10);
-      const totalH = structRows.reduce((s, r) => s + r.totalHours, 0);
-      const totalOt = structRows.reduce((s, r) => s + r.overtimeHours, 0);
-      const totalAbs = structRows.reduce((s, r) => s + r.absents, 0);
-      const totalRet = structRows.reduce((s, r) => s + r.retards, 0);
-      doc.text(`Employés: ${structRows.length} | Heures: ${totalH}h | H. sup: ${totalOt}h | Absences: ${totalAbs} | Retards: ${totalRet}`, 14, 26);
-      autoTable(doc, {
-        startY: 34,
-        head: [["Matricule", "Nom", "Service", "Présents", "Absents", "Retards", "Heures", "H. sup", "Ponctualité"]],
-        body: structRows.map((r) => [r.matricule, r.name, r.service, r.presents, r.absents, r.retards, `${r.totalHours}h`, `${r.overtimeHours}h`, `${r.punctualityRate}%`]),
-        theme: "striped",
-        headStyles: { fillColor: [37, 99, 235] },
-        styles: { fontSize: 8 },
-      });
-    }
-
-    doc.save(`rapport_${dateFrom}_${dateTo}${exportFileSuffix}.pdf`);
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de l'export PDF.");
-    }
-  };
-
-  const SortIcon = ({ field }: { field: keyof ReportRow }) => {
-    if (sortField !== field) return <ChevronDown className="w-3 h-3 text-slate-300 ml-1 inline" />;
-    return sortDir === "asc"
-      ? <ChevronUp className="w-3 h-3 text-blue-600 ml-1 inline" />
-      : <ChevronDown className="w-3 h-3 text-blue-600 ml-1 inline" />;
-  };
-
-  const periodLabel = dateFrom && dateTo
-    ? `${new Date(dateFrom).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} → ${new Date(dateTo).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}`
-    : "";
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Rapports</h1>
-          <p className="text-sm text-slate-500 mt-1">Analyses et indicateurs de pointage</p>
-        </div>
-        {generated && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={exportExcel}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-emerald-200 text-emerald-700 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-colors text-sm font-medium"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Excel
-            </button>
-            <button
-              onClick={exportPdf}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-red-200 text-red-700 bg-red-50 rounded-xl hover:bg-red-100 transition-colors text-sm font-medium"
-            >
-              <FileText className="w-4 h-4" />
-              PDF
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Filtres */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-        <div className="flex flex-col lg:flex-row gap-4 items-end">
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Date début</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Date fin</label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Service</label>
-              <select
-                value={service}
-                onChange={(e) => setService(e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">Tous les services</option>
-                {services.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Structure</label>
-              <select
-                value={structure}
-                onChange={(e) => setStructure(e.target.value)}
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">Toutes</option>
-                <option value="SCPB">SCPB</option>
-                <option value="AFREXIA">AFREXIA</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Employé</label>
-              <div className="relative" ref={employeeInputRef}>
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                <input
-                  value={employeeSearch}
-                  onChange={(e) => {
-                    setEmployeeSearch(e.target.value);
-                    setSelectedEmployeeId(null);
-                  }}
-                  onFocus={() => employeeSearch.trim().length >= 2 && employeeSuggestions.length > 0 && setShowEmployeeDropdown(true)}
-                  placeholder="Rechercher (nom, prénom, matricule)…"
-                  className="w-full pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white placeholder:text-slate-400"
-                />
-                {selectedEmployeeId && (
-                  <button
-                    type="button"
-                    title="Effacer la sélection"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-medium"
-                    onClick={() => {
-                      setSelectedEmployeeId(null);
-                      setEmployeeSearch("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                )}
-                {loadingSuggestions && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">…</span>
-                )}
-                {showEmployeeDropdown && employeeSuggestions.length > 0 && (
-                  <ul className="absolute z-10 left-0 right-0 mt-1 py-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-auto">
-                    {employeeSuggestions.map((emp) => (
-                      <li key={emp.id}>
-                        <button
-                          type="button"
-                          className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                          onClick={() => {
-                            setSelectedEmployeeId(emp.id);
-                            setEmployeeSearch(`${emp.lastName} ${emp.firstName} (${emp.matricule})`);
-                            setShowEmployeeDropdown(false);
-                            setEmployeeSuggestions([]);
-                          }}
-                        >
-                          <span className="font-medium">{emp.lastName} {emp.firstName}</span>
-                          {emp.service && <span className="text-slate-400 text-xs">— {emp.service}</span>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={generate}
-            disabled={loading || !dateFrom || !dateTo}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium whitespace-nowrap shadow-sm"
-          >
-            <BarChart3 className="w-4 h-4" />
-            {loading ? "Génération…" : "Générer"}
-          </button>
-        </div>
-        <div className="mt-5 pt-5 border-t border-slate-100 flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-slate-600 shrink-0">Période rapide</span>
-          <button
-            type="button"
-            onClick={() => applyPeriodPreset("30d")}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            30 derniers jours
-          </button>
-          <button
-            type="button"
-            onClick={() => applyPeriodPreset("month")}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            Mois en cours
-          </button>
-          <button
-            type="button"
-            onClick={() => applyPeriodPreset("quarter")}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            Trimestre en cours
-          </button>
-          <button
-            type="button"
-            onClick={() => applyPeriodPreset("year")}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            Année en cours
-          </button>
-          <span className="text-xs text-slate-400 ml-1">
-            Remplit les dates ; filtrez un employé puis <strong>Générer</strong>.
-          </span>
-        </div>
-      </div>
-
-      {/* État initial */}
-      {!generated && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-16 text-center">
-          <CalendarDays className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-700 mb-2">Sélectionnez une période</h3>
-          <p className="text-sm text-slate-400 max-w-md mx-auto">
-            Choisissez une date de début et de fin puis cliquez sur <strong>Générer</strong> pour afficher les rapports et analyses.
-          </p>
-        </div>
-      )}
-
-      {/* Résultats */}
-      {generated && (
-        <>
-          {/* Période */}
-          {periodLabel && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <CalendarDays className="w-4 h-4" />
-              Période analysée : <span className="font-medium text-slate-700">{periodLabel}</span>
-              {summary && <span className="text-slate-400">— {summary.totalEmployees} employé{summary.totalEmployees > 1 ? "s" : ""}</span>}
-            </div>
-          )}
-
-          {/* KPI */}
-          {summary && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <KpiCard icon={TrendingUp} label="Taux de présence" value={`${summary.presenceRate}%`} color="emerald" />
-              <KpiCard icon={AlertTriangle} label="Retards" value={summary.totalRetards} sub="sur la période" color="amber" />
-              <KpiCard icon={UserX} label="Absences" value={summary.totalAbsences} sub="sur la période" color="red" />
-              <KpiCard icon={Clock} label="Heures travaillées" value={`${summary.totalHours}h`} color="blue" />
-            </div>
-          )}
-
-          {/* Graphiques */}
-          {(byDay.length > 0 || byService.length > 0 || overtimeByService.length > 0) && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Présence par jour */}
-              {byDay.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    Taux de présence par jour
-                  </h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <LineChart data={byDay}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${v}%`} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                        formatter={(value: number) => [`${value}%`, "Présence"]}
-                      />
-                      <Line type="monotone" dataKey="presenceRate" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: "#10b981" }} activeDot={{ r: 6 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Retards par jour */}
-              {byDay.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    Retards par jour
-                  </h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={byDay}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                        formatter={(value: number) => [value, "Retards"]}
-                      />
-                      <Bar dataKey="retards" radius={[6, 6, 0, 0]} fill="#f59e0b" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Absences par service */}
-              {byService.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <UserX className="w-4 h-4 text-red-500" />
-                    Absences par service
-                  </h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={byService} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <YAxis type="category" dataKey="service" tick={{ fontSize: 11, fill: "#94a3b8" }} width={100} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                        formatter={(value: number) => [value, "Absences"]}
-                      />
-                      <Bar dataKey="absences" radius={[0, 6, 6, 0]}>
-                        {byService.map((_, i) => (
-                          <Cell key={i} fill={SERVICE_COLORS[i % SERVICE_COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Heures par service */}
-              {byService.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-blue-500" />
-                    Heures travaillées par service
-                  </h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={byService} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${v}h`} />
-                      <YAxis type="category" dataKey="service" tick={{ fontSize: 11, fill: "#94a3b8" }} width={100} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                        formatter={(value: number) => [`${value}h`, "Heures"]}
-                      />
-                      <Bar dataKey="heures" radius={[0, 6, 6, 0]}>
-                        {byService.map((_, i) => (
-                          <Cell key={i} fill={SERVICE_COLORS[i % SERVICE_COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Heures sup par service */}
-              {overtimeByService.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-violet-500" />
-                    Heures supplémentaires par service
-                  </h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={overtimeByService} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis
-                        type="number"
-                        tick={{ fontSize: 11, fill: "#94a3b8" }}
-                        tickFormatter={(v) => `${v}h`}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="service"
-                        tick={{ fontSize: 11, fill: "#94a3b8" }}
-                        width={100}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: "12px",
-                          border: "1px solid #e2e8f0",
-                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                        }}
-                        formatter={(value: number) => [`${value}h`, "H. sup"]}
-                      />
-                      <Bar dataKey="overtimeHours" radius={[0, 6, 6, 0]}>
-                        {overtimeByService.map((_, i) => (
-                          <Cell key={i} fill={SERVICE_COLORS[i % SERVICE_COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Classements */}
-          {(topPresents.length > 0 || topRetards.length > 0 || topOvertime.length > 0 || topOvertimeIssues.length > 0) && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Top Présents */}
-              {topPresents.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-emerald-500" />
-                    Top présences
-                  </h3>
-                  <div className="space-y-3">
-                    {topPresents.map((emp, i) => (
-                      <div key={emp.id} className="flex items-center gap-3">
-                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                          i === 0 ? "bg-amber-100 text-amber-700" : i === 1 ? "bg-slate-200 text-slate-600" : i === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"
-                        }`}>
-                          {i + 1}
-                        </span>
-                        <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">
-                          {emp.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{emp.name}</p>
-                          <p className="text-xs text-slate-400">{emp.service}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-emerald-600">{emp.presents} j</p>
-                          <p className="text-xs text-slate-400">{emp.totalHours}h</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Top Retards */}
-              {topRetards.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    Top retards
-                  </h3>
-                  <div className="space-y-3">
-                    {topRetards.map((emp, i) => (
-                      <div key={emp.id} className="flex items-center gap-3">
-                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                          i === 0 ? "bg-red-100 text-red-700" : i === 1 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"
-                        }`}>
-                          {i + 1}
-                        </span>
-                        <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xs font-bold">
-                          {emp.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{emp.name}</p>
-                          <p className="text-xs text-slate-400">{emp.service}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-amber-600">{emp.retards} retard{emp.retards > 1 ? "s" : ""}</p>
-                          <p className="text-xs text-slate-400">Ponctualité {emp.punctualityRate}%</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Top Heures sup (validées) */}
-              {topOvertime.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-violet-500" />
-                    Top heures supplémentaires (validées)
-                  </h3>
-                  <div className="space-y-3">
-                    {topOvertime.map((emp, i) => (
-                      <div key={emp.id} className="flex items-center gap-3">
-                        <span
-                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                            i === 0
-                              ? "bg-violet-100 text-violet-700"
-                              : i === 1
-                                ? "bg-slate-200 text-slate-600"
-                                : i === 2
-                                  ? "bg-amber-100 text-amber-700"
-                                  : "bg-slate-100 text-slate-500"
-                          }`}
-                        >
-                          {i + 1}
-                        </span>
-                        <div className="w-8 h-8 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-xs font-bold">
-                          {emp.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .slice(0, 2)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">
-                            {emp.name}
-                          </p>
-                          <p className="text-xs text-slate-400">{emp.service}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-violet-600">
-                            {emp.overtimeHours}h
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Heures sup à problème (non validées / refusées) */}
-              {topOvertimeIssues.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-red-500" />
-                    Heures sup non validées / refusées
-                  </h3>
-                  <div className="space-y-3">
-                    {topOvertimeIssues.map((emp, i) => (
-                      <div key={emp.id} className="flex items-center gap-3">
-                        <span
-                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                            i === 0
-                              ? "bg-red-100 text-red-700"
-                              : i === 1
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-slate-100 text-slate-500"
-                          }`}
-                        >
-                          {i + 1}
-                        </span>
-                        <div className="w-8 h-8 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">
-                          {emp.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .slice(0, 2)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">
-                            {emp.name}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {emp.service} — {emp.requests} demande
-                            {emp.requests > 1 ? "s" : ""} problématique(s)
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-red-600">
-                            {emp.overtimeHours}h
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Table détaillée */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <Users className="w-4 h-4 text-slate-400" />
-                Détail par employé
-                <span className="text-xs font-normal text-slate-400 ml-1">({rows.length})</span>
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-slate-500 border-b border-slate-200">
-                    <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("matricule")}>
-                      Matricule <SortIcon field="matricule" />
-                    </th>
-                    <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("name")}>
-                      Nom <SortIcon field="name" />
-                    </th>
-                    <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("structure")}>
-                      Structure <SortIcon field="structure" />
-                    </th>
-                    <th className="pb-3 font-medium cursor-pointer select-none" onClick={() => handleSort("service")}>
-                      Service <SortIcon field="service" />
-                    </th>
-                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("presents")}>
-                      Présents <SortIcon field="presents" />
-                    </th>
-                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("absents")}>
-                      Absents <SortIcon field="absents" />
-                    </th>
-                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("retards")}>
-                      Retards <SortIcon field="retards" />
-                    </th>
-                    <th className="pb-3 font-medium text-center">Missions</th>
-                    <th className="pb-3 font-medium text-center">Perm.</th>
-                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("totalHours")}>
-                      Heures <SortIcon field="totalHours" />
-                    </th>
-                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("overtimeHours")}>
-                      H. sup <SortIcon field="overtimeHours" />
-                    </th>
-                    <th className="pb-3 font-medium text-center cursor-pointer select-none" onClick={() => handleSort("punctualityRate")}>
-                      Ponctualité <SortIcon field="punctualityRate" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={12} className="py-12 text-center">
-                        <UserX className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                        <p className="text-slate-400">Aucun pointage trouvé pour cette période.</p>
-                      </td>
-                    </tr>
-                  ) : (
-                    sortedRows.map((r) => (
-                      <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 font-mono text-xs text-slate-500">{r.matricule}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                              {r.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                            </div>
-                            <span className="font-medium text-slate-800">{r.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-3">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.structure === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"}`}>
-                            {r.structure}
-                          </span>
-                        </td>
-                        <td className="py-3 text-slate-500">{r.service}</td>
-                        <td className="py-3 text-center font-medium text-emerald-600">{r.presents}</td>
-                        <td className="py-3 text-center">
-                          {r.absents > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700">{r.absents}</span>
-                          ) : (
-                            <span className="text-slate-300">0</span>
-                          )}
-                        </td>
-                        <td className="py-3 text-center">
-                          {r.retards > 0 ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">{r.retards}</span>
-                          ) : (
-                            <span className="text-slate-300">0</span>
-                          )}
-                        </td>
-                        <td className="py-3 text-center text-purple-600 font-medium">{r.missions || <span className="text-slate-300">0</span>}</td>
-                        <td className="py-3 text-center text-blue-600 font-medium">{r.permissions || <span className="text-slate-300">0</span>}</td>
-                        <td className="py-3 text-center font-medium text-slate-700">{r.totalHours}h</td>
-                        <td className="py-3 text-center font-medium text-violet-600">
-                          {r.overtimeHours > 0 ? `${r.overtimeHours}h` : <span className="text-slate-300">0</span>}
-                        </td>
-                        <td className="py-3 text-center">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            r.punctualityRate >= 90 ? "bg-emerald-50 text-emerald-700" :
-                            r.punctualityRate >= 70 ? "bg-amber-50 text-amber-700" :
-                            "bg-red-50 text-red-700"
-                          }`}>
-                            {r.punctualityRate}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
+  doc.save(filename);
 }

@@ -1,9 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, UserCog, X, Shield, Save } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Plus, Shield, Save, Eye, EyeOff, UserCog } from "lucide-react";
 import Link from "next/link";
+import { roleLabel } from "@/lib/navigation";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, Select } from "@/components/ui/Field";
+import { Table, THead, Th, Tr, Td, TableSkeletonRows, TableMessageRow } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toaster";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type DashboardUser = {
   id: string;
@@ -15,12 +25,6 @@ type DashboardUser = {
   createdAt: string;
 };
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrateur",
-  HR: "RH",
-  DG: "Direction",
-};
-
 const emptyForm = {
   name: "",
   email: "",
@@ -30,12 +34,15 @@ const emptyForm = {
 };
 
 export default function UsersAdminClient({ currentUserId }: { currentUserId: string }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [phoneEdits, setPhoneEdits] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -50,11 +57,15 @@ export default function UsersAdminClient({ currentUserId }: { currentUserId: str
         const phones: Record<string, string> = {};
         for (const u of list) phones[u.id] = u.whatsappPhone ?? "";
         setPhoneEdits(phones);
+      } else {
+        toast.error(typeof json.error === "string" ? json.error : "Impossible de charger les utilisateurs.");
       }
+    } catch {
+      toast.error("Erreur réseau : utilisateurs non chargés.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void load();
@@ -82,6 +93,7 @@ export default function UsersAdminClient({ currentUserId }: { currentUserId: str
         return;
       }
       setModalOpen(false);
+      toast.success(`Compte créé pour ${form.name}. Communiquez-lui son mot de passe initial de façon sécurisée.`);
       setForm(emptyForm);
       await load();
     } catch {
@@ -91,20 +103,23 @@ export default function UsersAdminClient({ currentUserId }: { currentUserId: str
     }
   };
 
-  const savePhone = async (userId: string) => {
-    setSavingId(userId);
+  const savePhone = async (user: DashboardUser) => {
+    setSavingId(user.id);
     try {
-      const res = await fetch(`/api/users/${userId}`, {
+      const res = await fetch(`/api/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ whatsappPhone: (phoneEdits[userId] ?? "").trim() || null }),
+        body: JSON.stringify({ whatsappPhone: (phoneEdits[user.id] ?? "").trim() || null }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(typeof json.error === "string" ? json.error : "Erreur");
+        toast.error(typeof json.error === "string" ? json.error : "Numéro non enregistré.");
         return;
       }
+      toast.success(`Numéro WhatsApp de ${user.name} enregistré.`);
       await load();
+    } catch {
+      toast.error("Erreur réseau : numéro non enregistré.");
     } finally {
       setSavingId(null);
     }
@@ -112,241 +127,208 @@ export default function UsersAdminClient({ currentUserId }: { currentUserId: str
 
   const toggleActive = async (user: DashboardUser) => {
     const next = !user.active;
-    const label = next ? "réactiver" : "désactiver";
-    if (!confirm(`${label.charAt(0).toUpperCase()}${label.slice(1)} le compte ${user.email} ?`)) return;
+    const ok = await confirm({
+      title: next ? "Réactiver le compte" : "Désactiver le compte",
+      message: next
+        ? `${user.name} (${user.email}) pourra de nouveau se connecter au tableau de bord.`
+        : `${user.name} (${user.email}) ne pourra plus se connecter. Son historique est conservé.`,
+      confirmLabel: next ? "Réactiver" : "Désactiver",
+      tone: next ? "primary" : "danger",
+    });
+    if (!ok) return;
 
     const res = await fetch(`/api/users/${user.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: next }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(typeof json.error === "string" ? json.error : "Erreur");
+    }).catch(() => null);
+    const json = res ? await res.json().catch(() => ({})) : {};
+    if (!res?.ok) {
+      toast.error(typeof json.error === "string" ? json.error : "Modification impossible.");
       return;
     }
+    toast.success(next ? "Compte réactivé." : "Compte désactivé.");
     await load();
+  };
+
+  const openCreate = () => {
+    setForm(emptyForm);
+    setFormError(null);
+    setShowPassword(false);
+    setModalOpen(true);
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <UserCog className="w-8 h-8 text-violet-600" />
-            Utilisateurs
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Créez les comptes RH, administrateurs et direction. Les alertes WhatsApp utilisent les
-            numéros renseignés (
-            <Link href="/settings" className="text-blue-600 hover:underline">
+      <PageHeader
+        title="Utilisateurs"
+        description={
+          <>
+            Comptes RH, administrateurs et direction. Les alertes WhatsApp utilisent les numéros renseignés (voir{" "}
+            <Link href="/settings?tab=notifications" className="text-brand-600 hover:underline">
               Paramètres → Alertes
             </Link>
             ).
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setForm(emptyForm);
-            setFormError(null);
-            setModalOpen(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-medium shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Nouvel utilisateur
-        </button>
-      </div>
+          </>
+        }
+        actions={
+          <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
+            Nouvel utilisateur
+          </Button>
+        }
+      />
 
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-8 space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />
-            ))}
-          </div>
-        ) : users.length === 0 ? (
-          <p className="p-8 text-center text-slate-500">Aucun utilisateur.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Nom</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Rôle</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">WhatsApp</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Statut</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{u.name}</p>
+      <Card className="overflow-hidden">
+        <Table>
+          <THead>
+            <tr>
+              <Th>Utilisateur</Th>
+              <Th>Rôle</Th>
+              <Th>WhatsApp (alertes)</Th>
+              <Th>Statut</Th>
+              <Th align="right">
+                <span className="sr-only">Actions</span>
+              </Th>
+            </tr>
+          </THead>
+          <tbody>
+            {loading ? (
+              <TableSkeletonRows cols={5} rows={3} />
+            ) : users.length === 0 ? (
+              <TableMessageRow cols={5}>
+                <EmptyState icon={UserCog} title="Aucun utilisateur" />
+              </TableMessageRow>
+            ) : (
+              users.map((u) => {
+                const dirty = (phoneEdits[u.id] ?? "") !== (u.whatsappPhone ?? "");
+                return (
+                  <Tr key={u.id}>
+                    <Td>
+                      <p className="font-medium text-slate-800">
+                        {u.name}
+                        {u.id === currentUserId && <span className="ml-1.5 text-xs font-medium text-brand-600">(vous)</span>}
+                      </p>
                       <p className="text-xs text-slate-500">{u.email}</p>
-                      {u.id === currentUserId && (
-                        <span className="text-[10px] text-blue-600 font-medium">(vous)</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
-                          u.role === "ADMIN"
-                            ? "bg-violet-50 text-violet-700"
-                            : u.role === "HR"
-                              ? "bg-blue-50 text-blue-700"
-                              : "bg-slate-100 text-slate-600"
-                        )}
-                      >
-                        {u.role === "ADMIN" && <Shield className="w-3 h-3" />}
-                        {ROLE_LABELS[u.role] ?? u.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1 max-w-xs">
-                        <input
+                    </Td>
+                    <Td>
+                      <Badge tone={u.role === "ADMIN" ? "violet" : u.role === "HR" ? "brand" : "neutral"}>
+                        {u.role === "ADMIN" && <Shield className="h-3 w-3" />}
+                        {roleLabel(u.role)}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <div className="flex max-w-xs gap-1.5">
+                        <Input
                           type="tel"
+                          inputMode="tel"
                           value={phoneEdits[u.id] ?? ""}
-                          onChange={(e) =>
-                            setPhoneEdits((prev) => ({ ...prev, [u.id]: e.target.value }))
-                          }
+                          onChange={(e) => setPhoneEdits((prev) => ({ ...prev, [u.id]: e.target.value }))}
                           placeholder="237…"
-                          className="flex-1 min-w-0 px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
+                          className="h-9 min-w-0 flex-1"
+                          aria-label={`Numéro WhatsApp de ${u.name}`}
                         />
-                        <button
-                          type="button"
-                          disabled={savingId === u.id}
-                          onClick={() => void savePhone(u.id)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
+                        <Button
+                          variant={dirty ? "primary" : "ghost"}
+                          size="icon-sm"
+                          className="h-9 w-9"
+                          disabled={!dirty}
+                          loading={savingId === u.id}
+                          onClick={() => void savePhone(u)}
                           title="Enregistrer le numéro"
+                          aria-label={`Enregistrer le numéro de ${u.name}`}
                         >
-                          <Save className="w-4 h-4" />
-                        </button>
+                          {savingId === u.id ? null : <Save className="h-4 w-4" />}
+                        </Button>
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          "text-xs font-medium px-2 py-0.5 rounded-full",
-                          u.active ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                        )}
-                      >
+                    </Td>
+                    <Td>
+                      <Badge tone={u.active ? "success" : "danger"} dot>
                         {u.active ? "Actif" : "Inactif"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
+                      </Badge>
+                    </Td>
+                    <Td align="right">
                       {u.id !== currentUserId && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => void toggleActive(u)}
-                          className="text-sm font-medium text-slate-600 hover:text-slate-900"
+                          className={u.active ? "hover:bg-red-50 hover:text-red-700" : "hover:bg-emerald-50 hover:text-emerald-700"}
                         >
                           {u.active ? "Désactiver" : "Réactiver"}
-                        </button>
+                        </Button>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                    </Td>
+                  </Tr>
+                );
+              })
+            )}
+          </tbody>
+        </Table>
+      </Card>
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setModalOpen(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
-            <div className="flex items-start justify-between mb-4">
-              <h2 className="text-lg font-semibold text-slate-900">Nouvel utilisateur</h2>
-              <button type="button" onClick={() => setModalOpen(false)} className="text-slate-400">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nom complet</label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  required
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  required
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Mot de passe initial
-                </label>
-                <input
-                  type="password"
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        dismissible={!submitting}
+        title="Nouvel utilisateur"
+        description="Accès au tableau de bord RH."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)} disabled={submitting}>
+              Annuler
+            </Button>
+            <Button type="submit" form="user-form" loading={submitting}>
+              Créer le compte
+            </Button>
+          </>
+        }
+      >
+        <form id="user-form" onSubmit={handleCreate} className="space-y-4">
+          {formError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{formError}</div>}
+          <Field label="Nom complet" required>
+            {(id) => <Input id={id} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoComplete="off" />}
+          </Field>
+          <Field label="E-mail" required>
+            {(id) => <Input id={id} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required autoComplete="off" />}
+          </Field>
+          <Field label="Mot de passe initial" required hint="8 caractères minimum. À changer par l'utilisateur.">
+            {(id) => (
+              <div className="relative">
+                <Input
+                  id={id}
+                  type={showPassword ? "text" : "password"}
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   required
                   minLength={8}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
+                  autoComplete="new-password"
+                  className="pr-10"
                 />
-                <p className="text-xs text-slate-500 mt-1">Minimum 8 caractères.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Rôle</label>
-                <select
-                  value={form.role}
-                  onChange={(e) =>
-                    setForm({ ...form, role: e.target.value as typeof form.role })
-                  }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
-                >
-                  <option value="HR">RH</option>
-                  <option value="ADMIN">Administrateur</option>
-                  <option value="DG">Direction (DG)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  WhatsApp (optionnel)
-                </label>
-                <input
-                  type="tel"
-                  value={form.whatsappPhone}
-                  onChange={(e) => setForm({ ...form, whatsappPhone: e.target.value })}
-                  placeholder="237690000000"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                />
-              </div>
-              {formError && <p className="text-sm text-red-600">{formError}</p>}
-              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {submitting ? "Création…" : "Créer le compte"}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            )}
+          </Field>
+          <Field label="Rôle" required hint={form.role === "DG" ? "Consultation : le DG ne modifie pas les paramètres." : undefined}>
+            {(id) => (
+              <Select id={id} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as typeof form.role })}>
+                <option value="HR">Ressources humaines</option>
+                <option value="ADMIN">Administrateur</option>
+                <option value="DG">Direction générale</option>
+              </Select>
+            )}
+          </Field>
+          <Field label="WhatsApp (optionnel)" hint="Pour recevoir les alertes des demandes employé.">
+            {(id) => <Input id={id} type="tel" inputMode="tel" value={form.whatsappPhone} onChange={(e) => setForm({ ...form, whatsappPhone: e.target.value })} placeholder="237690000000" />}
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }

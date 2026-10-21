@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, MessageCircle, Save } from "lucide-react";
 import Link from "next/link";
+import { roleLabel } from "@/lib/navigation";
+import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
+import { Skeleton } from "@/components/ui/EmptyState";
 
 type MeProfile = {
   id: string;
@@ -10,12 +14,6 @@ type MeProfile = {
   email: string;
   role: string;
   whatsappPhone: string | null;
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrateur",
-  HR: "RH",
-  DG: "Direction",
 };
 
 export default function NotificationsSettings() {
@@ -57,7 +55,11 @@ export default function NotificationsSettings() {
       }
       setMe(json as MeProfile);
       setMyPhone(json.whatsappPhone ?? "");
-      setMeMessage("Numéro enregistré. Vous recevrez les alertes demandes employé sur WhatsApp.");
+      setMeMessage(
+        json.whatsappPhone
+          ? "Numéro enregistré. Vous recevrez les alertes des demandes employé sur WhatsApp."
+          : "Numéro retiré : vous ne recevrez plus d'alertes WhatsApp."
+      );
     } catch {
       setMeError("Erreur réseau.");
     } finally {
@@ -66,68 +68,57 @@ export default function NotificationsSettings() {
   };
 
   if (!me) {
-    return <div className="h-24 bg-slate-100 rounded-xl animate-pulse" />;
+    return <Skeleton className="h-24 rounded-xl" />;
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
-          <Bell className="w-5 h-5 text-blue-600" />
+        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
+          <Bell className="h-5 w-5 text-brand-600" />
           Alertes WhatsApp (mon compte)
         </h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Lorsqu&apos;un employé envoie une demande d&apos;autorisation ou de mission, les comptes RH / Admin /
-          DG avec un numéro renseigné sont notifiés sur WhatsApp.
+        <p className="mt-1 text-sm text-slate-500">
+          Quand un employé envoie une demande d&apos;autorisation ou de mission, les comptes RH, Admin et DG qui ont
+          renseigné un numéro sont prévenus sur WhatsApp.
         </p>
       </div>
 
       {me.role === "ADMIN" && (
-        <p className="text-sm text-slate-600 rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-3">
-          Pour <strong>créer des comptes</strong> RH ou administrateurs, utilisez le menu{" "}
-          <Link href="/users" className="text-blue-600 font-medium hover:underline">
+        <p className="rounded-xl border border-brand-100 bg-brand-50/50 px-4 py-3 text-sm text-slate-600">
+          Pour <strong>créer des comptes</strong> RH ou administrateurs et gérer leurs numéros, ouvrez{" "}
+          <Link href="/users" className="font-medium text-brand-600 hover:underline">
             Utilisateurs
           </Link>
-          . Vous pourrez y gérer aussi les numéros WhatsApp de chaque compte.
+          .
         </p>
       )}
 
-      <form
-        onSubmit={saveMyPhone}
-        className="rounded-xl border border-slate-200 p-5 bg-slate-50/50 space-y-4 max-w-lg"
-      >
+      <form onSubmit={saveMyPhone} className="max-w-lg space-y-4 rounded-xl border border-slate-200 bg-slate-50/50 p-5">
         <div>
           <p className="text-sm font-medium text-slate-800">{me.name}</p>
           <p className="text-xs text-slate-500">
-            {me.email} · {ROLE_LABELS[me.role] ?? me.role}
+            {me.email} · {roleLabel(me.role)}
           </p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1.5">
-            <MessageCircle className="w-4 h-4 text-emerald-600" />
-            Mon numéro WhatsApp
-          </label>
-          <input
-            type="tel"
-            value={myPhone}
-            onChange={(e) => setMyPhone(e.target.value)}
-            placeholder="Ex. 237690000000 (sans +)"
-            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
-          />
-          <p className="text-xs text-slate-500 mt-1">
-            Format international, chiffres uniquement. Même numéro que sur WhatsApp.
-          </p>
-        </div>
-        {meError && <p className="text-sm text-red-600">{meError}</p>}
-        {meMessage && <p className="text-sm text-emerald-700">{meMessage}</p>}
-        <button
-          type="submit"
-          disabled={savingMe}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+        <Field
+          label={
+            <span className="flex items-center gap-1.5">
+              <MessageCircle className="h-4 w-4 text-emerald-600" />
+              Mon numéro WhatsApp
+            </span>
+          }
+          hint="Format international, chiffres uniquement (ex. 237690000000). Laissez vide pour ne plus recevoir d'alertes."
+          error={meError}
         >
-          <Save className="w-4 h-4" />
-          {savingMe ? "Enregistrement…" : "Enregistrer mon numéro"}
-        </button>
+          {(id) => (
+            <Input id={id} type="tel" inputMode="tel" value={myPhone} onChange={(e) => setMyPhone(e.target.value)} placeholder="237690000000" aria-invalid={Boolean(meError)} />
+          )}
+        </Field>
+        {meMessage && <p className="text-sm text-emerald-700">{meMessage}</p>}
+        <Button type="submit" loading={savingMe} icon={<Save className="h-4 w-4" />}>
+          Enregistrer mon numéro
+        </Button>
       </form>
     </div>
   );
