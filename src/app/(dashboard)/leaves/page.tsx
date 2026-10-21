@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import {
   Plus,
-  X,
   Check,
   XCircle,
   CalendarDays,
@@ -11,14 +10,13 @@ import {
   Clock,
   UserCheck,
   UserX,
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
+  CalendarOff,
   Download,
   Eye,
   Trash2,
   Archive,
   FileText,
+  RotateCcw,
 } from "lucide-react";
 import { LeaveAbsenceCategory } from "@prisma/client";
 import {
@@ -28,6 +26,24 @@ import {
   leaveSubmissionSourceLabel,
 } from "@/lib/leave-absence-labels";
 import { cn } from "@/lib/utils";
+import { statusLabel } from "@/lib/status-labels";
+import { fetchAllEmployees } from "@/lib/fetch-all-employees";
+import { useUrlFilters } from "@/lib/use-url-filters";
+import { refreshNavCounts } from "@/lib/use-nav-counts";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
+import { Table, THead, Th, Tr, Td, TableSkeletonRows, TableMessageRow } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
+import { StatTile } from "@/components/ui/StatTile";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toaster";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { z } from "zod";
 
 interface LeaveRequest {
@@ -55,27 +71,23 @@ interface LeaveRequest {
   updatedAt: string;
 }
 
-const leaveSchema = z.object({
-  employeeId: z.string().min(1, "L'employé est requis"),
-  startDate: z.string().min(1, "La date de début est requise"),
-  endDate: z.string().min(1, "La date de fin est requise"),
-  reason: z.string().min(1, "Le motif est requis"),
-  absenceCategory: z.nativeEnum(LeaveAbsenceCategory).optional(),
-  notifyOrReplace: z.string().max(500).optional(),
-});
+type EmployeeOption = { id: string; firstName: string; lastName: string; service?: string };
 
-const statusBadge: Record<string, { bg: string; label: string }> = {
-  PENDING: { bg: "bg-amber-50 text-amber-700", label: "En attente" },
-  APPROVED: { bg: "bg-emerald-50 text-emerald-700", label: "Approuvé" },
-  REJECTED: { bg: "bg-red-50 text-red-700", label: "Refusé" },
-};
+const leaveSchema = z
+  .object({
+    employeeId: z.string().min(1, "L'employé est requis"),
+    startDate: z.string().min(1, "La date de début est requise"),
+    endDate: z.string().min(1, "La date de fin est requise"),
+    reason: z.string().min(1, "Le motif est requis"),
+    absenceCategory: z.nativeEnum(LeaveAbsenceCategory).optional(),
+    notifyOrReplace: z.string().max(500).optional(),
+  })
+  .refine((d) => !d.startDate || !d.endDate || d.endDate >= d.startDate, {
+    message: "La date de fin doit être après la date de début",
+    path: ["endDate"],
+  });
 
-const MOTIF_SUGGESTIONS = [
-  "Rendez-vous médical",
-  "Démarche administrative",
-  "Urgence familiale",
-  "Autre",
-];
+const MOTIF_SUGGESTIONS = ["Rendez-vous médical", "Démarche administrative", "Urgence familiale", "Autre"];
 
 function getDurationDays(start: string, end: string): number {
   const a = new Date(start);
@@ -90,35 +102,45 @@ function formatDuration(start: string, end: string): string {
   return `${days} jours`;
 }
 
+const shortDate = (d: string) => new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+
+const EMPTY_FORM = {
+  employeeId: "",
+  startDate: "",
+  endDate: "",
+  reason: "",
+  absenceCategory: "" as "" | LeaveAbsenceCategory,
+  notifyOrReplace: "",
+};
+
 export default function LeavesPage() {
+  return (
+    <Suspense fallback={null}>
+      <LeavesContent />
+    </Suspense>
+  );
+}
+
+function LeavesContent() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [filters, setFilters] = useUrlFilters({ status: "", from: "", to: "", service: "", employee: "", page: "1" });
+  const statusFilter = filters.status;
+  const dateFrom = filters.from;
+  const dateTo = filters.to;
+  const serviceFilter = filters.service;
+  const employeeFilter = filters.employee;
+  const page = Math.max(1, parseInt(filters.page, 10) || 1);
+
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [serviceFilter, setServiceFilter] = useState("");
-  const [employeeFilter, setEmployeeFilter] = useState("");
   const [services, setServices] = useState<string[]>([]);
-  const [employees, setEmployees] = useState<{ id: string; firstName: string; lastName: string; service?: string }[]>([]);
-  const [stats, setStats] = useState({
-    total: 0,
-    pending: 0,
-    approved: 0,
-    rejected: 0,
-    cancelled: 0,
-  });
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0, cancelled: 0 });
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailLeave, setDetailLeave] = useState<LeaveRequest | null>(null);
-  const [form, setForm] = useState({
-    employeeId: "",
-    startDate: "",
-    endDate: "",
-    reason: "",
-    absenceCategory: "" as "" | LeaveAbsenceCategory,
-    notifyOrReplace: "",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -147,16 +169,15 @@ export default function LeavesPage() {
       if (json.services) setServices(json.services);
     } catch (e) {
       console.error(e);
+      toast.error("Impossible de charger les demandes.");
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, dateFrom, dateTo, serviceFilter, employeeFilter]);
+  }, [page, statusFilter, dateFrom, dateTo, serviceFilter, employeeFilter, toast]);
 
   const fetchEmployees = useCallback(async () => {
     try {
-      const res = await fetch("/api/employees?limit=1000&active=true");
-      const json = await res.json();
-      setEmployees(json.data ?? []);
+      setEmployees(await fetchAllEmployees<EmployeeOption>({ active: "true" }));
     } catch (e) {
       console.error(e);
     }
@@ -172,14 +193,7 @@ export default function LeavesPage() {
 
   const openCreate = () => {
     fetchEmployees();
-    setForm({
-      employeeId: "",
-      startDate: "",
-      endDate: "",
-      reason: "",
-      absenceCategory: "",
-      notifyOrReplace: "",
-    });
+    setForm(EMPTY_FORM);
     setErrors({});
     setSubmitError("");
     setModalOpen(true);
@@ -203,15 +217,14 @@ export default function LeavesPage() {
       setErrors(fieldErrors);
       return;
     }
+    setErrors({});
     setSubmitting(true);
     setSubmitError("");
     try {
       const payload = {
         ...result.data,
         ...(result.data.absenceCategory ? { absenceCategory: result.data.absenceCategory } : {}),
-        ...(result.data.notifyOrReplace?.trim()
-          ? { notifyOrReplace: result.data.notifyOrReplace.trim() }
-          : {}),
+        ...(result.data.notifyOrReplace?.trim() ? { notifyOrReplace: result.data.notifyOrReplace.trim() } : {}),
       };
       const res = await fetch("/api/leaves", {
         method: "POST",
@@ -221,11 +234,11 @@ export default function LeavesPage() {
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
         setModalOpen(false);
+        toast.success("Demande enregistrée.");
         fetchLeaves();
+        refreshNavCounts();
       } else {
-        setSubmitError(
-          typeof json.error === "string" ? json.error : "Impossible d'enregistrer la demande."
-        );
+        setSubmitError(typeof json.error === "string" ? json.error : "Impossible d'enregistrer la demande.");
       }
     } catch (e) {
       console.error(e);
@@ -235,27 +248,29 @@ export default function LeavesPage() {
     }
   };
 
-  const deleteLeave = async (id: string) => {
-    if (
-      !window.confirm(
-        "Annuler cette demande ? Elle restera visible dans l’historique (marquée « annulée ») mais ne sera plus prise en compte pour le pointage."
-      )
-    ) {
-      return;
-    }
-    setDeletingId(id);
+  const deleteLeave = async (leave: LeaveRequest) => {
+    const ok = await confirm({
+      title: "Annuler cette demande ?",
+      message: `Demande de ${leave.employee.firstName} ${leave.employee.lastName} (${shortDate(leave.startDate)} → ${shortDate(leave.endDate)}).\n\nElle reste visible dans l'historique, marquée « annulée », mais n'est plus prise en compte pour le pointage.`,
+      confirmLabel: "Annuler la demande",
+      cancelLabel: "Garder",
+    });
+    if (!ok) return;
+    setDeletingId(leave.id);
     try {
-      const res = await fetch(`/api/leaves/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/leaves/${leave.id}`, { method: "DELETE" });
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
         setDetailLeave(null);
+        toast.success("Demande annulée.");
         fetchLeaves();
+        refreshNavCounts();
       } else {
-        window.alert(typeof json.error === "string" ? json.error : "Suppression impossible.");
+        toast.error(typeof json.error === "string" ? json.error : "Annulation impossible.");
       }
     } catch (e) {
       console.error(e);
-      window.alert("Erreur réseau.");
+      toast.error("Erreur réseau.");
     } finally {
       setDeletingId(null);
     }
@@ -313,7 +328,6 @@ export default function LeavesPage() {
         cell.alignment = { horizontal: "center" };
       });
       all.forEach((leave) => {
-        const badge = statusBadge[leave.status];
         const cancelled = Boolean(leave.cancelledAt);
         ws.addRow({
           employee: `${leave.employee.lastName} ${leave.employee.firstName}`,
@@ -325,7 +339,7 @@ export default function LeavesPage() {
           reason: leave.reason,
           category: leaveAbsenceCategoryLabel(leave.absenceCategory ?? undefined),
           source: leaveSubmissionSourceLabel(leave.submissionSource),
-          status: `${badge?.label ?? leave.status}${cancelled ? " — annulée" : ""}`,
+          status: `${statusLabel("request", leave.status)}${cancelled ? " — annulée" : ""}`,
           created: new Date(leave.createdAt).toLocaleDateString("fr-FR"),
         });
       });
@@ -339,29 +353,45 @@ export default function LeavesPage() {
       a.download = `autorisations_absence_${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
+      toast.success(`${all.length} demande${all.length > 1 ? "s" : ""} exportée${all.length > 1 ? "s" : ""}.`);
     } catch (e) {
       console.error(e);
-      window.alert(e instanceof Error ? e.message : "Export impossible.");
+      toast.error(e instanceof Error ? e.message : "Export impossible.");
     } finally {
       setExporting(false);
     }
   };
 
-  const updateStatus = async (id: string, status: "APPROVED" | "REJECTED") => {
-    setActioningId(id);
+  const updateStatus = async (leave: LeaveRequest, status: "APPROVED" | "REJECTED") => {
+    setActioningId(leave.id);
     try {
-      await fetch(`/api/leaves/${id}`, {
+      const res = await fetch(`/api/leaves/${leave.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        toast.error(typeof json.error === "string" ? json.error : "La décision n'a pas été enregistrée.");
+        return;
+      }
+      toast.success(
+        `Demande de ${leave.employee.firstName} ${leave.employee.lastName} ${status === "APPROVED" ? "approuvée" : "refusée"}.`
+      );
       fetchLeaves();
+      refreshNavCounts();
       setDetailLeave(null);
     } catch (e) {
       console.error(e);
+      toast.error("Erreur réseau : la décision n'a pas été enregistrée.");
     } finally {
       setActioningId(null);
     }
+  };
+
+  const downloadWord = async (id: string) => {
+    const msg = await downloadLeaveRequestWord(id);
+    if (msg) toast.error(msg);
   };
 
   const totalPages = Math.ceil(total / perPage);
@@ -370,639 +400,466 @@ export default function LeavesPage() {
       ? formatDuration(form.startDate, form.endDate)
       : null;
 
+  const toggleStatus = (value: string) => setFilters({ status: statusFilter === value ? "" : value, page: "1" });
+  const hasActiveFilters = Boolean(statusFilter || dateFrom || dateTo || serviceFilter || employeeFilter);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Autorisations d&apos;absence</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Demandes d&apos;autorisation d&apos;absence (courtes absences et sorties autorisées)
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void exportExcel()}
-            disabled={exporting}
-            className="inline-flex items-center gap-2 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-medium disabled:opacity-50"
-          >
-            <Download className="w-4 h-4" />
-            {exporting ? "Export…" : "Exporter"}
-          </button>
-          <button
-            onClick={openCreate}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Nouvelle demande
-          </button>
-        </div>
+      <PageHeader
+        title="Autorisations d'absence"
+        description="Courtes absences et sorties autorisées, saisies par les RH ou envoyées par les employés depuis WhatsApp."
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => void exportExcel()} loading={exporting} icon={<Download className="h-4 w-4" />}>
+              Exporter
+            </Button>
+            <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
+              Nouvelle demande
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+        <StatTile icon={ClipboardList} label="Demandes" value={stats.total} tone="neutral" />
+        <StatTile icon={Clock} label="En attente" value={stats.pending} tone="warning" onClick={() => toggleStatus("PENDING")} active={statusFilter === "PENDING"} />
+        <StatTile icon={UserCheck} label="Approuvées" value={stats.approved} tone="success" onClick={() => toggleStatus("APPROVED")} active={statusFilter === "APPROVED"} />
+        <StatTile icon={UserX} label="Refusées" value={stats.rejected} tone="danger" onClick={() => toggleStatus("REJECTED")} active={statusFilter === "REJECTED"} />
+        <StatTile icon={Archive} label="Annulées" value={stats.cancelled ?? 0} tone="neutral" />
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <KpiCard icon={ClipboardList} label="Demandes" value={stats.total} color="slate" />
-        <KpiCard icon={Clock} label="En attente" value={stats.pending} color="amber" />
-        <KpiCard icon={UserCheck} label="Approuvées" value={stats.approved} color="green" />
-        <KpiCard icon={UserX} label="Refusées" value={stats.rejected} color="red" />
-        <KpiCard icon={Archive} label="Annulées" value={stats.cancelled ?? 0} color="slate" />
-      </div>
+      <FilterBar
+        actions={
+          hasActiveFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RotateCcw className="h-3.5 w-3.5" />}
+              onClick={() => setFilters({ status: "", from: "", to: "", service: "", employee: "", page: "1" })}
+            >
+              Réinitialiser
+            </Button>
+          ) : undefined
+        }
+      >
+        <FilterField label="Statut">
+          <Select value={statusFilter} onChange={(e) => setFilters({ status: e.target.value, page: "1" })}>
+            <option value="">Tous les statuts</option>
+            <option value="PENDING">En attente</option>
+            <option value="APPROVED">Approuvée</option>
+            <option value="REJECTED">Refusée</option>
+          </Select>
+        </FilterField>
+        <FilterField label="Du">
+          <Input type="date" value={dateFrom} onChange={(e) => setFilters({ from: e.target.value, page: "1" })} />
+        </FilterField>
+        <FilterField label="Au">
+          <Input type="date" value={dateTo} onChange={(e) => setFilters({ to: e.target.value, page: "1" })} />
+        </FilterField>
+        <FilterField label="Service">
+          <Select value={serviceFilter} onChange={(e) => setFilters({ service: e.target.value, page: "1" })}>
+            <option value="">Tous les services</option>
+            {services.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+        <FilterField label="Employé" className="lg:min-w-[220px]">
+          <Select value={employeeFilter} onChange={(e) => setFilters({ employee: e.target.value, page: "1" })}>
+            <option value="">Tous les employés</option>
+            {employees.map((emp) => (
+              <option key={emp.id} value={emp.id}>
+                {emp.lastName} {emp.firstName}
+                {emp.service ? ` — ${emp.service}` : ""}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+      </FilterBar>
 
-      {/* Table card */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        {/* Filters */}
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex flex-col lg:flex-row gap-3 flex-wrap">
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="">Tous les statuts</option>
-              <option value="PENDING">En attente</option>
-              <option value="APPROVED">Approuvé</option>
-              <option value="REJECTED">Refusé</option>
-            </select>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-              placeholder="Date début"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-              placeholder="Date fin"
-            />
-            <select
-              value={serviceFilter}
-              onChange={(e) => { setServiceFilter(e.target.value); setPage(1); }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="">Tous les services</option>
-              {services.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-            <select
-              value={employeeFilter}
-              onChange={(e) => { setEmployeeFilter(e.target.value); setPage(1); }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 min-w-[200px]"
-            >
-              <option value="">Tous les employés</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.lastName} {emp.firstName} {emp.service ? ` — ${emp.service}` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employé</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Service</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Fin</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Motif</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Origine</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                [...Array(3)].map((_, i) => (
-                  <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={9} className="px-6 py-4">
-                      <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
-                    </td>
-                  </tr>
-                ))
-              ) : leaves.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-6 py-16 text-center">
-                    <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                    <p className="text-base font-semibold text-slate-700">Aucune demande d&apos;autorisation d&apos;absence</p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Essayez de modifier les filtres ou créez une nouvelle demande.
-                    </p>
-                    <button
-                      onClick={openCreate}
-                      className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
+      <Card className="overflow-hidden">
+        <Table>
+          <THead>
+            <tr>
+              <Th>Employé</Th>
+              <Th>Période</Th>
+              <Th>Durée</Th>
+              <Th>Motif</Th>
+              <Th>Origine</Th>
+              <Th>Statut</Th>
+              <Th align="right">
+                <span className="sr-only">Actions</span>
+              </Th>
+            </tr>
+          </THead>
+          <tbody>
+            {loading ? (
+              <TableSkeletonRows cols={7} rows={4} />
+            ) : leaves.length === 0 ? (
+              <TableMessageRow cols={7}>
+                <EmptyState
+                  icon={CalendarOff}
+                  title="Aucune demande d'autorisation d'absence"
+                  description={hasActiveFilters ? "Modifiez les filtres pour élargir la recherche." : "Les demandes saisies ou envoyées depuis WhatsApp apparaîtront ici."}
+                  action={
+                    <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
                       Nouvelle demande
-                    </button>
-                  </td>
-                </tr>
-              ) : (
-                leaves.map((leave) => {
-                  const badge = statusBadge[leave.status];
-                  const isOff = Boolean(leave.cancelledAt);
-                  return (
-                    <tr
-                      key={leave.id}
-                      onClick={() => setDetailLeave(leave)}
-                      className={cn(
-                        "border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition-colors",
-                        isOff && "opacity-70"
-                      )}
-                    >
-                      {/* Employé */}
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={cn(
-                              "h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0",
-                              leave.status === "PENDING"
-                                ? "bg-amber-100 text-amber-700"
-                                : leave.status === "APPROVED"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-red-100 text-red-700"
-                            )}
-                          >
-                            {leave.employee.firstName[0]}
-                            {leave.employee.lastName[0]}
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-800">
-                              {leave.employee.firstName} {leave.employee.lastName}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {leave.employee.matricule}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      {/* Service */}
-                      <td className="px-6 py-4 text-slate-600 text-sm">
-                        {leave.employee.service ?? "—"}
-                      </td>
-                      {/* Début */}
-                      <td className="px-6 py-4 text-slate-700">
-                        {new Date(leave.startDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                      </td>
-                      {/* Fin */}
-                      <td className="px-6 py-4 text-slate-700">
-                        {new Date(leave.endDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                      </td>
-                      {/* Durée */}
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                          {formatDuration(leave.startDate, leave.endDate)}
-                        </span>
-                      </td>
-                      {/* Motif */}
-                      <td className="px-6 py-4 text-slate-600 max-w-[180px] truncate text-sm">
-                        {leave.reason}
-                      </td>
-                      <td className="px-6 py-4">
+                    </Button>
+                  }
+                />
+              </TableMessageRow>
+            ) : (
+              leaves.map((leave) => {
+                const isOff = Boolean(leave.cancelledAt);
+                const busy = actioningId === leave.id || deletingId === leave.id;
+                return (
+                  <Tr key={leave.id} onClick={() => setDetailLeave(leave)} className={cn("cursor-pointer", isOff && "opacity-60")}>
+                    <Td>
+                      <div className="flex items-center gap-3">
                         <span
                           className={cn(
-                            "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
-                            leave.submissionSource === "EMPLOYEE_WHATSAPP_FORM"
-                              ? "bg-blue-50 text-blue-800"
-                              : "bg-slate-100 text-slate-700"
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                            leave.status === "PENDING"
+                              ? "bg-amber-100 text-amber-700"
+                              : leave.status === "APPROVED"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-red-100 text-red-700"
                           )}
                         >
-                          {leaveSubmissionSourceLabel(leave.submissionSource)}
+                          {leave.employee.firstName[0]}
+                          {leave.employee.lastName[0]}
                         </span>
-                      </td>
-                      {/* Statut */}
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap items-center gap-1">
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                              badge.bg
-                            )}
-                          >
-                            {badge.label}
-                          </span>
-                          {isOff && (
-                            <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-slate-200 text-slate-700">
-                              Annulée
-                            </span>
-                          )}
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-800">
+                            {leave.employee.firstName} {leave.employee.lastName}
+                          </p>
+                          <p className="truncate text-xs text-slate-500">
+                            {[leave.employee.matricule, leave.employee.service].filter(Boolean).join(" · ")}
+                          </p>
                         </div>
-                      </td>
-                      {/* Actions */}
-                      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => setDetailLeave(leave)}
-                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                            title="Voir détail"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          {leave.status === "PENDING" && !isOff && (
-                            <>
-                              <button
-                                onClick={() => updateStatus(leave.id, "APPROVED")}
-                                disabled={actioningId === leave.id || deletingId === leave.id}
-                                className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-50"
-                                title="Approuver"
-                              >
-                                <Check className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => updateStatus(leave.id, "REJECTED")}
-                                disabled={actioningId === leave.id || deletingId === leave.id}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
-                                title="Refuser"
-                              >
-                                <XCircle className="w-4 h-4" />
-                              </button>
-                            </>
-                          )}
-                          {!isOff && (
-                            <button
-                              onClick={() => deleteLeave(leave.id)}
-                              disabled={deletingId === leave.id || actioningId === leave.id}
-                              className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
-                              title="Annuler (conserver l’historique)"
+                      </div>
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      {shortDate(leave.startDate)}
+                      {leave.endDate !== leave.startDate && <> → {shortDate(leave.endDate)}</>}
+                    </Td>
+                    <Td>
+                      <Badge>{formatDuration(leave.startDate, leave.endDate)}</Badge>
+                    </Td>
+                    <Td className="max-w-[220px]">
+                      <span className="block truncate" title={leave.reason}>
+                        {leave.reason}
+                      </span>
+                      {leave.absenceCategory && (
+                        <span className="block truncate text-xs text-slate-500">{leaveAbsenceCategoryLabel(leave.absenceCategory)}</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <Badge tone={leave.submissionSource === "EMPLOYEE_WHATSAPP_FORM" ? "brand" : "neutral"}>
+                        {leaveSubmissionSourceLabel(leave.submissionSource)}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <StatusBadge kind="request" value={leave.status} />
+                        {isOff && <Badge>Annulée</Badge>}
+                      </div>
+                    </Td>
+                    <Td align="right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-0.5">
+                        {leave.status === "PENDING" && !isOff && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => updateStatus(leave, "APPROVED")}
+                              disabled={busy}
+                              className="text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                              title="Approuver"
+                              aria-label={`Approuver la demande de ${leave.employee.firstName} ${leave.employee.lastName}`}
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination : toujours visible après chargement (résumé), navigation si > 1 page */}
-        {!loading && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-6 py-4 border-t border-slate-100">
-            <p className="text-sm text-slate-500">
-              {total > 0 ? (
-                <>
-                  <span className="font-medium text-slate-700">
-                    {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
-                  </span>{" "}
-                  sur <span className="font-medium text-slate-700">{total}</span> demande
-                  {total > 1 ? "s" : ""}
-                  {totalPages > 1 && (
-                    <span className="text-slate-400"> — page {page} / {totalPages}</span>
-                  )}
-                </>
-              ) : (
-                "Aucune demande sur cette sélection"
-              )}
-            </p>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Précédent
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                >
-                  Suivant
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+                              <Check className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => updateStatus(leave, "REJECTED")}
+                              disabled={busy}
+                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              title="Refuser"
+                              aria-label={`Refuser la demande de ${leave.employee.firstName} ${leave.employee.lastName}`}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                        <Button variant="ghost" size="icon-sm" onClick={() => setDetailLeave(leave)} title="Voir le détail" aria-label="Voir le détail">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {!isOff && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => deleteLeave(leave)}
+                            disabled={busy}
+                            className="hover:bg-red-50 hover:text-red-600"
+                            title="Annuler (conserver l’historique)"
+                            aria-label="Annuler la demande"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </Td>
+                  </Tr>
+                );
+              })
             )}
-          </div>
+          </tbody>
+        </Table>
+        {!loading && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={perPage}
+            itemLabel={["demande", "demandes"]}
+            onPageChange={(p) => setFilters({ page: String(p) })}
+          />
         )}
-      </div>
+      </Card>
 
-      {/* Create Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setModalOpen(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 z-10">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-slate-900">Nouvelle autorisation d&apos;absence</h2>
-              <button onClick={() => setModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {submitError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                  {submitError}
-                </div>
+      {/* Nouvelle demande */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        dismissible={!submitting}
+        title="Nouvelle autorisation d'absence"
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)} disabled={submitting}>
+              Annuler
+            </Button>
+            <Button type="submit" form="leave-form" loading={submitting}>
+              Enregistrer la demande
+            </Button>
+          </>
+        }
+      >
+        <form id="leave-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {submitError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{submitError}</div>
+          )}
+          <Field label="Employé" required error={errors.employeeId}>
+            {(id) => (
+              <Select id={id} value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} aria-invalid={Boolean(errors.employeeId)}>
+                <option value="">Sélectionner un employé</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.lastName} {emp.firstName}
+                    {emp.service ? ` — ${emp.service}` : ""}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Date de début" required error={errors.startDate}>
+              {(id) => (
+                <Input id={id} type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value, endDate: form.endDate || e.target.value })} aria-invalid={Boolean(errors.startDate)} />
               )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Employé</label>
-                <select
-                  value={form.employeeId}
-                  onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                >
-                  <option value="">Rechercher ou sélectionner un employé</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.lastName} {emp.firstName} {emp.service ? ` — ${emp.service}` : ""}
-                    </option>
-                  ))}
-                </select>
-                {errors.employeeId && <p className="text-xs text-red-500 mt-1">{errors.employeeId}</p>}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Date début</label>
-                  <input
-                    type="date"
-                    value={form.startDate}
-                    onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                  />
-                  {errors.startDate && <p className="text-xs text-red-500 mt-1">{errors.startDate}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Date fin</label>
-                  <input
-                    type="date"
-                    value={form.endDate}
-                    onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                  />
-                  {errors.endDate && <p className="text-xs text-red-500 mt-1">{errors.endDate}</p>}
-                </div>
-              </div>
-              {durationPreview && (
-                <p className="text-sm text-slate-600 flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-slate-400" />
-                  Durée : <span className="font-medium">{durationPreview}</span>
-                </p>
+            </Field>
+            <Field label="Date de fin" required error={errors.endDate}>
+              {(id) => (
+                <Input id={id} type="date" value={form.endDate} min={form.startDate || undefined} onChange={(e) => setForm({ ...form, endDate: e.target.value })} aria-invalid={Boolean(errors.endDate)} />
               )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Type / catégorie (optionnel)</label>
-                <select
-                  value={form.absenceCategory || ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      absenceCategory: e.target.value as LeaveAbsenceCategory | "",
-                    })
-                  }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                >
-                  <option value="">Non précisée</option>
-                  {ORDERED_LEAVE_ABSENCE_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {LEAVE_ABSENCE_CATEGORY_LABELS[c]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Personne ou service à prévenir (optionnel)
-                </label>
-                <input
-                  type="text"
-                  value={form.notifyOrReplace}
-                  onChange={(e) => setForm({ ...form, notifyOrReplace: e.target.value })}
-                  placeholder={"Joignabilité pendant l'absence…"}
-                  maxLength={500}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Motif</label>
-                <div className="flex flex-wrap gap-2 mb-2">
+            </Field>
+          </div>
+          {durationPreview && (
+            <p className="flex items-center gap-2 text-sm text-slate-600">
+              <CalendarDays className="h-4 w-4 text-slate-400" />
+              Durée : <span className="font-medium">{durationPreview}</span>
+            </p>
+          )}
+          <Field label="Type / catégorie (optionnel)">
+            {(id) => (
+              <Select id={id} value={form.absenceCategory || ""} onChange={(e) => setForm({ ...form, absenceCategory: e.target.value as LeaveAbsenceCategory | "" })}>
+                <option value="">Non précisée</option>
+                {ORDERED_LEAVE_ABSENCE_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {LEAVE_ABSENCE_CATEGORY_LABELS[c]}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Motif" required error={errors.reason}>
+            {(id) => (
+              <>
+                <div className="mb-2 flex flex-wrap gap-2">
                   {MOTIF_SUGGESTIONS.map((motif) => (
                     <button
                       key={motif}
                       type="button"
                       onClick={() => setForm({ ...form, reason: motif })}
+                      aria-pressed={form.reason === motif}
                       className={cn(
-                        "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                        form.reason === motif
-                          ? "bg-blue-600 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                        form.reason === motif ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                       )}
                     >
                       {motif}
                     </button>
                   ))}
                 </div>
-                <textarea
-                  value={form.reason}
-                  onChange={(e) => setForm({ ...form, reason: e.target.value })}
-                  rows={3}
-                  placeholder="Détail du motif si besoin"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 resize-none placeholder:text-slate-400"
-                />
-                {errors.reason && <p className="text-xs text-red-500 mt-1">{errors.reason}</p>}
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  {submitting ? "Envoi…" : "Soumettre"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                <Textarea id={id} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} rows={3} placeholder="Détail du motif si besoin" aria-invalid={Boolean(errors.reason)} />
+              </>
+            )}
+          </Field>
+          <Field label="Personne ou service à prévenir (optionnel)">
+            {(id) => (
+              <Input id={id} value={form.notifyOrReplace} onChange={(e) => setForm({ ...form, notifyOrReplace: e.target.value })} placeholder="Joignabilité pendant l'absence…" maxLength={500} />
+            )}
+          </Field>
+        </form>
+      </Modal>
 
-      {/* Detail Drawer */}
-      {detailLeave && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDetailLeave(null)} />
-          <div className="relative w-full max-w-md bg-white shadow-2xl z-10 overflow-y-auto animate-[slide-in-from-right_0.3s_ease-out]">
-            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Détail de la demande</h2>
-              <button onClick={() => setDetailLeave(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="flex items-center gap-4">
-                <div
-                  className={cn(
-                    "h-12 w-12 rounded-full flex items-center justify-center text-sm font-bold",
-                    detailLeave.status === "PENDING"
-                      ? "bg-amber-100 text-amber-700"
-                      : detailLeave.status === "APPROVED"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-red-100 text-red-700"
-                  )}
-                >
-                  {detailLeave.employee.firstName[0]}
-                  {detailLeave.employee.lastName[0]}
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    {detailLeave.employee.firstName} {detailLeave.employee.lastName}
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    {detailLeave.employee.service ?? detailLeave.employee.matricule}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "ml-auto inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
-                    statusBadge[detailLeave.status].bg
-                  )}
-                >
-                  {statusBadge[detailLeave.status].label}
-                </span>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Date début</span>
-                  <span className="font-medium text-slate-800">
-                    {new Date(detailLeave.startDate).toLocaleDateString("fr-FR")}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Date fin</span>
-                  <span className="font-medium text-slate-800">
-                    {new Date(detailLeave.endDate).toLocaleDateString("fr-FR")}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Durée</span>
-                  <span className="font-medium text-slate-800">
-                    {formatDuration(detailLeave.startDate, detailLeave.endDate)}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-500 mb-1">Motif</p>
-                <p className="text-sm text-slate-700">{detailLeave.reason}</p>
-              </div>
-              <div className="rounded-xl bg-slate-50 p-4 space-y-2">
-                <div className="flex justify-between gap-4 text-sm">
-                  <span className="text-slate-500">Catégorie</span>
-                  <span className="font-medium text-slate-800 text-right">
-                    {leaveAbsenceCategoryLabel(detailLeave.absenceCategory ?? undefined)}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-4 text-sm">
-                  <span className="text-slate-500">Personne/service à prévenir</span>
-                  <span className="font-medium text-slate-800 text-right">
-                    {detailLeave.notifyOrReplace?.trim() || "—"}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-4 text-sm">
-                  <span className="text-slate-500">Origine du dossier</span>
-                  <span className="font-medium text-slate-800 text-right">
-                    {leaveSubmissionSourceLabel(detailLeave.submissionSource)}
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void downloadLeaveRequestPdf(detailLeave)}
-                  className="inline-flex flex-1 min-w-[120px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <Download className="h-4 w-4" />
-                  PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadLeaveRequestWord(detailLeave.id)}
-                  className="inline-flex flex-1 min-w-[120px] items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <FileText className="h-4 w-4" />
-                  Word (.docx)
-                </button>
-              </div>
-              {detailLeave.approvedBy && (
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Validation</p>
-                  <p className="text-sm text-slate-700">
-                    Validé par <span className="font-medium">{detailLeave.approvedBy}</span>
-                    {detailLeave.updatedAt && (
-                      <span className="block mt-1 text-slate-500">
-                        le {new Date(detailLeave.updatedAt).toLocaleDateString("fr-FR")}
-                      </span>
-                    )}
-                  </p>
-                </div>
-              )}
-              {detailLeave.cancelledAt && (
-                <div className="rounded-xl border border-slate-300 bg-slate-50 p-4">
-                  <p className="text-xs font-medium text-slate-600 mb-1">Annulation (historique conservé)</p>
-                  <p className="text-sm text-slate-700">
-                    Le {new Date(detailLeave.cancelledAt).toLocaleString("fr-FR")}
-                    {detailLeave.cancelledBy ? (
-                      <span>
-                        {" "}
-                        par <span className="font-medium">{detailLeave.cancelledBy}</span>
-                      </span>
-                    ) : null}
-                  </p>
-                </div>
-              )}
-              <div className="space-y-3 pt-2 border-t border-slate-100">
-                {detailLeave.status === "PENDING" && !detailLeave.cancelledAt && (
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => updateStatus(detailLeave.id, "APPROVED")}
-                      disabled={actioningId === detailLeave.id || deletingId === detailLeave.id}
-                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                    >
-                      <Check className="w-4 h-4" />
-                      Approuver
-                    </button>
-                    <button
-                      onClick={() => updateStatus(detailLeave.id, "REJECTED")}
-                      disabled={actioningId === detailLeave.id || deletingId === detailLeave.id}
-                      className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Refuser
-                    </button>
-                  </div>
-                )}
-                {!detailLeave.cancelledAt && (
-                  <button
-                    type="button"
-                    onClick={() => deleteLeave(detailLeave.id)}
-                    disabled={deletingId === detailLeave.id || actioningId === detailLeave.id}
-                    className="w-full inline-flex items-center justify-center gap-2 py-2.5 text-slate-700 bg-slate-100 hover:bg-red-50 hover:text-red-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50"
+      {/* Détail */}
+      <Modal
+        open={detailLeave !== null}
+        onClose={() => setDetailLeave(null)}
+        variant="drawer"
+        className="max-w-md"
+        title="Détail de la demande"
+        footer={
+          detailLeave && !detailLeave.cancelledAt ? (
+            <div className="flex w-full flex-col gap-2">
+              {detailLeave.status === "PENDING" && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="success"
+                    className="flex-1"
+                    onClick={() => updateStatus(detailLeave, "APPROVED")}
+                    loading={actioningId === detailLeave.id}
+                    disabled={deletingId === detailLeave.id}
+                    icon={<Check className="h-4 w-4" />}
                   >
-                    <Trash2 className="w-4 h-4" />
-                    {deletingId === detailLeave.id ? "Annulation…" : "Annuler (conserver l’historique)"}
-                  </button>
+                    Approuver
+                  </Button>
+                  <Button
+                    variant="danger"
+                    className="flex-1"
+                    onClick={() => updateStatus(detailLeave, "REJECTED")}
+                    disabled={actioningId === detailLeave.id || deletingId === detailLeave.id}
+                    icon={<XCircle className="h-4 w-4" />}
+                  >
+                    Refuser
+                  </Button>
+                </div>
+              )}
+              <Button
+                variant="ghost"
+                onClick={() => deleteLeave(detailLeave)}
+                loading={deletingId === detailLeave.id}
+                disabled={actioningId === detailLeave.id}
+                icon={<Trash2 className="h-4 w-4" />}
+                className="hover:bg-red-50 hover:text-red-700"
+              >
+                Annuler la demande (historique conservé)
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {detailLeave && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <span
+                className={cn(
+                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                  detailLeave.status === "PENDING"
+                    ? "bg-amber-100 text-amber-700"
+                    : detailLeave.status === "APPROVED"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-red-100 text-red-700"
                 )}
+              >
+                {detailLeave.employee.firstName[0]}
+                {detailLeave.employee.lastName[0]}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-slate-900">
+                  {detailLeave.employee.firstName} {detailLeave.employee.lastName}
+                </p>
+                <p className="text-sm text-slate-500">{detailLeave.employee.service ?? detailLeave.employee.matricule}</p>
+              </div>
+              <div className="ml-auto flex flex-col items-end gap-1">
+                <StatusBadge kind="request" value={detailLeave.status} />
+                {detailLeave.cancelledAt && <Badge>Annulée</Badge>}
               </div>
             </div>
+
+            <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
+              <DetailLine label="Du" value={new Date(detailLeave.startDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} />
+              <DetailLine label="Au" value={new Date(detailLeave.endDate).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} />
+              <DetailLine label="Durée" value={formatDuration(detailLeave.startDate, detailLeave.endDate)} />
+              <DetailLine label="Catégorie" value={leaveAbsenceCategoryLabel(detailLeave.absenceCategory ?? undefined)} />
+              <DetailLine label="À prévenir" value={detailLeave.notifyOrReplace?.trim() || "—"} />
+              <DetailLine label="Origine" value={leaveSubmissionSourceLabel(detailLeave.submissionSource)} />
+            </dl>
+
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-500">Motif</p>
+              <p className="whitespace-pre-line text-sm text-slate-700">{detailLeave.reason}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="secondary" onClick={() => void downloadLeaveRequestPdf(detailLeave)} icon={<Download className="h-4 w-4" />}>
+                PDF
+              </Button>
+              <Button variant="secondary" onClick={() => void downloadWord(detailLeave.id)} icon={<FileText className="h-4 w-4" />}>
+                Word (.docx)
+              </Button>
+            </div>
+
+            {detailLeave.approvedBy && (
+              <div className="rounded-xl border border-slate-200 p-4 text-sm">
+                <p className="mb-1 text-xs font-medium text-slate-500">Décision</p>
+                <p className="text-slate-700">
+                  {detailLeave.status === "REJECTED" ? "Refusée" : "Validée"} par <span className="font-medium">{detailLeave.approvedBy}</span>
+                  {detailLeave.updatedAt && <span className="text-slate-500"> le {new Date(detailLeave.updatedAt).toLocaleDateString("fr-FR")}</span>}
+                </p>
+              </div>
+            )}
+            {detailLeave.cancelledAt && (
+              <div className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm">
+                <p className="mb-1 text-xs font-medium text-slate-600">Annulation (historique conservé)</p>
+                <p className="text-slate-700">
+                  Le {new Date(detailLeave.cancelledAt).toLocaleString("fr-FR")}
+                  {detailLeave.cancelledBy ? (
+                    <>
+                      {" "}
+                      par <span className="font-medium">{detailLeave.cancelledBy}</span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4 px-4 py-2.5">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="text-right font-medium text-slate-800">{value}</dd>
     </div>
   );
 }
@@ -1045,10 +902,7 @@ async function downloadLeaveRequestPdf(leave: LeaveRequest): Promise<void> {
     ],
     ["Motif", leave.reason],
     ["Personne/service à prévenir", leave.notifyOrReplace?.trim() || "—"],
-    [
-      "Statut RH",
-      `${leave.status === "PENDING" ? "En attente" : leave.status === "APPROVED" ? "Approuvé" : "Refusé"}${leave.approvedBy ? ` (${leave.approvedBy})` : ""}`,
-    ],
+    ["Statut RH", `${statusLabel("request", leave.status)}${leave.approvedBy ? ` (${leave.approvedBy})` : ""}`],
     ["Créée le", new Date(leave.createdAt).toLocaleDateString("fr-FR")],
   ];
 
@@ -1073,7 +927,8 @@ async function downloadLeaveRequestPdf(leave: LeaveRequest): Promise<void> {
   doc.save(`demande_autorisation_${leave.employee.matricule}_${leave.id.slice(0, 8)}.pdf`);
 }
 
-async function downloadLeaveRequestWord(id: string): Promise<void> {
+/** Télécharge le .docx ; renvoie un message d'erreur, ou null si tout s'est bien passé. */
+async function downloadLeaveRequestWord(id: string): Promise<string | null> {
   const res = await fetch(`/api/leaves/${id}/document`, { credentials: "include" });
   if (!res.ok) {
     let msg = "Export Word impossible.";
@@ -1083,8 +938,7 @@ async function downloadLeaveRequestWord(id: string): Promise<void> {
     } catch {
       /* ignore */
     }
-    window.alert(msg);
-    return;
+    return msg;
   }
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition");
@@ -1096,37 +950,5 @@ async function downloadLeaveRequestWord(id: string): Promise<void> {
   a.download = fn;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  color: "slate" | "amber" | "green" | "red";
-}) {
-  const colorMap = {
-    slate: { bg: "bg-slate-50", text: "text-slate-600", value: "text-slate-700" },
-    amber: { bg: "bg-amber-50", text: "text-amber-600", value: "text-amber-700" },
-    green: { bg: "bg-emerald-50", text: "text-emerald-600", value: "text-emerald-700" },
-    red: { bg: "bg-red-50", text: "text-red-600", value: "text-red-700" },
-  };
-  const c = colorMap[color];
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", c.bg, c.text)}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-xs font-medium text-slate-500">{label}</p>
-          <p className={cn("text-2xl font-bold tracking-tight", c.value)}>{value}</p>
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }
