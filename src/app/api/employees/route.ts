@@ -87,7 +87,13 @@ export async function GET(request: NextRequest) {
       where.active = active === "true";
     }
 
-    const [employees, total] = await Promise.all([
+    // Compteurs sur l'ensemble des employés correspondant à la recherche (hors filtre actif/inactif),
+    // et non sur la seule page affichée.
+    const statsWhere: Record<string, unknown> = { ...where };
+    delete statsWhere.active;
+    const hasWhatsapp = { OR: [{ whatsappPhone: { not: null } }, { whatsappPhones: { some: {} } }] };
+
+    const [employees, total, activeCount, inactiveCount, whatsappCount] = await Promise.all([
       prisma.employee.findMany({
         where,
         include: {
@@ -100,11 +106,15 @@ export async function GET(request: NextRequest) {
         orderBy: { lastName: "asc" },
       }),
       prisma.employee.count({ where }),
+      prisma.employee.count({ where: { ...statsWhere, active: true } }),
+      prisma.employee.count({ where: { ...statsWhere, active: false } }),
+      prisma.employee.count({ where: { AND: [statsWhere, { active: true }, hasWhatsapp] } }),
     ]);
 
     return NextResponse.json({
       data: employees,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      stats: { active: activeCount, inactive: inactiveCount, whatsapp: whatsappCount },
     });
   } catch (error) {
     if (error instanceof Error) {

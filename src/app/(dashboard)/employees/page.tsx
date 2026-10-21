@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import {
   Plus,
   Search,
@@ -8,9 +8,6 @@ import {
   Pencil,
   Ban,
   Trash2,
-  ChevronLeft,
-  ChevronRight,
-  X,
   Users,
   UserCheck,
   UserX,
@@ -20,11 +17,30 @@ import {
   Download,
   UserMinus,
   PenLine,
+  FileSpreadsheet,
+  FileText,
+  RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
 import { departureReasonLabel } from "@/lib/departure-labels";
+import { fetchAllEmployees as fetchAllEmployeePages } from "@/lib/fetch-all-employees";
+import { useDebouncedCommit, useUrlFilters } from "@/lib/use-url-filters";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { StructureBadge } from "@/components/ui/StatusBadge";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
+import { Table, THead, Th, Tr, Td, TableSkeletonRows, TableMessageRow } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
+import { StatTile } from "@/components/ui/StatTile";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toaster";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import EmployeesAttendanceExport from "./EmployeesAttendanceExport";
 
 type DepartureReasonCode =
@@ -52,6 +68,10 @@ interface Employee {
   departureNote?: string | null;
 }
 
+type EmployeeStats = { active: number; inactive: number; whatsapp: number };
+
+const SERVICES = ["IT", "QHSE", "RH", "DAF", "RAF", "ST"];
+
 function todayInputDate(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -62,6 +82,19 @@ function formatDepartureDate(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function phonesOf(emp: Employee): string[] {
+  return emp.whatsappPhones?.map((p) => p.phone) ?? (emp.whatsappPhone ? [emp.whatsappPhone] : []);
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 const employeeSchema = z.object({
@@ -80,28 +113,47 @@ const createEmployeeSchema = employeeSchema.omit({ matricule: true });
 
 type EmployeeForm = z.infer<typeof employeeSchema>;
 
+const EMPTY_FORM: EmployeeForm = {
+  matricule: "",
+  firstName: "",
+  lastName: "",
+  service: "",
+  structure: "SCPB",
+  whatsappPhone: "",
+  whatsappPhone2: "",
+  siteId: "",
+  checkoutSiteId: "",
+};
+
 export default function EmployeesPage() {
+  return (
+    <Suspense fallback={null}>
+      <EmployeesContent />
+    </Suspense>
+  );
+}
+
+function EmployeesContent() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [filters, setFilters] = useUrlFilters({ q: "", service: "", structure: "", status: "all", page: "1" });
+  const search = filters.q;
+  const serviceFilter = filters.service;
+  const structureFilter = filters.structure;
+  const statusFilter = (["all", "active", "inactive"].includes(filters.status) ? filters.status : "all") as
+    | "all"
+    | "active"
+    | "inactive";
+  const page = Math.max(1, parseInt(filters.page, 10) || 1);
+
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [serviceFilter, setServiceFilter] = useState("");
-  const [structureFilter, setStructureFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState(search);
   const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState<EmployeeStats | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<EmployeeForm>({
-    matricule: "",
-    firstName: "",
-    lastName: "",
-    service: "",
-    structure: "SCPB",
-    whatsappPhone: "",
-    whatsappPhone2: "",
-    siteId: "",
-    checkoutSiteId: "",
-  });
+  const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [services, setServices] = useState<string[]>([]);
@@ -110,7 +162,6 @@ export default function EmployeesPage() {
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [departureModal, setDepartureModal] = useState<Employee | null>(null);
   const [departureDate, setDepartureDate] = useState("");
   const [departureReason, setDepartureReason] = useState<DepartureReasonCode | "">("");
@@ -119,12 +170,13 @@ export default function EmployeesPage() {
   const [departureError, setDepartureError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [attendanceExportOpen, setAttendanceExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const perPage = 15;
 
+  const commitSearch = useDebouncedCommit((q) => setFilters({ q, page: "1" }));
+
   const toggleSelect = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const toggleSelectAll = () => {
@@ -135,37 +187,37 @@ export default function EmployeesPage() {
     }
   };
 
+  const listFilters = useCallback((): Record<string, string> => {
+    const f: Record<string, string> = {};
+    if (search) f.q = search;
+    if (serviceFilter) f.service = serviceFilter;
+    if (structureFilter) f.structure = structureFilter;
+    if (statusFilter !== "all") f.active = statusFilter === "active" ? "true" : "false";
+    return f;
+  }, [search, serviceFilter, structureFilter, statusFilter]);
+
   const fetchEmployees = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({
-      page: String(page),
-      limit: String(perPage),
-      ...(search && { q: search }),
-      ...(serviceFilter && { service: serviceFilter }),
-      ...(structureFilter && { structure: structureFilter }),
-      ...(statusFilter !== "all" && { active: statusFilter === "active" ? "true" : "false" }),
-    });
+    const params = new URLSearchParams({ page: String(page), limit: String(perPage), ...listFilters() });
     try {
       const res = await fetch(`/api/employees?${params}`);
       const json = await res.json();
       setEmployees(json.data ?? []);
       setTotal(json.pagination?.total ?? json.total ?? 0);
+      setStats(json.stats ?? null);
       if (json.services) setServices(json.services);
-      // Extract unique services from results if API doesn't return them separately
       if (!json.services && json.data) {
         const svcSet = new Set<string>();
         (json.data as Employee[]).forEach((e) => svcSet.add(e.service));
-        setServices((prev) => {
-          const combined = new Set([...prev, ...svcSet]);
-          return Array.from(combined).sort();
-        });
+        setServices((prev) => Array.from(new Set([...prev, ...svcSet])).sort());
       }
     } catch (e) {
       console.error(e);
+      toast.error("Impossible de charger les employés.");
     } finally {
       setLoading(false);
     }
-  }, [page, search, serviceFilter, structureFilter, statusFilter]);
+  }, [page, listFilters, toast]);
 
   useEffect(() => {
     fetchEmployees();
@@ -187,26 +239,19 @@ export default function EmployeesPage() {
 
   const totalPages = Math.ceil(total / perPage);
 
-  // KPI calculations
-  const totalEmployees = total;
-  const activeCount = employees.filter((e) => e.active).length;
-  const inactiveCount = employees.filter((e) => !e.active).length;
-  const whatsappCount = employees.filter(
-    (e) => (e.whatsappPhones?.length ?? (e.whatsappPhone ? 1 : 0)) > 0
-  ).length;
+  const fetchAllEmployees = () => fetchAllEmployeePages<Employee>(listFilters());
 
-  const fetchAllEmployees = async (): Promise<Employee[]> => {
-    const params = new URLSearchParams({
-      page: "1",
-      limit: "10000",
-      ...(search && { q: search }),
-      ...(serviceFilter && { service: serviceFilter }),
-      ...(structureFilter && { structure: structureFilter }),
-      ...(statusFilter !== "all" && { active: statusFilter === "active" ? "true" : "false" }),
-    });
-    const res = await fetch(`/api/employees?${params}`);
-    const json = await res.json();
-    return json.data ?? [];
+  const runExport = async (kind: "excel" | "pdf") => {
+    setExporting(kind);
+    try {
+      if (kind === "excel") await exportExcel();
+      else await exportPdf();
+    } catch (e) {
+      console.error(e);
+      toast.error("L'export n'a pas pu être généré.");
+    } finally {
+      setExporting(null);
+    }
   };
 
   const exportExcel = async () => {
@@ -243,12 +288,10 @@ export default function EmployeesPage() {
           service: emp.service,
           structure: emp.structure,
           site: emp.site?.name ?? "Non assigné",
-          whatsapp: emp.whatsappPhone ?? "—",
+          whatsapp: phonesOf(emp).join(" / ") || "—",
           status: emp.active ? "Actif" : "Parti / inactif",
           departureDate: emp.departureDate ? formatDepartureDate(emp.departureDate) : "—",
-          departureReason: emp.departureReason
-            ? departureReasonLabel(emp.departureReason)
-            : "—",
+          departureReason: emp.departureReason ? departureReasonLabel(emp.departureReason) : "—",
         });
       });
     };
@@ -260,13 +303,11 @@ export default function EmployeesPage() {
     if (afrexia.length > 0) addSheet("AFREXIA", afrexia);
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `employes_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(
+      new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+      `employes_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
+    toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (Excel).`);
   };
 
   const exportPdf = async () => {
@@ -289,26 +330,13 @@ export default function EmployeesPage() {
 
       const active = data.filter((e) => e.active).length;
       const inactive = data.length - active;
-      const whatsapp = data.filter((e) => e.whatsappPhone).length;
+      const whatsapp = data.filter((e) => phonesOf(e).length > 0).length;
       doc.setFontSize(8);
-      doc.text(`Actifs: ${active}  |  Partis/inactifs: ${inactive}  |  WhatsApp: ${whatsapp}`, 14, 31);
+      doc.text(`Actifs : ${active}  |  Partis/inactifs : ${inactive}  |  WhatsApp : ${whatsapp}`, 14, 31);
 
       autoTable(doc, {
         startY: 35,
-        head: [
-          [
-            "Matricule",
-            "Nom",
-            "Prénom",
-            "Service",
-            "Structure",
-            "Site",
-            "WhatsApp",
-            "Statut",
-            "Date départ",
-            "Motif",
-          ],
-        ],
+        head: [["Matricule", "Nom", "Prénom", "Service", "Structure", "Site", "WhatsApp", "Statut", "Date départ", "Motif"]],
         body: data.map((emp) => [
           emp.matricule,
           emp.lastName,
@@ -316,7 +344,7 @@ export default function EmployeesPage() {
           emp.service,
           emp.structure,
           emp.site?.name ?? "Non assigné",
-          emp.whatsappPhone ?? "—",
+          phonesOf(emp).join(" / ") || "—",
           emp.active ? "Actif" : "Parti / inactif",
           emp.departureDate ? formatDepartureDate(emp.departureDate) : "—",
           emp.departureReason ? departureReasonLabel(emp.departureReason) : "—",
@@ -335,21 +363,12 @@ export default function EmployeesPage() {
     if (afrexia.length > 0) generatePage("Employés — AFREXIA", afrexia, true);
 
     doc.save(`employes_${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (PDF).`);
   };
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({
-      matricule: "",
-      firstName: "",
-      lastName: "",
-      service: "",
-      structure: "SCPB",
-      whatsappPhone: "",
-      whatsappPhone2: "",
-      siteId: "",
-      checkoutSiteId: "",
-    });
+    setForm(EMPTY_FORM);
     setErrors({});
     setModalOpen(true);
   };
@@ -387,10 +406,7 @@ export default function EmployeesPage() {
     try {
       const url = editingId ? `/api/employees/${editingId}` : "/api/employees";
       const method = editingId ? "PUT" : "POST";
-      const payload =
-        editingId
-          ? result.data
-          : { ...result.data }; // matricule généré côté serveur
+      const payload = editingId ? result.data : { ...result.data }; // matricule généré côté serveur
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -399,6 +415,11 @@ export default function EmployeesPage() {
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
         setModalOpen(false);
+        toast.success(
+          editingId
+            ? `${form.firstName} ${form.lastName} : fiche mise à jour.`
+            : `${form.firstName} ${form.lastName} ajouté${json.data?.matricule ? ` (matricule ${json.data.matricule})` : ""}.${json.welcomeSent ? "\nMessage de bienvenue envoyé sur WhatsApp." : ""}`
+        );
         fetchEmployees();
       } else {
         setErrors({
@@ -407,23 +428,33 @@ export default function EmployeesPage() {
       }
     } catch (e) {
       console.error(e);
+      toast.error("Erreur réseau : l'employé n'a pas été enregistré.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const reactivateEmployee = async (id: string) => {
-    await fetch(`/api/employees/${id}`, {
+  const reactivateEmployee = async (emp: Employee) => {
+    const ok = await confirm({
+      title: "Réactiver l'employé",
+      message: `${emp.firstName} ${emp.lastName} pourra de nouveau pointer et apparaîtra dans les listes de présence.`,
+      confirmLabel: "Réactiver",
+      tone: "primary",
+    });
+    if (!ok) return;
+    const res = await fetch(`/api/employees/${emp.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ active: true }),
-    });
+    }).catch(() => null);
+    if (res?.ok) toast.success(`${emp.firstName} ${emp.lastName} est de nouveau actif.`);
+    else toast.error("La réactivation a échoué.");
     fetchEmployees();
   };
 
   const openDepartureModal = (emp: Employee) => {
     if (!emp.active) {
-      void reactivateEmployee(emp.id);
+      void reactivateEmployee(emp);
       return;
     }
     setDepartureModal(emp);
@@ -435,9 +466,7 @@ export default function EmployeesPage() {
 
   const openCompleteDepartureModal = (emp: Employee) => {
     setDepartureModal(emp);
-    setDepartureDate(
-      emp.departureDate ? emp.departureDate.slice(0, 10) : todayInputDate()
-    );
+    setDepartureDate(emp.departureDate ? emp.departureDate.slice(0, 10) : todayInputDate());
     setDepartureReason((emp.departureReason as DepartureReasonCode) ?? "");
     setDepartureNote(emp.departureNote ?? "");
     setDepartureError(null);
@@ -474,6 +503,7 @@ export default function EmployeesPage() {
         setDepartureError(typeof json.error === "string" ? json.error : "Erreur lors de l’enregistrement.");
         return;
       }
+      toast.success(`Départ enregistré pour ${departureModal.firstName} ${departureModal.lastName}.`);
       setDepartureModal(null);
       fetchEmployees();
     } catch {
@@ -486,6 +516,7 @@ export default function EmployeesPage() {
   const handleConfirmDelete = async () => {
     if (!employeeToDelete) return;
     const idToDelete = employeeToDelete.id;
+    const name = `${employeeToDelete.firstName} ${employeeToDelete.lastName}`;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -498,8 +529,8 @@ export default function EmployeesPage() {
         setEmployeeToDelete(null);
         setEmployees((prev) => prev.filter((e) => e.id !== idToDelete));
         setTotal((t) => Math.max(0, t - 1));
-        setDeleteSuccess(true);
-        setTimeout(() => setDeleteSuccess(false), 3000);
+        setSelectedIds((prev) => prev.filter((x) => x !== idToDelete));
+        toast.success(`${name} a été supprimé définitivement.`);
       } else {
         setDeleteError(json.error || `Erreur ${res.status}`);
       }
@@ -511,294 +542,224 @@ export default function EmployeesPage() {
     }
   };
 
+  const toggleStatus = (value: "active" | "inactive") =>
+    setFilters({ status: statusFilter === value ? "all" : value, page: "1" });
+  const hasActiveFilters = Boolean(search || serviceFilter || structureFilter || statusFilter !== "all");
+  const statsTotal = stats ? stats.active + stats.inactive : total;
+
   return (
     <div className="space-y-6">
-      {deleteSuccess && (
-        <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-medium text-emerald-800">
-          Employé supprimé définitivement de la base de données.
-        </div>
-      )}
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            Employés
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Gestion des collaborateurs, des départs (motif et date) et du statut de présence.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          {selectedIds.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setAttendanceExportOpen(true)}
-              className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-violet-200 bg-violet-50 text-sm font-medium text-violet-800 hover:bg-violet-100 transition-colors"
+      <PageHeader
+        title="Employés"
+        description="Collaborateurs, numéros WhatsApp, zones de pointage et départs."
+        actions={
+          <>
+            {selectedIds.length > 0 && (
+              <Button variant="secondary" icon={<Download className="h-4 w-4" />} onClick={() => setAttendanceExportOpen(true)}>
+                Pointages ({selectedIds.length})
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => void runExport("excel")}
+              loading={exporting === "excel"}
+              disabled={exporting !== null}
+              icon={<FileSpreadsheet className="h-4 w-4 text-emerald-600" />}
             >
-              <Download className="h-4 w-4" />
-              Pointages ({selectedIds.length})
-            </button>
-          )}
-          <button
-            onClick={exportExcel}
-            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-emerald-200 bg-emerald-50 text-sm font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">Excel</span>
-          </button>
-          <button
-            onClick={exportPdf}
-            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 border border-red-200 bg-red-50 text-sm font-medium text-red-700 hover:bg-red-100 transition-colors"
-          >
-            <Download className="h-4 w-4" />
-            <span className="hidden sm:inline">PDF</span>
-          </button>
-          <button
-            onClick={openCreate}
-            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Ajouter
-          </button>
-        </div>
-      </div>
+              <span className="hidden sm:inline">Excel</span>
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void runExport("pdf")}
+              loading={exporting === "pdf"}
+              disabled={exporting !== null}
+              icon={<FileText className="h-4 w-4 text-red-600" />}
+            >
+              <span className="hidden sm:inline">PDF</span>
+            </Button>
+            <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
+              Ajouter
+            </Button>
+          </>
+        }
+      />
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MiniKPI
-          icon={Users}
-          label="Total"
-          value={totalEmployees}
-          color="blue"
-        />
-        <MiniKPI
-          icon={UserCheck}
-          label="Actifs"
-          value={activeCount}
-          color="green"
-        />
-        <MiniKPI
-          icon={UserX}
-          label="Partis / inactifs"
-          value={inactiveCount}
-          color="red"
-        />
-        <MiniKPI
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatTile icon={Users} label="Total" value={statsTotal} tone="brand" onClick={() => setFilters({ status: "all", page: "1" })} active={statusFilter === "all" && hasActiveFilters === false} />
+        <StatTile icon={UserCheck} label="Actifs" value={stats?.active ?? "–"} tone="success" onClick={() => toggleStatus("active")} active={statusFilter === "active"} />
+        <StatTile icon={UserX} label="Partis / inactifs" value={stats?.inactive ?? "–"} tone="danger" onClick={() => toggleStatus("inactive")} active={statusFilter === "inactive"} />
+        <StatTile
           icon={Smartphone}
           label="WhatsApp connectés"
-          value={whatsappCount}
-          color="purple"
+          value={stats?.whatsapp ?? "–"}
+          tone="violet"
+          sub={stats && stats.active > 0 ? `${Math.round((stats.whatsapp / stats.active) * 100)} % des actifs` : ""}
         />
       </div>
 
-      {/* Table Card */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        {/* Filters */}
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Rechercher un employé (nom, matricule, service)..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-slate-50 placeholder:text-slate-400"
-              />
-            </div>
-            <select
-              value={serviceFilter}
-              onChange={(e) => {
-                setServiceFilter(e.target.value);
-                setPage(1);
+      <FilterBar
+        actions={
+          hasActiveFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RotateCcw className="h-3.5 w-3.5" />}
+              onClick={() => {
+                setSearchInput("");
+                setFilters({ q: "", service: "", structure: "", status: "all", page: "1" });
               }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
             >
-              <option value="">Tous les services</option>
-              {services.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
-              value={structureFilter}
+              Réinitialiser
+            </Button>
+          ) : undefined
+        }
+      >
+        <FilterField label="Recherche" className="sm:col-span-2 lg:min-w-[260px] lg:flex-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              type="search"
+              placeholder="Nom ou matricule…"
+              value={searchInput}
               onChange={(e) => {
-                setStructureFilter(e.target.value);
-                setPage(1);
+                setSearchInput(e.target.value);
+                commitSearch(e.target.value);
               }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="">Toutes les structures</option>
-              <option value="SCPB">SCPB</option>
-              <option value="AFREXIA">AFREXIA</option>
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value as typeof statusFilter);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="all">Tous les statuts</option>
-              <option value="active">Actif</option>
-              <option value="inactive">Parti / inactif</option>
-            </select>
+              className="pl-9"
+            />
           </div>
-        </div>
+        </FilterField>
+        <FilterField label="Service">
+          <Select value={serviceFilter} onChange={(e) => setFilters({ service: e.target.value, page: "1" })}>
+            <option value="">Tous les services</option>
+            {services.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+        <FilterField label="Structure">
+          <Select value={structureFilter} onChange={(e) => setFilters({ structure: e.target.value, page: "1" })}>
+            <option value="">Toutes les structures</option>
+            <option value="SCPB">SCPB</option>
+            <option value="AFREXIA">AFREXIA</option>
+          </Select>
+        </FilterField>
+        <FilterField label="Statut">
+          <Select value={statusFilter} onChange={(e) => setFilters({ status: e.target.value, page: "1" })}>
+            <option value="all">Tous les statuts</option>
+            <option value="active">Actif</option>
+            <option value="inactive">Parti / inactif</option>
+          </Select>
+        </FilterField>
+      </FilterBar>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-4 py-3 w-10">
-                  <input
-                    type="checkbox"
-                    checked={
-                      employees.length > 0 &&
-                      selectedIds.length === employees.length
-                    }
-                    onChange={toggleSelectAll}
-                    className="rounded border-slate-300"
-                    aria-label="Tout sélectionner"
-                  />
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Employé
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Matricule
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Service
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Structure
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  WhatsApp
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Date départ
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Motif départ
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                [...Array(5)].map((_, i) => (
-                  <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={10} className="px-6 py-4">
-                      <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
-                    </td>
-                  </tr>
-                ))
-              ) : employees.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-6 py-16 text-center">
-                    <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                    <p className="text-base font-semibold text-slate-700">
-                      Aucun employé trouvé
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {search
-                        ? "Essayez un autre terme de recherche."
-                        : "Commencez par ajouter votre premier collaborateur."}
-                    </p>
-                    {!search && (
-                      <button
-                        onClick={openCreate}
-                        className="mt-4 inline-flex items-center gap-2 h-9 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-                      >
-                        <Plus className="h-4 w-4" />
+      <Card className="overflow-hidden">
+        {selectedIds.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-100 bg-brand-50/60 px-5 py-2.5 text-sm sm:px-6">
+            <span className="font-medium text-brand-800">
+              {selectedIds.length} employé{selectedIds.length > 1 ? "s" : ""} sélectionné{selectedIds.length > 1 ? "s" : ""}
+            </span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" icon={<Download className="h-3.5 w-3.5" />} onClick={() => setAttendanceExportOpen(true)}>
+                Exporter leurs pointages
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+                Désélectionner
+              </Button>
+            </div>
+          </div>
+        )}
+        <Table>
+          <THead>
+            <tr>
+              <Th className="w-10 pr-0">
+                <input
+                  type="checkbox"
+                  checked={employees.length > 0 && selectedIds.length === employees.length}
+                  onChange={toggleSelectAll}
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  aria-label="Tout sélectionner"
+                />
+              </Th>
+              <Th>Employé</Th>
+              <Th>Matricule</Th>
+              <Th>Service</Th>
+              <Th>Structure</Th>
+              <Th>WhatsApp</Th>
+              <Th>Statut</Th>
+              <Th>Départ</Th>
+              <Th align="right">
+                <span className="sr-only">Actions</span>
+              </Th>
+            </tr>
+          </THead>
+          <tbody>
+            {loading ? (
+              <TableSkeletonRows cols={9} />
+            ) : employees.length === 0 ? (
+              <TableMessageRow cols={9}>
+                <EmptyState
+                  icon={Users}
+                  title="Aucun employé trouvé"
+                  description={hasActiveFilters ? "Essayez d'autres filtres ou un autre terme de recherche." : "Commencez par ajouter votre premier collaborateur."}
+                  action={
+                    !hasActiveFilters ? (
+                      <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
                         Ajouter un employé
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                employees.map((emp) => (
-                  <tr
-                    key={emp.id}
-                    className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
-                  >
-                    <td className="px-4 py-4">
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              </TableMessageRow>
+            ) : (
+              employees.map((emp) => {
+                const phones = phonesOf(emp);
+                return (
+                  <Tr key={emp.id} className={cn(selectedIds.includes(emp.id) && "bg-brand-50/40")}>
+                    <Td className="w-10 pr-0">
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(emp.id)}
                         onChange={() => toggleSelect(emp.id)}
-                        className="rounded border-slate-300"
+                        className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                         aria-label={`Sélectionner ${emp.firstName} ${emp.lastName}`}
                       />
-                    </td>
-                    {/* Employé with avatar */}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div
+                    </Td>
+                    <Td>
+                      <Link href={`/employees/${emp.id}`} className="group flex items-center gap-3">
+                        <span
                           className={cn(
-                            "h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0",
-                            emp.active
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-slate-100 text-slate-500"
+                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                            emp.active ? "bg-brand-50 text-brand-700" : "bg-slate-100 text-slate-500"
                           )}
                         >
                           {emp.firstName[0]}
                           {emp.lastName[0]}
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-800">
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-800 group-hover:text-brand-700">
                             {emp.firstName} {emp.lastName}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {emp.site?.name ?? "Non assigné"}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    {/* Matricule */}
-                    <td className="px-6 py-4">
-                      <span className="font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded text-xs">
-                        {emp.matricule}
-                      </span>
-                    </td>
-                    {/* Service */}
-                    <td className="px-6 py-4 text-slate-600">{emp.service}</td>
-                    {/* Structure */}
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                        emp.structure === "AFREXIA"
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-sky-50 text-sky-700"
-                      )}>
-                        {emp.structure}
-                      </span>
-                    </td>
-                    {/* WhatsApp */}
-                    <td className="px-6 py-4">
-                      {(emp.whatsappPhones?.length ?? (emp.whatsappPhone ? 1 : 0)) > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"
-                          title={(
-                            emp.whatsappPhones?.map((p) => p.phone) ??
-                            (emp.whatsappPhone ? [emp.whatsappPhone] : [])
-                          ).join(" · ")}
-                        >
+                          </span>
+                          <span className="block truncate text-xs text-slate-500">
+                            {[emp.site?.name ?? "Zone non assignée", emp.checkoutSite?.name].filter(Boolean).join(" · ")}
+                          </span>
+                        </span>
+                      </Link>
+                    </Td>
+                    <Td>
+                      <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-600">{emp.matricule}</span>
+                    </Td>
+                    <Td>{emp.service}</Td>
+                    <Td>
+                      <StructureBadge value={emp.structure} />
+                    </Td>
+                    <Td>
+                      {phones.length > 0 ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700" title={phones.join(" · ")}>
                           <CheckCircle2 className="h-3.5 w-3.5" />
-                          {(emp.whatsappPhones?.length ?? 1)} num.
+                          {phones.length} numéro{phones.length > 1 ? "s" : ""}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400">
@@ -806,618 +767,337 @@ export default function EmployeesPage() {
                           Non connecté
                         </span>
                       )}
-                    </td>
-                    {/* Statut */}
-                    <td className="px-6 py-4">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                          emp.active
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-red-50 text-red-700"
-                        )}
-                      >
+                    </Td>
+                    <Td>
+                      <Badge tone={emp.active ? "success" : "danger"} dot>
                         {emp.active ? "Actif" : "Parti / inactif"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 whitespace-nowrap">
-                      {formatDepartureDate(emp.departureDate)}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 max-w-[200px]">
-                      <span className="line-clamp-2">
-                        {emp.departureReason
-                          ? departureReasonLabel(emp.departureReason)
-                          : !emp.active
-                            ? <span className="text-amber-600 text-xs font-medium">Non renseigné</span>
-                            : "—"}
-                      </span>
-                    </td>
-                    {/* Actions */}
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      </Badge>
+                    </Td>
+                    <Td className="max-w-[200px]">
+                      {emp.departureDate || emp.departureReason ? (
+                        <>
+                          <span className="block whitespace-nowrap">{formatDepartureDate(emp.departureDate)}</span>
+                          <span className="block truncate text-xs text-slate-500">
+                            {emp.departureReason ? departureReasonLabel(emp.departureReason) : ""}
+                          </span>
+                        </>
+                      ) : !emp.active ? (
+                        <span className="text-xs font-medium text-amber-700">Motif non renseigné</span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </Td>
+                    <Td align="right">
+                      <div className="flex items-center justify-end gap-0.5">
                         <Link
                           href={`/employees/${emp.id}`}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                          title="Voir le profil"
+                          className={buttonClasses({ variant: "ghost", size: "icon-sm" })}
+                          title="Voir la fiche"
+                          aria-label={`Voir la fiche de ${emp.firstName} ${emp.lastName}`}
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="h-4 w-4" />
                         </Link>
-                        <button
-                          onClick={() => openEdit(emp)}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                          title="Modifier"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        {!emp.active && !emp.departureReason && (
-                          <button
-                            type="button"
+                        <Button variant="ghost" size="icon-sm" onClick={() => openEdit(emp)} title="Modifier" aria-label={`Modifier ${emp.firstName} ${emp.lastName}`}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {!emp.active && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
                             onClick={() => openCompleteDepartureModal(emp)}
-                            className="p-2 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded-xl transition-colors"
-                            title="Renseigner le départ"
+                            title={emp.departureReason ? "Modifier la date ou le motif de départ" : "Renseigner le départ"}
+                            aria-label={emp.departureReason ? "Modifier le départ" : "Renseigner le départ"}
+                            className={cn(!emp.departureReason && "text-amber-600 hover:bg-amber-50 hover:text-amber-700")}
                           >
-                            <UserMinus className="w-4 h-4" />
-                          </button>
+                            {emp.departureReason ? <PenLine className="h-4 w-4" /> : <UserMinus className="h-4 w-4" />}
+                          </Button>
                         )}
-                        {!emp.active && emp.departureReason && (
-                          <button
-                            type="button"
-                            onClick={() => openCompleteDepartureModal(emp)}
-                            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
-                            title="Modifier date ou motif de départ"
-                          >
-                            <PenLine className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
                           onClick={() => openDepartureModal(emp)}
-                          className={cn(
-                            "p-2 rounded-xl transition-colors",
-                            emp.active
-                              ? "text-slate-400 hover:text-red-600 hover:bg-red-50"
-                              : "text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                          )}
-                          title={
-                            emp.active
-                              ? "Enregistrer un départ (démission, fin de contrat…)"
-                              : "Réactiver l’employé"
-                          }
+                          className={emp.active ? "hover:bg-red-50 hover:text-red-600" : "hover:bg-emerald-50 hover:text-emerald-600"}
+                          title={emp.active ? "Enregistrer un départ (démission, fin de contrat…)" : "Réactiver l’employé"}
+                          aria-label={emp.active ? "Enregistrer un départ" : "Réactiver"}
                         >
-                          <Ban className="w-4 h-4" />
-                        </button>
+                          {emp.active ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                        </Button>
                         {userRole === "ADMIN" && (
-                          <button
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
                             onClick={() => {
                               setEmployeeToDelete(emp);
                               setDeleteError(null);
                             }}
-                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                            className="hover:bg-red-50 hover:text-red-600"
                             title="Supprimer l'employé"
+                            aria-label={`Supprimer ${emp.firstName} ${emp.lastName}`}
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         )}
                       </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 0 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
-            <p className="text-sm text-slate-500">
-              {employees.length > 0 ? (
-                <>
-                  <span className="font-medium text-slate-700">
-                    {(page - 1) * perPage + 1}–
-                    {Math.min(page * perPage, total)}
-                  </span>{" "}
-                  sur{" "}
-                  <span className="font-medium text-slate-700">{total}</span>{" "}
-                  employé{total > 1 ? "s" : ""}
-                </>
-              ) : (
-                "Aucun résultat"
-              )}
-            </p>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Précédent
-                </button>
-                <div className="flex items-center gap-0.5 mx-2">
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                    const pageNum = i + 1;
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={cn(
-                          "w-8 h-8 rounded-lg text-sm font-medium transition-colors",
-                          page === pageNum
-                            ? "bg-blue-600 text-white"
-                            : "text-slate-600 hover:bg-slate-100"
-                        )}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                >
-                  Suivant
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+                    </Td>
+                  </Tr>
+                );
+              })
             )}
-          </div>
-        )}
-      </div>
+          </tbody>
+        </Table>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={perPage}
+          itemLabel={["employé", "employés"]}
+          onPageChange={(p) => setFilters({ page: String(p) })}
+        />
+      </Card>
 
-      {/* Modal Create/Edit */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setModalOpen(false)}
-          />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 z-10">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {editingId ? "Modifier l'employé" : "Nouvel employé"}
-                </h2>
-                <p className="text-sm text-slate-500 mt-0.5">
-                  {editingId
-                    ? "Modifiez les informations du collaborateur."
-                    : "Ajoutez un nouveau collaborateur au système."}
-                </p>
-              </div>
-              <button
-                onClick={() => setModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Matricule
-                  </label>
-                  {editingId ? (
-                    <>
-                      <input
-                        value={form.matricule}
-                        onChange={(e) =>
-                          setForm({ ...form, matricule: e.target.value })
-                        }
-                        placeholder="SCPB-IT-4829"
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                      />
-                      {errors.matricule && (
-                        <p className="text-xs text-red-500 mt-1">
-                          {errors.matricule}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <div className="w-full px-3 py-2.5 border border-dashed border-slate-200 rounded-xl text-sm text-slate-500 bg-slate-50">
-                      Généré à l&apos;enregistrement :{" "}
-                      <span className="font-mono text-slate-600">STRUCTURE-SERVICE-XXXX</span> avec{" "}
-                      <span className="font-mono text-slate-600">XXXX</span> aléatoire et unique (ex.&nbsp;SCPB-IT-4829
-                      ou AFREXIA-RH-1204).
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Service
-                  </label>
-                  <select
-                    value={form.service}
-                    onChange={(e) =>
-                      setForm({ ...form, service: e.target.value })
-                    }
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Sélectionner un service</option>
-                    <option value="IT">IT</option>
-                    <option value="QHSE">QHSE</option>
-                    <option value="RH">RH</option>
-                    <option value="DAF">DAF</option>
-                    <option value="RAF">RAF</option>
-                    <option value="ST">ST</option>
-                  </select>
-                  {errors.service && (
-                    <p className="text-xs text-red-500 mt-1">
-                      {errors.service}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Structure
-                </label>
-                <select
-                  value={form.structure}
-                  onChange={(e) =>
-                    setForm({ ...form, structure: e.target.value as "SCPB" | "AFREXIA" })
-                  }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+      {/* Création / modification */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        dismissible={!submitting}
+        title={editingId ? "Modifier l'employé" : "Nouvel employé"}
+        description={editingId ? "Modifiez les informations du collaborateur." : "Ajoutez un collaborateur. Avec un numéro WhatsApp, il reçoit un message de bienvenue."}
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)} disabled={submitting}>
+              Annuler
+            </Button>
+            <Button type="submit" form="employee-form" loading={submitting}>
+              {editingId ? "Enregistrer" : "Créer l'employé"}
+            </Button>
+          </>
+        }
+      >
+        <form id="employee-form" onSubmit={handleSubmit} className="space-y-5" noValidate>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Prénom" required error={errors.firstName}>
+              {(id) => (
+                <Input id={id} value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} placeholder="Jean" aria-invalid={Boolean(errors.firstName)} autoComplete="off" />
+              )}
+            </Field>
+            <Field label="Nom" required error={errors.lastName}>
+              {(id) => (
+                <Input id={id} value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} placeholder="Kouadio" aria-invalid={Boolean(errors.lastName)} autoComplete="off" />
+              )}
+            </Field>
+            <Field label="Structure" required>
+              {(id) => (
+                <Select id={id} value={form.structure} onChange={(e) => setForm({ ...form, structure: e.target.value as "SCPB" | "AFREXIA" })}>
                   <option value="SCPB">SCPB</option>
                   <option value="AFREXIA">AFREXIA</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Prénom
-                  </label>
-                  <input
-                    value={form.firstName}
-                    onChange={(e) =>
-                      setForm({ ...form, firstName: e.target.value })
-                    }
-                    placeholder="Jean"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                  />
-                  {errors.firstName && (
-                    <p className="text-xs text-red-500 mt-1">
-                      {errors.firstName}
-                    </p>
+                </Select>
+              )}
+            </Field>
+            <Field label="Service" required error={errors.service}>
+              {(id) => (
+                <Select id={id} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} aria-invalid={Boolean(errors.service)}>
+                  <option value="">Sélectionner un service</option>
+                  {SERVICES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                  {form.service && !SERVICES.includes(form.service) && <option value={form.service}>{form.service}</option>}
+                </Select>
+              )}
+            </Field>
+            <div className="sm:col-span-2">
+              {editingId ? (
+                <Field label="Matricule" error={errors.matricule}>
+                  {(id) => (
+                    <Input id={id} value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} placeholder="SCPB-IT-4829" className="font-mono" />
                   )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    Nom
-                  </label>
-                  <input
-                    value={form.lastName}
+                </Field>
+              ) : (
+                <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
+                  Matricule généré à l&apos;enregistrement :{" "}
+                  <span className="font-mono text-slate-700">
+                    {form.structure}-{form.service || "SERVICE"}-XXXX
+                  </span>{" "}
+                  (4 chiffres aléatoires et uniques).
+                </p>
+              )}
+            </div>
+          </div>
+
+          <fieldset className="space-y-3 rounded-xl border border-brand-100 bg-brand-50/50 p-4">
+            <legend className="sr-only">Zones de pointage</legend>
+            <div>
+              <p className="text-sm font-semibold text-brand-900">Zones de pointage (jusqu&apos;à 2)</p>
+              <p className="mt-0.5 text-xs text-brand-800/80">
+                Le pointage (arrivée, pause, départ) est accepté dans l&apos;une ou l&apos;autre zone : bureau, usine…
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Zone 1 — ex. siège / bureau">
+                {(id) => (
+                  <Select
+                    id={id}
+                    value={form.siteId}
                     onChange={(e) =>
-                      setForm({ ...form, lastName: e.target.value })
+                      setForm({
+                        ...form,
+                        siteId: e.target.value,
+                        checkoutSiteId: e.target.value === form.checkoutSiteId ? "" : form.checkoutSiteId,
+                      })
                     }
-                    placeholder="Kouadio"
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                  />
-                  {errors.lastName && (
-                    <p className="text-xs text-red-500 mt-1">
-                      {errors.lastName}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="rounded-xl border-2 border-blue-200 bg-blue-50/60 p-4 space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-blue-900">
-                    Zones de pointage (jusqu&apos;à 2)
-                  </p>
-                  <p className="text-xs text-blue-800/80 mt-0.5">
-                    L&apos;employé peut pointer partout où il se trouve : bureau, usine, etc.
-                    (arrivée, pause et départ).
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Zone 1 — ex. siège / bureau
-                    </label>
-                    <select
-                      value={form.siteId}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          siteId: e.target.value,
-                          checkoutSiteId:
-                            e.target.value === form.checkoutSiteId
-                              ? ""
-                              : form.checkoutSiteId,
-                        })
-                      }
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                    >
-                      <option value="">— Choisir un site —</option>
-                      {sites.map((s) => (
+                  >
+                    <option value="">— Choisir un site —</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+              <Field label="Zone 2 — ex. usine (optionnel)">
+                {(id) => (
+                  <Select id={id} value={form.checkoutSiteId} onChange={(e) => setForm({ ...form, checkoutSiteId: e.target.value })} disabled={!form.siteId}>
+                    <option value="">Pas de 2e zone</option>
+                    {sites
+                      .filter((s) => s.id !== form.siteId)
+                      .map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name}
                         </option>
                       ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Zone 2 — ex. usine (optionnel)
-                    </label>
-                    <select
-                      value={form.checkoutSiteId}
-                      onChange={(e) =>
-                        setForm({ ...form, checkoutSiteId: e.target.value })
-                      }
-                      disabled={!form.siteId}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
-                    >
-                      <option value="">Pas de 2e zone</option>
-                      {sites
-                        .filter((s) => s.id !== form.siteId)
-                        .map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                </div>
-                {sites.length < 2 && (
-                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                    Créez au moins 2 sites dans Réglages → Sites pour activer la 2e zone.
-                  </p>
+                  </Select>
                 )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  WhatsApp principal
-                </label>
-                <input
-                  value={form.whatsappPhone}
-                  onChange={(e) =>
-                    setForm({ ...form, whatsappPhone: e.target.value })
-                  }
-                  placeholder="2376XXXXXXXX"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                />
-                {errors.whatsappPhone && (
-                  <p className="text-xs text-red-600 mt-1">{errors.whatsappPhone}</p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  WhatsApp secondaire{" "}
-                  <span className="text-slate-400 font-normal">(optionnel, max 2)</span>
-                </label>
-                <input
-                  value={form.whatsappPhone2}
-                  onChange={(e) =>
-                    setForm({ ...form, whatsappPhone2: e.target.value })
-                  }
-                  placeholder="2376XXXXXXXX"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 placeholder:text-slate-400"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  Les deux numéros peuvent pointer et recevoir les mêmes notifications automatiques.
-                </p>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  className="h-10 px-4 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="h-10 px-5 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  {submitting
-                    ? "Enregistrement..."
-                    : editingId
-                      ? "Enregistrer"
-                      : "Créer l'employé"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal départ RH */}
-      {departureModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => !departureSubmitting && setDepartureModal(null)}
-          />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 z-10">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {departureModal.active ? "Enregistrer un départ" : "Motif et date de départ"}
-                </h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  {departureModal.firstName} {departureModal.lastName}{" "}
-                  <span className="font-mono text-xs text-slate-400">({departureModal.matricule})</span>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => !departureSubmitting && setDepartureModal(null)}
-                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                aria-label="Fermer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              </Field>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Date du départ
-                </label>
-                <input
-                  type="date"
-                  value={departureDate}
-                  onChange={(e) => setDepartureDate(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Motif
-                </label>
-                <select
-                  value={departureReason}
-                  onChange={(e) =>
-                    setDepartureReason(e.target.value as DepartureReasonCode | "")
-                  }
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">— Choisir —</option>
-                  <option value="RESIGNATION">Démission</option>
-                  <option value="END_OF_CONTRACT">Fin de contrat</option>
-                  <option value="DISMISSAL">Licenciement</option>
-                  <option value="ABANDONMENT">Abandon de poste</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Commentaire (optionnel)
-                </label>
-                <textarea
-                  value={departureNote}
-                  onChange={(e) => setDepartureNote(e.target.value)}
-                  rows={3}
-                  placeholder="Précisions pour le dossier RH…"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y min-h-[80px]"
-                />
-              </div>
-              {departureError && (
-                <p className="text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{departureError}</p>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => !departureSubmitting && setDepartureModal(null)}
-                disabled={departureSubmitting}
-                className="h-10 px-4 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitDeparture()}
-                disabled={departureSubmitting}
-                className="h-10 px-5 text-sm font-medium bg-slate-900 text-white rounded-xl hover:bg-slate-800 disabled:opacity-50 transition-colors"
-              >
-                {departureSubmitting ? "Enregistrement…" : "Valider"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal confirmation suppression (ADMIN) */}
-      {employeeToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => {
-              if (!deleting) {
-                setEmployeeToDelete(null);
-                setDeleteError(null);
-              }
-            }}
-          />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 z-10">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <div className="h-10 w-10 rounded-full bg-red-50 flex items-center justify-center">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <h2 className="text-lg font-semibold text-slate-900">Supprimer l&apos;employé</h2>
-            </div>
-            <p className="text-sm text-slate-600 mb-6">
-              Voulez-vous supprimer <strong>{employeeToDelete.firstName} {employeeToDelete.lastName}</strong> ({employeeToDelete.matricule}) ? L&apos;employé sera supprimé définitivement de la base de données (pointages, absences et missions liés seront aussi supprimés).
-            </p>
-            {deleteError && (
-              <p className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-2 mb-4">
-                {deleteError}
+            {sites.length < 2 && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+                Créez au moins 2 sites dans Paramètres → Sites pour activer la 2e zone.
               </p>
             )}
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!deleting) {
-                    setEmployeeToDelete(null);
-                    setDeleteError(null);
-                  }
-                }}
-                disabled={deleting}
-                className="h-10 px-4 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors disabled:opacity-50"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                disabled={deleting}
-                className="h-10 px-5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 transition-colors"
-              >
-                {deleting ? "Suppression…" : "Supprimer"}
-              </button>
-            </div>
+          </fieldset>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="WhatsApp principal" error={errors.whatsappPhone} hint="Format international sans +, ex. 2376XXXXXXXX">
+              {(id) => (
+                <Input id={id} value={form.whatsappPhone} onChange={(e) => setForm({ ...form, whatsappPhone: e.target.value })} placeholder="2376XXXXXXXX" inputMode="tel" aria-invalid={Boolean(errors.whatsappPhone)} />
+              )}
+            </Field>
+            <Field label="WhatsApp secondaire (optionnel)" hint="Peut aussi pointer et reçoit les mêmes notifications.">
+              {(id) => (
+                <Input id={id} value={form.whatsappPhone2} onChange={(e) => setForm({ ...form, whatsappPhone2: e.target.value })} placeholder="2376XXXXXXXX" inputMode="tel" />
+              )}
+            </Field>
           </div>
+        </form>
+      </Modal>
+
+      {/* Départ */}
+      <Modal
+        open={departureModal !== null}
+        onClose={() => setDepartureModal(null)}
+        dismissible={!departureSubmitting}
+        title={departureModal?.active ? "Enregistrer un départ" : "Motif et date de départ"}
+        description={
+          departureModal ? (
+            <>
+              {departureModal.firstName} {departureModal.lastName}{" "}
+              <span className="font-mono text-xs text-slate-400">({departureModal.matricule})</span>
+            </>
+          ) : undefined
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDepartureModal(null)} disabled={departureSubmitting}>
+              Annuler
+            </Button>
+            <Button variant={departureModal?.active ? "danger" : "primary"} onClick={() => void submitDeparture()} loading={departureSubmitting}>
+              {departureModal?.active ? "Enregistrer le départ" : "Valider"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {departureModal?.active && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              L&apos;employé passera en « Parti / inactif » : il ne pourra plus pointer.
+            </p>
+          )}
+          <Field label="Date du départ" required>
+            {(id) => <Input id={id} type="date" value={departureDate} onChange={(e) => setDepartureDate(e.target.value)} />}
+          </Field>
+          <Field label="Motif" required>
+            {(id) => (
+              <Select id={id} value={departureReason} onChange={(e) => setDepartureReason(e.target.value as DepartureReasonCode | "")}>
+                <option value="">— Choisir —</option>
+                <option value="RESIGNATION">Démission</option>
+                <option value="END_OF_CONTRACT">Fin de contrat</option>
+                <option value="DISMISSAL">Licenciement</option>
+                <option value="ABANDONMENT">Abandon de poste</option>
+              </Select>
+            )}
+          </Field>
+          <Field label="Commentaire (optionnel)">
+            {(id) => (
+              <Textarea id={id} value={departureNote} onChange={(e) => setDepartureNote(e.target.value)} rows={3} placeholder="Précisions pour le dossier RH…" />
+            )}
+          </Field>
+          {departureError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{departureError}</p>}
         </div>
-      )}
+      </Modal>
+
+      {/* Suppression (ADMIN) */}
+      <Modal
+        open={employeeToDelete !== null}
+        onClose={() => {
+          setEmployeeToDelete(null);
+          setDeleteError(null);
+        }}
+        dismissible={!deleting}
+        size="sm"
+        title="Supprimer l'employé"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              data-autofocus
+              onClick={() => {
+                setEmployeeToDelete(null);
+                setDeleteError(null);
+              }}
+              disabled={deleting}
+            >
+              Annuler
+            </Button>
+            <Button variant="danger" onClick={handleConfirmDelete} loading={deleting} icon={<Trash2 className="h-4 w-4" />}>
+              Supprimer définitivement
+            </Button>
+          </>
+        }
+      >
+        {employeeToDelete && (
+          <div className="space-y-3 text-sm text-slate-600">
+            <p>
+              Supprimer{" "}
+              <strong className="text-slate-900">
+                {employeeToDelete.firstName} {employeeToDelete.lastName}
+              </strong>{" "}
+              ({employeeToDelete.matricule}) ?
+            </p>
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+              Action irréversible : ses pointages, autorisations d&apos;absence et missions seront aussi supprimés. Pour un
+              départ, préférez « Enregistrer un départ ».
+            </p>
+            {deleteError && <p className="rounded-xl bg-red-50 px-3 py-2 text-red-700">{deleteError}</p>}
+          </div>
+        )}
+      </Modal>
 
       {attendanceExportOpen && (
-        <EmployeesAttendanceExport
-          selectedIds={selectedIds}
-          onClose={() => setAttendanceExportOpen(false)}
-        />
+        <EmployeesAttendanceExport selectedIds={selectedIds} onClose={() => setAttendanceExportOpen(false)} />
       )}
-    </div>
-  );
-}
-
-function MiniKPI({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  color: "blue" | "green" | "red" | "purple";
-}) {
-  const colorMap = {
-    blue: { bg: "bg-blue-50", text: "text-blue-600", value: "text-blue-700" },
-    green: { bg: "bg-emerald-50", text: "text-emerald-600", value: "text-emerald-700" },
-    red: { bg: "bg-red-50", text: "text-red-600", value: "text-red-700" },
-    purple: { bg: "bg-violet-50", text: "text-violet-600", value: "text-violet-700" },
-  };
-  const c = colorMap[color];
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", c.bg, c.text)}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-xs font-medium text-slate-500">{label}</p>
-          <p className={cn("text-2xl font-bold tracking-tight", c.value)}>
-            {value}
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

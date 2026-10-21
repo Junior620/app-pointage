@@ -48,6 +48,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState, Skeleton } from "@/components/ui/EmptyState";
 import { StatusBadge, StructureBadge } from "@/components/ui/StatusBadge";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
+import { StatTile } from "@/components/ui/StatTile";
 import StructureLogo from "@/components/brand/StructureLogo";
 
 interface DashboardData {
@@ -282,32 +283,32 @@ export default function DashboardClient({ userName }: { userName: string }) {
 
       {/* Indicateurs du jour */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
-        <KpiCard
+        <StatTile
           icon={UserCheck}
           label="Présents"
           value={today.present}
           tone="success"
           href="/attendance?status=PRESENT"
-          sub={!isNonWorkingDay && hasData ? `${pct(today.present, today.totalEmployees)} % de l'effectif` : undefined}
+          sub={!isNonWorkingDay && hasData ? `${pct(today.present, today.totalEmployees)} % de l'effectif` : ""}
         />
-        <KpiCard
+        <StatTile
           icon={UserX}
           label="Absents"
           value={today.absent}
           tone="danger"
           href="/attendance?status=ABSENT"
-          sub={isNonWorkingDay ? "Non compté le week-end" : undefined}
+          sub={isNonWorkingDay ? "Non compté le week-end" : ""}
         />
-        <KpiCard
+        <StatTile
           icon={Clock}
           label="Retards"
           value={today.late}
           tone="warning"
           href="/attendance"
-          sub={!isNonWorkingDay && today.present > 0 ? `${pct(today.late, today.present)} % des présents` : undefined}
+          sub={!isNonWorkingDay && today.present > 0 ? `${pct(today.late, today.present)} % des présents` : ""}
         />
-        <KpiCard icon={Briefcase} label="En mission" value={missionsNow} tone="violet" href="/missions" />
-        <KpiCard icon={Shield} label="En autorisation" value={permissionsNow} tone="info" href="/leaves" />
+        <StatTile icon={Briefcase} label="En mission" value={missionsNow} tone="violet" href="/missions" sub="" />
+        <StatTile icon={Shield} label="En autorisation" value={permissionsNow} tone="info" href="/leaves" sub="" />
       </div>
 
       {/* À traiter */}
@@ -620,47 +621,6 @@ export default function DashboardClient({ userName }: { userName: string }) {
         </Card>
       )}
     </div>
-  );
-}
-
-const KPI_TONES = {
-  success: { icon: "bg-emerald-50 text-emerald-600", value: "text-emerald-700" },
-  danger: { icon: "bg-red-50 text-red-600", value: "text-red-700" },
-  warning: { icon: "bg-amber-50 text-amber-600", value: "text-amber-700" },
-  violet: { icon: "bg-violet-50 text-violet-600", value: "text-violet-700" },
-  info: { icon: "bg-sky-50 text-sky-600", value: "text-sky-700" },
-} as const;
-
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  tone,
-  sub,
-  href,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: number;
-  tone: keyof typeof KPI_TONES;
-  sub?: string;
-  href: string;
-}) {
-  const c = KPI_TONES[tone];
-  return (
-    <Link
-      href={href}
-      className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-slate-500">{label}</p>
-        <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", c.icon)}>
-          <Icon className="h-4 w-4" />
-        </span>
-      </div>
-      <p className={cn("mt-2 text-3xl font-bold tracking-tight tabular-nums", c.value)}>{value}</p>
-      <p className="mt-0.5 h-4 truncate text-xs text-slate-500">{sub ?? ""}</p>
-    </Link>
   );
 }
 

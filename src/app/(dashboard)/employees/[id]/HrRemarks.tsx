@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { roleLabel } from "@/lib/navigation";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Select, Textarea } from "@/components/ui/Field";
+import { Skeleton } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toaster";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   Plus,
   Trash2,
@@ -88,6 +95,8 @@ export default function HrRemarks({
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "disciplinary">("all");
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const canAdd = userRole === "ADMIN" || userRole === "HR";
   const canDelete = userRole === "ADMIN";
@@ -121,19 +130,35 @@ export default function HrRemarks({
         setContent("");
         setLevel(null);
         setShowForm(false);
+        toast.success("Observation enregistrée.");
+      } else {
+        const json = await res.json().catch(() => ({}));
+        toast.error(typeof json.error === "string" ? json.error : "L'observation n'a pas été enregistrée.");
       }
+    } catch {
+      toast.error("Erreur réseau : l'observation n'a pas été enregistrée.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (remarkId: string) => {
+  const handleDelete = async (remark: Remark) => {
+    const excerpt = remark.content.length > 140 ? `${remark.content.slice(0, 140)}…` : remark.content;
+    const ok = await confirm({
+      title: "Supprimer l'observation",
+      message: `« ${excerpt} »\n\nCette suppression est définitive.`,
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
     const res = await fetch(
-      `/api/employees/${employeeId}/remarks?remarkId=${remarkId}`,
+      `/api/employees/${employeeId}/remarks?remarkId=${remark.id}`,
       { method: "DELETE" }
-    );
-    if (res.ok) {
-      setRemarks((prev) => prev.filter((r) => r.id !== remarkId));
+    ).catch(() => null);
+    if (res?.ok) {
+      setRemarks((prev) => prev.filter((r) => r.id !== remark.id));
+      toast.success("Observation supprimée.");
+    } else {
+      toast.error("La suppression a échoué.");
     }
   };
 
@@ -157,7 +182,7 @@ export default function HrRemarks({
   return (
     <div className="space-y-4">
       {disciplinaryRemarks.length > 0 && (
-        <div className="bg-white rounded-xl border border-red-200 p-6">
+        <Card className="border-red-200 p-5 sm:p-6">
           <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2 mb-4">
             <ShieldAlert className="w-4 h-4 text-red-600" />
             Suivi disciplinaire
@@ -254,15 +279,15 @@ export default function HrRemarks({
               </span>
             )}
             <span className="text-slate-400 text-xs ml-auto">
-              {disciplinaryRemarks.length} action(s) disciplinaire(s)
+              {disciplinaryRemarks.length} action{disciplinaryRemarks.length > 1 ? "s" : ""} disciplinaire{disciplinaryRemarks.length > 1 ? "s" : ""}
             </span>
           </div>
-        </div>
+        </Card>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
+      <Card className="p-5 sm:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
               <MessageSquare className="w-4 h-4" />
               Observations RH
@@ -273,7 +298,7 @@ export default function HrRemarks({
                 className={cn(
                   "px-3 py-1.5 transition-colors",
                   activeTab === "all"
-                    ? "bg-blue-50 text-blue-600 font-medium"
+                    ? "bg-brand-50 text-brand-700 font-medium"
                     : "text-slate-500 hover:bg-slate-50"
                 )}
               >
@@ -299,45 +324,42 @@ export default function HrRemarks({
             </div>
           </div>
           {canAdd && (
-            <button
+            <Button
+              size="sm"
+              variant={showForm ? "ghost" : "secondary"}
               onClick={() => setShowForm(!showForm)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              icon={showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
             >
-              {showForm ? (
-                <X className="w-4 h-4" />
-              ) : (
-                <Plus className="w-4 h-4" />
-              )}
-              {showForm ? "Annuler" : "Ajouter"}
-            </button>
+              {showForm ? "Annuler" : "Ajouter une observation"}
+            </Button>
           )}
         </div>
 
         {showForm && (
           <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-            <select
+            <Select
               value={category}
               onChange={(e) => {
                 setCategory(e.target.value);
                 if (!DISCIPLINARY_CATEGORIES.includes(e.target.value))
                   setLevel(null);
               }}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Catégorie"
             >
               {Object.entries(CATEGORIES).map(([key, { label }]) => (
                 <option key={key} value={key}>
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
 
             {isDisciplinaryCategory && (
-              <select
+              <Select
                 value={level ?? ""}
                 onChange={(e) =>
                   setLevel(e.target.value ? parseInt(e.target.value) : null)
                 }
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                aria-label="Niveau disciplinaire"
               >
                 <option value="">-- Niveau disciplinaire --</option>
                 {Object.entries(LEVEL_LABELS).map(([val, { label }]) => (
@@ -345,24 +367,20 @@ export default function HrRemarks({
                     Niveau {val} – {label}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
 
-            <textarea
+            <Textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Décrivez la situation, les faits, la décision prise..."
+              placeholder="Décrivez la situation, les faits, la décision prise…"
               rows={3}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              aria-label="Contenu de l'observation"
             />
             <div className="flex justify-end">
-              <button
-                onClick={handleAdd}
-                disabled={submitting || !content.trim()}
-                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {submitting ? "Enregistrement..." : "Enregistrer"}
-              </button>
+              <Button onClick={handleAdd} loading={submitting} disabled={!content.trim()}>
+                Enregistrer
+              </Button>
             </div>
           </div>
         )}
@@ -370,10 +388,7 @@ export default function HrRemarks({
         {loading ? (
           <div className="space-y-3">
             {[1, 2].map((i) => (
-              <div
-                key={i}
-                className="h-16 bg-slate-100 rounded-lg animate-pulse"
-              />
+              <Skeleton key={i} className="h-16" />
             ))}
           </div>
         ) : filteredRemarks.length === 0 ? (
@@ -427,26 +442,29 @@ export default function HrRemarks({
                         })}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-700">{r.content}</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Par {r.author.name} ({r.author.role})
+                    <p className="whitespace-pre-line text-sm text-slate-700">{r.content}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Par {r.author.name} ({roleLabel(r.author.role)})
                     </p>
                   </div>
                   {canDelete && (
-                    <button
-                      onClick={() => handleDelete(r.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => void handleDelete(r)}
+                      className="hover:bg-red-50 hover:text-red-600"
                       title="Supprimer"
+                      aria-label="Supprimer l'observation"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   )}
                 </div>
               );
             })}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

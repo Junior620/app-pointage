@@ -5,14 +5,8 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { EmployeePeriodResolution } from "@/lib/period-range";
 
-function btnClass(active: boolean) {
-  return cn(
-    "inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-    active
-      ? "bg-blue-600 text-white shadow-sm"
-      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-  );
-}
+const navBtn =
+  "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50";
 
 export default function EmployeePeriodNav({
   employeeId,
@@ -80,44 +74,49 @@ export default function EmployeePeriodNav({
             })()
           : null;
 
+  const tabs = [
+    { href: base, label: "30 jours", active: period === "30d" },
+    { href: `${base}?period=month`, label: "Mois", active: period === "month" },
+    { href: `${base}?period=quarter`, label: "Trimestre", active: period === "quarter" },
+    { href: `${base}?period=year`, label: "Année", active: period === "year" },
+  ];
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-slate-500 mr-1">Période :</span>
-        <Link href={base} className={btnClass(period === "30d")}>
-          30 jours
-        </Link>
-        <Link href={`${base}?period=month`} className={btnClass(period === "month")}>
-          Mois
-        </Link>
-        <Link href={`${base}?period=quarter`} className={btnClass(period === "quarter")}>
-          Trimestre
-        </Link>
-        <Link href={`${base}?period=year`} className={btnClass(period === "year")}>
-          Année
-        </Link>
-        <span className="text-sm text-slate-600 ml-2 font-medium">{resolution.label}</span>
-      </div>
-      {prevHref && (
-        <div className="flex items-center gap-2 text-sm">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <nav className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="Période">
+        {tabs.map((t) => (
           <Link
-            href={prevHref}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:bg-slate-50"
+            key={t.label}
+            href={t.href}
+            aria-current={t.active ? "page" : undefined}
+            className={cn(
+              "h-8 rounded-lg px-3 text-sm font-medium leading-8 transition-colors",
+              t.active ? "bg-white text-brand-700 shadow-sm" : "text-slate-600 hover:text-slate-900"
+            )}
           >
-            <ChevronLeft className="h-4 w-4" />
-            Précédent
+            {t.label}
           </Link>
-          {nextHref && (
-            <Link
-              href={nextHref}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-600 hover:bg-slate-50"
-            >
-              Suivant
+        ))}
+      </nav>
+      <div className="flex items-center gap-2">
+        {prevHref ? (
+          <Link href={prevHref} className={navBtn} aria-label="Période précédente">
+            <ChevronLeft className="h-4 w-4" />
+          </Link>
+        ) : null}
+        <span className="min-w-[140px] text-center text-sm font-semibold text-slate-800">{resolution.label}</span>
+        {prevHref ? (
+          nextHref ? (
+            <Link href={nextHref} className={navBtn} aria-label="Période suivante">
               <ChevronRight className="h-4 w-4" />
             </Link>
-          )}
-        </div>
-      )}
+          ) : (
+            <span className={cn(navBtn, "pointer-events-none opacity-40")} aria-hidden="true">
+              <ChevronRight className="h-4 w-4" />
+            </span>
+          )
+        ) : null}
+      </div>
     </div>
   );
 }

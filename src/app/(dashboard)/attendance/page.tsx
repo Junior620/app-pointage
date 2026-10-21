@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import {
   Search,
-  X,
-  ChevronLeft,
-  ChevronRight,
   UserCheck,
   UserX,
   Clock,
@@ -16,6 +13,8 @@ import {
   MessageSquare,
   MapPin,
   Timer,
+  FileText,
+  ArrowLeft,
 } from "lucide-react";
 import { cn, formatTime, formatTimeHm, todayDate } from "@/lib/utils";
 import {
@@ -23,6 +22,23 @@ import {
   CORRECTION_REASON_LABELS,
   overtimeToHm,
 } from "@/lib/correction-reasons";
+import { statusMeta, type StatusKind } from "@/lib/status-labels";
+import { useDebouncedCommit, useUrlFilters } from "@/lib/use-url-filters";
+import { refreshNavCounts } from "@/lib/use-nav-counts";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Button } from "@/components/ui/Button";
+import { Input, Select, Textarea, Label } from "@/components/ui/Field";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
+import { Table, THead, Th, Tr, Td, TableSkeletonRows, TableMessageRow } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
+import { StatTile } from "@/components/ui/StatTile";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toaster";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface AttendanceRecord {
   id: string;
@@ -86,34 +102,6 @@ interface AttendanceHistoryRow {
   };
 }
 
-const statusColors: Record<string, string> = {
-  ON_TIME: "bg-emerald-50 text-emerald-700",
-  LATE: "bg-amber-50 text-amber-700",
-  ABSENT: "bg-red-50 text-red-700",
-  PRESENT: "bg-emerald-50 text-emerald-700",
-  PERMISSION: "bg-blue-50 text-blue-700",
-  MISSION: "bg-violet-50 text-violet-700",
-  AUTO: "bg-slate-100 text-slate-600",
-  MANUAL: "bg-slate-100 text-slate-600",
-  Validé: "bg-emerald-100 text-emerald-700",
-  "En attente": "bg-amber-100 text-amber-700",
-  Refusé: "bg-red-100 text-red-700",
-};
-
-const statusLabels: Record<string, string> = {
-  ON_TIME: "À l'heure",
-  LATE: "Retard",
-  ABSENT: "Absent",
-  PRESENT: "Présent",
-  PERMISSION: "Autorisation d'absence",
-  MISSION: "Mission",
-  AUTO: "Auto",
-  MANUAL: "Manuel",
-  Validé: "Validé",
-  "En attente": "En attente",
-  Refusé: "Refusé",
-};
-
 function isSaturday(dateStr: string): boolean {
   const d = parseDateOnly(dateStr);
   return d.getDay() === 6;
@@ -133,15 +121,12 @@ function parseDateOnly(dateStr: string): Date {
   }
 }
 
-function displayStatus(record: AttendanceRecord): { label: string; colorClass: string } {
+function displayStatus(record: AttendanceRecord): { label: string; tone: BadgeTone } {
   const saturdayAbsent = isSaturday(record.date) && record.finalStatus === "ABSENT" && !record.checkInTime;
   if (saturdayAbsent) {
-    return { label: "Non travaillé", colorClass: "bg-slate-100 text-slate-500" };
+    return { label: "Non travaillé", tone: "neutral" };
   }
-  return {
-    label: statusLabels[record.finalStatus] ?? record.finalStatus,
-    colorClass: statusColors[record.finalStatus] ?? "bg-slate-100 text-slate-500",
-  };
+  return statusMeta("final", record.finalStatus) ?? { label: record.finalStatus, tone: "neutral" };
 }
 
 function toDateInputValue(d: Date): string {
@@ -149,6 +134,13 @@ function toDateInputValue(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/** Décale une date AAAA-MM-JJ de n jours (calcul à midi UTC pour éviter les sauts de fuseau). */
+function shiftDays(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }
 
 function countInclusiveDays(from: string, to: string, workingDaysOnly: boolean): number {
@@ -165,17 +157,52 @@ function countInclusiveDays(from: string, to: string, workingDaysOnly: boolean):
   return n;
 }
 
+const formatDuration = (min: number | null) => {
+  if (min == null) return "—";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h}h${m.toString().padStart(2, "0")}`;
+};
+
+const formatDateLabel = (d: string) =>
+  parseDateOnly(d).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
 export default function AttendancePage() {
+  return (
+    <Suspense fallback={null}>
+      <AttendanceContent />
+    </Suspense>
+  );
+}
+
+function AttendanceContent() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const todayStr = toDateInputValue(todayDate());
+  const [filters, setFilters] = useUrlFilters({
+    from: todayStr,
+    to: todayStr,
+    q: "",
+    service: "",
+    status: "",
+    page: "1",
+  });
+  const dateFrom = filters.from;
+  const dateTo = filters.to;
+  const search = filters.q;
+  const serviceFilter = filters.service;
+  const statusFilter = filters.status;
+  const page = Math.max(1, parseInt(filters.page, 10) || 1);
+  const setPage = (p: number) => setFilters({ page: String(p) });
+
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const todayStr = toDateInputValue(todayDate());
-  const [dateFrom, setDateFrom] = useState(() => todayStr);
-  const [dateTo, setDateTo] = useState(() => todayStr);
-  const [serviceFilter, setServiceFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [searchInput, setSearchInput] = useState(search);
   const [services, setServices] = useState<string[]>([]);
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [detailRecord, setDetailRecord] = useState<AttendanceRecord | null>(null);
   const [userRole, setUserRole] = useState("");
@@ -210,6 +237,9 @@ export default function AttendancePage() {
   const [historyError, setHistoryError] = useState(false);
   const [returnToRange, setReturnToRange] = useState<{ dateFrom: string; dateTo: string } | null>(null);
 
+  // Recherche : saisie locale, reportée dans l'adresse après une courte pause de frappe
+  const commitSearch = useDebouncedCommit((q) => setFilters({ q, page: "1" }));
+
   const fetchRecords = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({
@@ -229,10 +259,11 @@ export default function AttendancePage() {
       if (json.services) setServices(json.services);
     } catch (e) {
       console.error(e);
+      toast.error("Impossible de charger les pointages.");
     } finally {
       setLoading(false);
     }
-  }, [page, search, dateFrom, dateTo, serviceFilter, statusFilter]);
+  }, [page, search, dateFrom, dateTo, serviceFilter, statusFilter, toast]);
 
   useEffect(() => {
     fetchRecords();
@@ -439,10 +470,13 @@ export default function AttendancePage() {
 
       if (applyBulk) {
         const dayCount = countInclusiveDays(bulkFrom, bulkTo, bulkWorkingDays);
-        const n = window.confirm(
-          `Appliquer cette correction sur ${dayCount} jour(s) du ${bulkFrom} au ${bulkTo} pour ${detailRecord.employee.firstName} ${detailRecord.employee.lastName} ?`
-        );
-        if (!n) {
+        const ok = await confirm({
+          title: "Correction sur une période",
+          message: `Appliquer cette correction sur ${dayCount} jour${dayCount > 1 ? "s" : ""}, du ${formatDateLabel(bulkFrom)} au ${formatDateLabel(bulkTo)}, pour ${detailRecord.employee.firstName} ${detailRecord.employee.lastName} ?${docFile ? "\n\nLe justificatif n'est pas joint en correction groupée : ajoutez-le ensuite jour par jour." : ""}`,
+          confirmLabel: `Corriger ${dayCount} jour${dayCount > 1 ? "s" : ""}`,
+          tone: "primary",
+        });
+        if (!ok) {
           setSubmitting(false);
           return;
         }
@@ -459,9 +493,10 @@ export default function AttendancePage() {
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-          alert(typeof json.error === "string" ? json.error : "Correction groupée impossible");
+          toast.error(typeof json.error === "string" ? json.error : "Correction groupée impossible");
           return;
         }
+        toast.success(`Correction appliquée sur ${dayCount} jour${dayCount > 1 ? "s" : ""}.`);
       } else {
         const res = await fetch("/api/attendance", {
           method: isNew ? "POST" : "PUT",
@@ -474,7 +509,7 @@ export default function AttendancePage() {
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-          alert(typeof json.error === "string" ? json.error : "Correction impossible");
+          toast.error(typeof json.error === "string" ? json.error : "Correction impossible");
           return;
         }
         const savedId = json.data?.id as string | undefined;
@@ -484,792 +519,573 @@ export default function AttendancePage() {
           const up = await fetch(`/api/attendance/${savedId}/document`, { method: "POST", body: fd });
           if (!up.ok) {
             const uj = await up.json().catch(() => ({}));
-            alert(typeof uj.error === "string" ? uj.error : "Justificatif non envoyé (correction enregistrée).");
+            toast.warning(typeof uj.error === "string" ? uj.error : "Justificatif non envoyé (correction enregistrée).");
           }
         }
+        toast.success(isNew ? "Journée créée." : "Pointage corrigé.");
       }
 
       setDetailRecord(null);
       fetchRecords();
       fetchDayPayload();
+      refreshNavCounts();
     } catch (e) {
       console.error(e);
+      toast.error("Erreur réseau : la correction n'a pas pu être envoyée.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const formatDuration = (min: number | null) => {
-    if (min == null) return "—";
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return `${h}h${m.toString().padStart(2, "0")}`;
-  };
-
   const dateRangeLabel = () => {
     if (dateFrom === todayStr && dateTo === todayStr) return "Aujourd'hui";
+    if (dateFrom && dateTo && dateFrom === dateTo) return formatDateLabel(dateFrom);
     if (dateFrom && dateTo) return `${formatDateLabel(dateFrom)} → ${formatDateLabel(dateTo)}`;
-    if (dateFrom) return `Depuis ${formatDateLabel(dateFrom)}`;
+    if (dateFrom) return `Depuis le ${formatDateLabel(dateFrom)}`;
     if (dateTo) return `Jusqu'au ${formatDateLabel(dateTo)}`;
-    return "Aujourd'hui";
+    return "Toutes les dates";
   };
 
-  const formatDateLabel = (d: string) => {
-    return parseDateOnly(d).toLocaleDateString("fr-FR", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+  const setRange = (from: string, to: string) => {
+    setReturnToRange(null);
+    setFilters({ from, to, page: "1" });
   };
+
+  const periodShortcuts = [
+    { label: "Aujourd'hui", from: todayStr, to: todayStr },
+    { label: "Hier", from: shiftDays(todayStr, -1), to: shiftDays(todayStr, -1) },
+    { label: "7 jours", from: shiftDays(todayStr, -6), to: todayStr },
+    { label: "Ce mois", from: `${todayStr.slice(0, 8)}01`, to: todayStr },
+  ];
+
+  const toggleStatus = (value: string) => setFilters({ status: statusFilter === value ? "" : value, page: "1" });
+  const hasActiveFilters = Boolean(search || serviceFilter || statusFilter || dateFrom !== todayStr || dateTo !== todayStr);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-          Pointages
-        </h1>
-        <p className="mt-1 text-sm text-slate-500 flex items-center gap-2">
-          <CalendarDays className="h-4 w-4" />
-          {dateRangeLabel()}
-          {total > 0 && (
-            <span className="ml-1">
-              — <span className="font-medium text-slate-700">{total}</span>{" "}
-              enregistrement{total > 1 ? "s" : ""}
-            </span>
-          )}
-        </p>
-      </div>
-
-      {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard icon={UserCheck} label="Présents" value={presentCount} color="green" />
-        <KpiCard icon={UserX} label="Absents" value={absentCount} color="red" />
-        <KpiCard icon={Clock} label="Retards" value={lateCount} color="orange" />
-        <KpiCard icon={Briefcase} label="Mission / Perm." value={missionPermCount} color="purple" />
-      </div>
-
-      {/* Absents du jour (vue complète) */}
-      {dayPayload && dayCounts != null && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">
-            {dayPayload.isNonWorkingDay ? "Jour non ouvré" : "Absents de la journée"}
-          </h3>
-          {dayPayload.isNonWorkingDay ? (
-            <p className="text-sm text-slate-500">
-              Aucune absence n&apos;est comptée sur ce jour.
-            </p>
-          ) : dayCounts.absent === 0 ? (
-            <p className="text-sm text-slate-500">
-              Personne n&apos;est absent aujourd&apos;hui.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {(dayPayload.absents ?? []).map((e) => (
-                <div
-                  key={e.id}
-                  className="flex items-center justify-between gap-3 border border-slate-100 rounded-xl px-3 py-2"
+      <PageHeader
+        title="Pointages"
+        description={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <CalendarDays className="h-4 w-4" />
+            {dateRangeLabel()}
+            {total > 0 && (
+              <span>
+                · <span className="font-medium text-slate-700">{total}</span> enregistrement{total > 1 ? "s" : ""}
+              </span>
+            )}
+          </span>
+        }
+        actions={
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="group" aria-label="Période">
+            {periodShortcuts.map((p) => {
+              const active = dateFrom === p.from && dateTo === p.to;
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => setRange(p.from, p.to)}
+                  aria-pressed={active}
+                  className={cn(
+                    "h-8 rounded-lg px-3 text-xs font-medium transition-colors",
+                    active ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                  )}
                 >
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        }
+      />
+
+      {/* Indicateurs : un clic filtre la liste */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatTile icon={UserCheck} label="Présents" value={presentCount} tone="success" onClick={() => toggleStatus("PRESENT")} active={statusFilter === "PRESENT"} />
+        <StatTile icon={UserX} label="Absents" value={absentCount} tone="danger" onClick={() => toggleStatus("ABSENT")} active={statusFilter === "ABSENT"} />
+        <StatTile icon={Clock} label="Retards" value={lateCount} tone="warning" />
+        <StatTile icon={Briefcase} label="Mission / autorisation" value={missionPermCount} tone="violet" />
+      </div>
+
+      {/* Absents de la journée */}
+      {dayPayload && dayCounts != null && (
+        <Card>
+          <CardHeader
+            title={dayPayload.isNonWorkingDay ? "Jour non ouvré" : "Absents de la journée"}
+            description={
+              dayPayload.isNonWorkingDay
+                ? "Aucune absence n'est comptée sur ce jour."
+                : dayCounts.absent === 0
+                  ? "Personne n'est absent ce jour-là."
+                  : `${dayCounts.absent} absent${dayCounts.absent > 1 ? "s" : ""}${canCorrect ? " — vous pouvez créer ou corriger leur journée." : "."}`
+            }
+          />
+          {!dayPayload.isNonWorkingDay && dayCounts.absent > 0 ? (
+            <ul className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
+              {(dayPayload.absents ?? []).map((e) => (
+                <li
+                  key={e.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-800">
                       {e.firstName} {e.lastName}
                     </p>
-                    <p className="text-xs text-slate-400">
-                      {e.matricule} — {e.service} — {e.structure}
+                    <p className="truncate text-xs text-slate-500">
+                      {[e.matricule, e.service, e.structure].filter(Boolean).join(" · ")}
                     </p>
                   </div>
                   {canCorrect ? (
-                    <button
-                      type="button"
-                      onClick={() => openCreateForEmployee(e)}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      Créer / corriger ce jour
-                    </button>
+                    <Button size="sm" variant="secondary" onClick={() => openCreateForEmployee(e)}>
+                      Corriger
+                    </Button>
                   ) : (
-                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700">
-                      Absent
-                    </span>
+                    <Badge tone="danger">Absent</Badge>
                   )}
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
+          ) : (
+            <div className="h-5" />
           )}
-        </div>
+        </Card>
       )}
 
-      {/* Table Card */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        {/* Filters */}
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex flex-col lg:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Rechercher un employé (nom, matricule)..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-slate-50 placeholder:text-slate-400"
-              />
-            </div>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
+      {/* Filtres */}
+      <FilterBar
+        actions={
+          hasActiveFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchInput("");
                 setReturnToRange(null);
-                setPage(1);
+                setFilters({ from: todayStr, to: todayStr, q: "", service: "", status: "", page: "1" });
               }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setReturnToRange(null);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            />
-            <select
-              value={serviceFilter}
-              onChange={(e) => {
-                setServiceFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
             >
-              <option value="">Tous les services</option>
-              {services.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <select
-              value={statusFilter}
+              Réinitialiser
+            </Button>
+          ) : undefined
+        }
+      >
+        <FilterField label="Recherche" className="sm:col-span-2 lg:min-w-[260px] lg:flex-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              type="search"
+              placeholder="Nom ou matricule…"
+              value={searchInput}
               onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
+                setSearchInput(e.target.value);
+                commitSearch(e.target.value);
               }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="">Tous les statuts</option>
-              <option value="PRESENT">Présent</option>
-              <option value="ABSENT">Absent</option>
-              <option value="PERMISSION">Autorisation d&apos;absence</option>
-              <option value="MISSION">Mission</option>
-            </select>
+              className="pl-9"
+            />
           </div>
-        </div>
+        </FilterField>
+        <FilterField label="Du">
+          <Input type="date" value={dateFrom} onChange={(e) => setRange(e.target.value, dateTo)} />
+        </FilterField>
+        <FilterField label="Au">
+          <Input type="date" value={dateTo} onChange={(e) => setRange(dateFrom, e.target.value)} />
+        </FilterField>
+        <FilterField label="Service">
+          <Select value={serviceFilter} onChange={(e) => setFilters({ service: e.target.value, page: "1" })}>
+            <option value="">Tous les services</option>
+            {services.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+        <FilterField label="Statut">
+          <Select value={statusFilter} onChange={(e) => setFilters({ status: e.target.value, page: "1" })}>
+            <option value="">Tous les statuts</option>
+            <option value="PRESENT">Présent</option>
+            <option value="ABSENT">Absent</option>
+            <option value="PERMISSION">Autorisation d&apos;absence</option>
+            <option value="MISSION">Mission</option>
+          </Select>
+        </FilterField>
+      </FilterBar>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Employé
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Arrivée
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Départ
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Pause
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Durée
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                [...Array(5)].map((_, i) => (
-                  <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={8} className="px-6 py-4">
-                      <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
-                    </td>
-                  </tr>
-                ))
-              ) : records.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center">
-                    <ClipboardCheck className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                    <p className="text-base font-semibold text-slate-700">
-                      Aucun pointage trouvé
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Essayez de modifier les filtres ou vérifiez la période sélectionnée.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                records.map((r) => (
-                  <tr
-                    key={r.id}
-                    onClick={() => openDetail(r)}
-                    className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition-colors"
-                  >
-                    {/* Date */}
-                    <td className="px-6 py-4">
-                      <span className="text-slate-700 font-medium">
-                        {parseDateOnly(r.date).toLocaleDateString("fr-FR", {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                        })}
-                      </span>
-                    </td>
-                    {/* Employé */}
-                    <td className="px-6 py-4">
+      {/* Liste */}
+      <Card className="overflow-hidden">
+        <Table>
+          <THead>
+            <tr>
+              <Th>Date</Th>
+              <Th>Employé</Th>
+              <Th>Arrivée</Th>
+              <Th>Départ</Th>
+              <Th>Pause</Th>
+              <Th>Durée</Th>
+              <Th>Statut</Th>
+              <Th align="right">
+                <span className="sr-only">Actions</span>
+              </Th>
+            </tr>
+          </THead>
+          <tbody>
+            {loading ? (
+              <TableSkeletonRows cols={8} />
+            ) : records.length === 0 ? (
+              <TableMessageRow cols={8}>
+                <EmptyState
+                  icon={ClipboardCheck}
+                  title="Aucun pointage trouvé"
+                  description="Modifiez les filtres ou vérifiez la période sélectionnée."
+                />
+              </TableMessageRow>
+            ) : (
+              records.map((r) => {
+                const status = displayStatus(r);
+                return (
+                  <Tr key={r.id} onClick={() => openDetail(r)} className="cursor-pointer">
+                    <Td className="whitespace-nowrap font-medium text-slate-700">
+                      {parseDateOnly(r.date).toLocaleDateString("fr-FR", {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}
+                    </Td>
+                    <Td>
                       <div className="flex items-center gap-3">
-                        <div
+                        <span
                           className={cn(
-                            "h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold shrink-0",
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
                             r.finalStatus === "ABSENT"
                               ? "bg-red-100 text-red-700"
                               : r.checkInStatus === "LATE"
                                 ? "bg-amber-100 text-amber-700"
-                                : "bg-blue-100 text-blue-700"
+                                : "bg-brand-50 text-brand-700"
                           )}
                         >
                           {r.employee.firstName[0]}
                           {r.employee.lastName[0]}
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-800">
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-800">
                             {r.employee.firstName} {r.employee.lastName}
                           </p>
-                          <p className="text-xs text-slate-400">
-                            {r.employee.matricule}
-                          </p>
+                          <p className="text-xs text-slate-500">{r.employee.matricule}</p>
                         </div>
                       </div>
-                    </td>
-                    {/* Arrivée */}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-700 font-medium">
-                          {formatTime(r.checkInTime)}
-                        </span>
-                        {r.checkInStatus && (
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                              statusColors[r.checkInStatus]
-                            )}
-                          >
-                            {statusLabels[r.checkInStatus]}
-                          </span>
-                        )}
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="font-medium tabular-nums">{formatTime(r.checkInTime)}</span>
+                        {r.checkInStatus && <StatusBadge kind="checkIn" value={r.checkInStatus} />}
                       </div>
-                    </td>
-                    {/* Départ */}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-700">
-                          {formatTime(r.checkOutTime)}
-                        </span>
-                        {r.checkOutStatus && (
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                              statusColors[r.checkOutStatus]
-                            )}
-                          >
-                            {statusLabels[r.checkOutStatus]}
-                          </span>
-                        )}
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="tabular-nums">{formatTime(r.checkOutTime)}</span>
+                        {r.checkOutStatus && <StatusBadge kind="checkOut" value={r.checkOutStatus} />}
                       </div>
-                    </td>
-                    {/* Durée */}
-                    <td className="px-6 py-4">
-                      <span className="text-slate-700">
-                        {formatTime(r.breakStartTime)} → {formatTime(r.breakEndTime)}
-                      </span>
-                      {(r.breakMinutes ?? 0) > 0 && (
-                        <span className="ml-1 text-xs text-amber-700">
-                          ({formatDuration(r.breakMinutes)})
-                        </span>
-                      )}
-                    </td>
-                    {/* Durée */}
-                    <td className="px-6 py-4">
-                      <span className="font-medium text-slate-700">
-                        {formatDuration(r.totalMinutes)}
-                      </span>
-                      {r.overtimeMinutes && r.overtimeMinutes > 0 ? (
-                        <span className="ml-1 flex items-center gap-1">
-                          <span className="text-xs text-blue-600">
-                            +{formatDuration(r.overtimeMinutes)}
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      {r.breakStartTime || r.breakEndTime ? (
+                        <>
+                          <span className="tabular-nums">
+                            {formatTime(r.breakStartTime)} → {formatTime(r.breakEndTime)}
                           </span>
-                          {r.overtimeStatus && (
-                            <span
-                              className={cn(
-                                "inline-flex px-1.5 py-0.5 rounded text-xs",
-                                r.overtimeStatus === "APPROVED" && "bg-emerald-100 text-emerald-700",
-                                r.overtimeStatus === "PENDING" && "bg-amber-100 text-amber-700",
-                                r.overtimeStatus === "REJECTED" && "bg-red-100 text-red-700"
-                              )}
-                              title={
-                                r.overtimeStatus === "APPROVED"
-                                  ? "Validé"
-                                  : r.overtimeStatus === "PENDING"
-                                    ? "En attente"
-                                    : "Refusé"
-                              }
-                            >
-                              {r.overtimeStatus === "APPROVED" ? "✓" : r.overtimeStatus === "PENDING" ? "⏳" : "✗"}
-                            </span>
+                          {(r.breakMinutes ?? 0) > 0 && (
+                            <span className="ml-1 text-xs text-amber-700">({formatDuration(r.breakMinutes)})</span>
                           )}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      <span className="font-medium tabular-nums">{formatDuration(r.totalMinutes)}</span>
+                      {r.overtimeMinutes && r.overtimeMinutes > 0 ? (
+                        <span className="mt-0.5 flex items-center gap-1.5">
+                          <span className="text-xs font-medium text-brand-600">+{formatDuration(r.overtimeMinutes)} sup</span>
+                          {r.overtimeStatus && <StatusBadge kind="overtime" value={r.overtimeStatus} className="px-1.5 text-[10px]" />}
                         </span>
                       ) : null}
-                    </td>
-                    {/* Statut final */}
-                    <td className="px-6 py-4">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                          displayStatus(r).colorClass
-                        )}
-                      >
-                        {displayStatus(r).label}
-                      </span>
-                    </td>
-                    {/* Actions */}
-                    <td className="px-6 py-4 text-right">
+                    </Td>
+                    <Td>
+                      <Badge tone={status.tone} dot>
+                        {status.label}
+                      </Badge>
+                    </Td>
+                    <Td align="right">
                       <div className="flex items-center justify-end gap-1">
                         {(r.checkInComment || r.checkOutComment) && (
                           <span
                             className="p-1.5 text-slate-400"
-                            title={
-                              [
-                                r.checkInComment &&
-                                  `Arrivée : ${r.checkInComment}`,
-                                r.checkOutComment &&
-                                  `Départ : ${r.checkOutComment}`,
-                              ]
-                                .filter(Boolean)
-                                .join(" | ")
-                            }
+                            title={[
+                              r.checkInComment && `Arrivée : ${r.checkInComment}`,
+                              r.checkOutComment && `Départ : ${r.checkOutComment}`,
+                            ]
+                              .filter(Boolean)
+                              .join(" | ")}
                           >
-                            <MessageSquare className="w-4 h-4" />
+                            <MessageSquare className="h-4 w-4" aria-label="Commentaire" />
                           </span>
                         )}
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             openDetail(r);
                           }}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                          aria-label={`Détail du pointage de ${r.employee.firstName} ${r.employee.lastName}`}
                           title="Détail / Corriger"
                         >
-                          <Pencil className="w-4 h-4" />
-                        </button>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </Td>
+                  </Tr>
+                );
+              })
+            )}
+          </tbody>
+        </Table>
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          pageSize={perPage}
+          itemLabel={["pointage", "pointages"]}
+          onPageChange={setPage}
+        />
+      </Card>
 
-        {/* Pagination */}
-        {totalPages > 0 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
-            <p className="text-sm text-slate-500">
-              {records.length > 0 ? (
-                <>
-                  <span className="font-medium text-slate-700">
-                    {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
-                  </span>{" "}
-                  sur <span className="font-medium text-slate-700">{total}</span>{" "}
-                  pointage{total > 1 ? "s" : ""}
-                </>
-              ) : (
-                "Aucun résultat"
-              )}
-            </p>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+      {/* Historique des journées précédentes (un seul jour sélectionné) */}
+      {isSingleDay && (
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Les 7 journées précédentes"
+            actions={
+              returnToRange ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<ArrowLeft className="h-4 w-4" />}
+                  onClick={() => {
+                    setFilters({ from: returnToRange.dateFrom, to: returnToRange.dateTo, page: "1" });
+                    setReturnToRange(null);
+                  }}
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                  Précédent
-                </button>
-                <div className="flex items-center gap-0.5 mx-2">
-                  {(() => {
-                    const delta = 2;
-                    const start = Math.max(1, page - delta);
-                    const end = Math.min(totalPages, page + delta);
-                    return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(
-                      (p) => (
-                        <button
-                          key={p}
-                          onClick={() => setPage(p)}
-                          className={cn(
-                            "w-8 h-8 rounded-lg text-sm font-medium transition-colors",
-                            page === p
-                              ? "bg-blue-600 text-white"
-                              : "text-slate-600 hover:bg-slate-100"
-                          )}
+                  Retour au {formatDateLabel(returnToRange.dateFrom)}
+                </Button>
+              ) : undefined
+            }
+          />
+          <div className="pt-3">
+            {historyLoading && <p className="px-6 pb-5 text-sm text-slate-500">Chargement de l&apos;historique…</p>}
+            {historyError && !historyLoading && (
+              <p className="px-6 pb-5 text-sm text-red-600">
+                Impossible de charger l&apos;historique (session expirée, droits insuffisants ou erreur serveur).
+                Rechargez la page ou reconnectez-vous.
+              </p>
+            )}
+            {!historyLoading && !historyError && historyRows.length === 0 && (
+              <p className="px-6 pb-5 text-sm text-slate-500">Aucune ligne d&apos;historique pour cette période.</p>
+            )}
+            {!historyLoading && !historyError && historyRows.length > 0 && (
+              <Table>
+                <THead>
+                  <tr>
+                    <Th>Jour</Th>
+                    <Th align="right">Présents</Th>
+                    <Th align="right">Absents</Th>
+                    <Th align="right">Retards</Th>
+                    <Th align="right">Mission / autor.</Th>
+                    <Th align="right">
+                      <span className="sr-only">Action</span>
+                    </Th>
+                  </tr>
+                </THead>
+                <tbody>
+                  {historyRows.map((h) => (
+                    <Tr key={h.date}>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-slate-700">{h.label}</span>
+                          {h.isNonWorkingDay && <Badge tone="neutral">Non ouvré</Badge>}
+                        </div>
+                      </Td>
+                      <Td align="right" className="font-medium tabular-nums text-emerald-600">{h.counts.present}</Td>
+                      <Td align="right" className="font-medium tabular-nums text-red-600">{h.counts.absent}</Td>
+                      <Td align="right" className="font-medium tabular-nums text-amber-600">{h.counts.late}</Td>
+                      <Td align="right" className="font-medium tabular-nums text-violet-600">{h.counts.missionPerm}</Td>
+                      <Td align="right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setReturnToRange({ dateFrom, dateTo });
+                            setFilters({ from: h.date, to: h.date, page: "1" });
+                          }}
                         >
-                          {p}
-                        </button>
-                      )
-                    );
-                  })()}
-                </div>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-                >
-                  Suivant
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+                          Voir
+                        </Button>
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
             )}
           </div>
-        )}
-      </div>
-
-      {/* Historique des journées précédentes (visible dès qu’un seul jour est sélectionné) */}
-      {isSingleDay && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3">
-            Historique des journées précédentes (7 jours)
-          </h3>
-          {returnToRange && (
-            <div className="mb-3">
-              <button
-                className="text-sm font-medium text-blue-700 hover:text-blue-800"
-                onClick={() => {
-                  setDateFrom(returnToRange.dateFrom);
-                  setDateTo(returnToRange.dateTo);
-                  setPage(1);
-                  setReturnToRange(null);
-                }}
-              >
-                ← Retour à {formatDateLabel(returnToRange.dateFrom)}
-              </button>
-            </div>
-          )}
-          {historyLoading && (
-            <p className="text-sm text-slate-500 py-4">Chargement de l&apos;historique…</p>
-          )}
-          {historyError && !historyLoading && (
-            <p className="text-sm text-red-600 py-2">
-              Impossible de charger l&apos;historique (session expirée, droits insuffisants ou erreur serveur).
-              Rechargez la page ou reconnectez-vous.
-            </p>
-          )}
-          {!historyLoading && !historyError && historyRows.length === 0 && (
-            <p className="text-sm text-slate-500 py-2">Aucune ligne d&apos;historique pour cette période.</p>
-          )}
-          {!historyLoading && !historyError && historyRows.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Jour
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Présents
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Absents
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Retards
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Mission / Perm.
-                  </th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {historyRows.map((h) => (
-                  <tr key={h.date} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-700 font-medium">
-                          {h.label}
-                        </span>
-                        {h.isNonWorkingDay && (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                            Non ouvré
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-emerald-600">{h.counts.present}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-red-600">{h.counts.absent}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-amber-600">{h.counts.late}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-violet-600">{h.counts.missionPerm}</span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                        onClick={() => {
-                          setReturnToRange({ dateFrom, dateTo });
-                          setDateFrom(h.date);
-                          setDateTo(h.date);
-                          setPage(1);
-                        }}
-                      >
-                        Voir
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          )}
-        </div>
+        </Card>
       )}
 
-      {/* Detail Drawer / Modal */}
-      {detailRecord && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setDetailRecord(null)}
-          />
-          <div className="relative w-full max-w-md bg-white shadow-2xl z-10 overflow-y-auto animate-[slide-in-from-right_0.3s_ease-out]">
-            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">
-                {editMode ? "Correction manuelle" : "Détail du pointage"}
-              </h2>
-              <button
-                onClick={() => setDetailRecord(null)}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+      {/* Détail / correction */}
+      <Modal
+        open={detailRecord !== null}
+        onClose={() => setDetailRecord(null)}
+        variant="drawer"
+        className="max-w-lg"
+        dismissible={!submitting}
+        title={editMode ? (detailRecord?.id ? "Correction manuelle" : "Créer la journée") : "Détail du pointage"}
+        footer={
+          detailRecord && editMode ? (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!detailRecord.id) setDetailRecord(null);
+                  else setEditMode(false);
+                }}
+                disabled={submitting}
               >
-                <X className="w-5 h-5" />
-              </button>
+                Annuler
+              </Button>
+              <Button onClick={handleEditSave} loading={submitting}>
+                {detailRecord.id ? "Enregistrer" : "Créer ce jour"}
+              </Button>
+            </>
+          ) : detailRecord && canCorrect ? (
+            <Button variant="secondary" icon={<Pencil className="h-4 w-4" />} onClick={() => setEditMode(true)} className="w-full">
+              Corriger ce pointage
+            </Button>
+          ) : undefined
+        }
+      >
+        {detailRecord && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <span
+                className={cn(
+                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                  displayStatus(detailRecord).tone === "neutral"
+                    ? "bg-slate-100 text-slate-600"
+                    : detailRecord.finalStatus === "ABSENT"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-brand-50 text-brand-700"
+                )}
+              >
+                {detailRecord.employee.firstName[0]}
+                {detailRecord.employee.lastName[0]}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-slate-900">
+                  {detailRecord.employee.firstName} {detailRecord.employee.lastName}
+                </p>
+                <p className="text-sm text-slate-500">{detailRecord.employee.matricule}</p>
+              </div>
+              <Badge tone={displayStatus(detailRecord).tone} dot className="ml-auto">
+                {displayStatus(detailRecord).label}
+              </Badge>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Employee info */}
-              <div className="flex items-center gap-4">
-                <div
-                  className={cn(
-                    "h-12 w-12 rounded-full flex items-center justify-center text-sm font-bold",
-                    isSaturday(detailRecord.date) &&
-                      detailRecord.finalStatus === "ABSENT" &&
-                      !detailRecord.checkInTime
-                      ? "bg-slate-100 text-slate-600"
-                      : detailRecord.finalStatus === "ABSENT"
-                        ? "bg-red-100 text-red-700"
-                        : "bg-blue-100 text-blue-700"
-                  )}
-                >
-                  {detailRecord.employee.firstName[0]}
-                  {detailRecord.employee.lastName[0]}
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    {detailRecord.employee.firstName}{" "}
-                    {detailRecord.employee.lastName}
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    {detailRecord.employee.matricule}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "ml-auto inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
-                    displayStatus(detailRecord).colorClass
-                  )}
-                >
-                  {displayStatus(detailRecord).label}
-                </span>
-              </div>
+            <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
+              <CalendarDays className="h-5 w-5 text-slate-400" />
+              <span className="text-sm font-medium text-slate-700">
+                {parseDateOnly(detailRecord.date).toLocaleDateString("fr-FR", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
 
-              {/* Date */}
-              <div className="rounded-xl bg-slate-50 p-4 flex items-center gap-3">
-                <CalendarDays className="h-5 w-5 text-slate-400" />
-                <span className="text-sm font-medium text-slate-700">
-                  {parseDateOnly(detailRecord.date).toLocaleDateString("fr-FR", {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </span>
-              </div>
+            <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+              <DetailRow icon={Clock} label="Arrivée" value={formatTime(detailRecord.checkInTime)} kind="checkIn" badge={detailRecord.checkInStatus} />
+              <DetailRow icon={MapPin} label="Départ" value={formatTime(detailRecord.checkOutTime)} kind="checkOut" badge={detailRecord.checkOutStatus} />
+              <DetailRow icon={Timer} label="Départ pause" value={formatTime(detailRecord.breakStartTime)} />
+              <DetailRow icon={Timer} label="Retour pause" value={formatTime(detailRecord.breakEndTime)} />
+              <DetailRow icon={Timer} label="Durée pause" value={formatDuration(detailRecord.breakMinutes)} />
+              <DetailRow icon={Timer} label="Durée totale" value={formatDuration(detailRecord.totalMinutes)} />
+              {detailRecord.overtimeMinutes && detailRecord.overtimeMinutes > 0 ? (
+                <DetailRow
+                  icon={Timer}
+                  label="Heures sup."
+                  value={formatDuration(detailRecord.overtimeMinutes)}
+                  kind="overtime"
+                  badge={detailRecord.overtimeStatus}
+                  highlight
+                />
+              ) : null}
+            </dl>
 
-              {/* Timeline */}
-              <div className="space-y-4">
-                <DetailRow
-                  icon={Clock}
-                  label="Arrivée"
-                  value={formatTime(detailRecord.checkInTime)}
-                  badge={detailRecord.checkInStatus}
-                />
-                <DetailRow
-                  icon={MapPin}
-                  label="Départ"
-                  value={formatTime(detailRecord.checkOutTime)}
-                  badge={detailRecord.checkOutStatus}
-                />
-                <DetailRow
-                  icon={Timer}
-                  label="Départ pause"
-                  value={formatTime(detailRecord.breakStartTime)}
-                />
-                <DetailRow
-                  icon={Timer}
-                  label="Retour pause"
-                  value={formatTime(detailRecord.breakEndTime)}
-                />
-                <DetailRow
-                  icon={Timer}
-                  label="Durée pause"
-                  value={formatDuration(detailRecord.breakMinutes)}
-                />
-                <DetailRow
-                  icon={Timer}
-                  label="Durée totale"
-                  value={formatDuration(detailRecord.totalMinutes)}
-                />
-                {detailRecord.overtimeMinutes && detailRecord.overtimeMinutes > 0 && (
-                  <DetailRow
-                    icon={Timer}
-                    label="Heures sup."
-                    value={formatDuration(detailRecord.overtimeMinutes)}
-                    badge={
-                      detailRecord.overtimeStatus === "APPROVED"
-                        ? "Validé"
-                        : detailRecord.overtimeStatus === "PENDING"
-                          ? "En attente"
-                          : detailRecord.overtimeStatus === "REJECTED"
-                            ? "Refusé"
-                            : null
+            {!editMode && (
+              <div className="space-y-3">
+                {detailRecord.checkInComment && (
+                  <NoteBlock icon label="Commentaire arrivée" text={detailRecord.checkInComment} />
+                )}
+                {detailRecord.checkOutComment && (
+                  <NoteBlock icon label="Commentaire départ" text={detailRecord.checkOutComment} />
+                )}
+                {detailRecord.correctionReason && (
+                  <NoteBlock
+                    label="Motif type"
+                    text={
+                      CORRECTION_REASON_LABELS[detailRecord.correctionReason as keyof typeof CORRECTION_REASON_LABELS] ??
+                      detailRecord.correctionReason
                     }
-                    highlight
                   />
                 )}
+                {detailRecord.breakComment && <NoteBlock label="Motif pause" text={detailRecord.breakComment} />}
+                {detailRecord.correctionDocument && detailRecord.id && (
+                  <a
+                    href={`/api/attendance/${detailRecord.id}/document`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 text-sm font-medium text-brand-600 hover:underline"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Voir le justificatif
+                  </a>
+                )}
               </div>
+            )}
 
-              {/* Commentaires */}
-              {!editMode && (
-                <div className="space-y-3">
-                  {detailRecord.checkInComment && (
-                    <div className="rounded-xl border border-slate-200 p-4">
-                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        Commentaire arrivée
-                      </p>
-                      <p className="text-sm text-slate-700">
-                        {detailRecord.checkInComment}
-                      </p>
-                    </div>
-                  )}
-                  {detailRecord.checkOutComment && (
-                    <div className="rounded-xl border border-slate-200 p-4">
-                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        Commentaire départ
-                      </p>
-                      <p className="text-sm text-slate-700">
-                        {detailRecord.checkOutComment}
-                      </p>
-                    </div>
-                  )}
-                  {detailRecord.correctionReason && (
-                    <div className="rounded-xl border border-slate-200 p-4">
-                      <p className="text-xs font-medium text-slate-500 mb-1">Motif type</p>
-                      <p className="text-sm text-slate-700">
-                        {CORRECTION_REASON_LABELS[
-                          detailRecord.correctionReason as keyof typeof CORRECTION_REASON_LABELS
-                        ] ?? detailRecord.correctionReason}
-                      </p>
-                    </div>
-                  )}
-                  {detailRecord.breakComment && (
-                    <div className="rounded-xl border border-slate-200 p-4">
-                      <p className="text-xs font-medium text-slate-500 mb-1">Motif pause</p>
-                      <p className="text-sm text-slate-700">{detailRecord.breakComment}</p>
-                    </div>
-                  )}
-                  {detailRecord.correctionDocument && detailRecord.id && (
-                    <a
-                      href={`/api/attendance/${detailRecord.id}/document`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block text-sm text-blue-600 hover:underline"
-                    >
-                      Voir le justificatif
-                    </a>
-                  )}
+            {editMode && (
+              <div className="space-y-5 border-t border-slate-100 pt-5">
+                <div>
+                  <Label htmlFor="att-final">Statut final</Label>
+                  <Select id="att-final" value={editFinalStatus} onChange={(e) => setEditFinalStatus(e.target.value)}>
+                    <option value="PRESENT">Présent</option>
+                    <option value="ABSENT">Absent</option>
+                    <option value="PERMISSION">Autorisation d&apos;absence</option>
+                    <option value="MISSION">Mission</option>
+                  </Select>
                 </div>
-              )}
 
-              {/* Edit form */}
-              {editMode ? (
-                <div className="space-y-4 pt-2 border-t border-slate-100">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Statut final
-                    </label>
-                    <select
-                      value={editFinalStatus}
-                      onChange={(e) => setEditFinalStatus(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                    >
-                      <option value="PRESENT">Présent</option>
-                      <option value="ABSENT">Absent</option>
-                      <option value="PERMISSION">Autorisation d&apos;absence</option>
-                      <option value="MISSION">Mission</option>
-                    </select>
-                  </div>
+                <fieldset className="space-y-3">
+                  <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">Arrivée et départ</legend>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Heure arrivée
-                      </label>
-                      <input
+                      <Label htmlFor="att-in">Heure d&apos;arrivée</Label>
+                      <Input
+                        id="att-in"
                         type="time"
                         value={editCheckInHm}
                         onChange={(e) => {
                           setEditCheckInHm(e.target.value);
                           setEditCheckInStatus("");
                         }}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
                       />
                       {editCheckInHm && (
                         <button
@@ -1282,29 +1098,16 @@ export default function AttendancePage() {
                       )}
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Statut arrivée
-                      </label>
-                      <select
-                        value={editCheckInStatus}
-                        onChange={(e) => setEditCheckInStatus(e.target.value)}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
-                      >
+                      <Label htmlFor="att-in-status">Statut arrivée</Label>
+                      <Select id="att-in-status" value={editCheckInStatus} onChange={(e) => setEditCheckInStatus(e.target.value)}>
                         <option value="">Auto (selon horaire)</option>
                         <option value="ON_TIME">À l&apos;heure</option>
                         <option value="LATE">Retard</option>
-                      </select>
+                      </Select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Heure départ
-                      </label>
-                      <input
-                        type="time"
-                        value={editCheckOutHm}
-                        onChange={(e) => setEditCheckOutHm(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
-                      />
+                      <Label htmlFor="att-out">Heure de départ</Label>
+                      <Input id="att-out" type="time" value={editCheckOutHm} onChange={(e) => setEditCheckOutHm(e.target.value)} />
                       {editCheckOutHm && (
                         <button
                           type="button"
@@ -1316,267 +1119,150 @@ export default function AttendancePage() {
                       )}
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Type départ
-                      </label>
-                      <select
-                        value={editCheckOutStatus}
-                        onChange={(e) => setEditCheckOutStatus(e.target.value)}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
-                      >
+                      <Label htmlFor="att-out-status">Type de départ</Label>
+                      <Select id="att-out-status" value={editCheckOutStatus} onChange={(e) => setEditCheckOutStatus(e.target.value)}>
                         <option value="">—</option>
                         <option value="MANUAL">Manuel</option>
                         <option value="AUTO">Auto</option>
-                      </select>
+                      </Select>
                     </div>
                   </div>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pause</legend>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Début pause
-                      </label>
-                      <input
-                        type="time"
-                        value={editBreakStartHm}
-                        onChange={(e) => setEditBreakStartHm(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
-                      />
+                      <Label htmlFor="att-bs">Début de pause</Label>
+                      <Input id="att-bs" type="time" value={editBreakStartHm} onChange={(e) => setEditBreakStartHm(e.target.value)} />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Fin pause
-                      </label>
-                      <input
-                        type="time"
-                        value={editBreakEndHm}
-                        onChange={(e) => setEditBreakEndHm(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
-                      />
-                      {(editBreakStartHm || editBreakEndHm) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditBreakStartHm("");
-                            setEditBreakEndHm("");
-                            setEditBreakComment("");
-                          }}
-                          className="mt-1.5 text-xs font-medium text-red-600 hover:text-red-700"
-                        >
-                          Supprimer la pause
-                        </button>
-                      )}
+                      <Label htmlFor="att-be">Fin de pause</Label>
+                      <Input id="att-be" type="time" value={editBreakEndHm} onChange={(e) => setEditBreakEndHm(e.target.value)} />
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Motif type
-                    </label>
-                    <select
-                      value={editReason}
-                      onChange={(e) => setEditReason(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
+                  {(editBreakStartHm || editBreakEndHm) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditBreakStartHm("");
+                        setEditBreakEndHm("");
+                        setEditBreakComment("");
+                      }}
+                      className="text-xs font-medium text-red-600 hover:text-red-700"
                     >
+                      Supprimer la pause
+                    </button>
+                  )}
+                  <div>
+                    <Label htmlFor="att-bc">Motif pause (si &gt; 60 min)</Label>
+                    <Input id="att-bc" value={editBreakComment} onChange={(e) => setEditBreakComment(e.target.value)} />
+                  </div>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">Motifs</legend>
+                  <div>
+                    <Label htmlFor="att-reason">Motif type</Label>
+                    <Select id="att-reason" value={editReason} onChange={(e) => setEditReason(e.target.value)}>
                       <option value="">—</option>
                       {CORRECTION_REASON_CODES.map((code) => (
                         <option key={code} value={code}>
                           {CORRECTION_REASON_LABELS[code]}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Commentaire arrivée
-                    </label>
-                    <textarea
+                    <Label htmlFor="att-c-in">Commentaire arrivée</Label>
+                    <Textarea
+                      id="att-c-in"
                       value={editComment}
                       onChange={(e) => setEditComment(e.target.value)}
                       rows={2}
-                      placeholder="Détail de la correction..."
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"
+                      placeholder="Détail de la correction…"
+                      className="min-h-0 resize-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Commentaire départ
-                    </label>
-                    <textarea
+                    <Label htmlFor="att-c-out">Commentaire départ</Label>
+                    <Textarea
+                      id="att-c-out"
                       value={editCheckOutComment}
                       onChange={(e) => setEditCheckOutComment(e.target.value)}
                       rows={2}
-                      placeholder="Départ anticipé, panne réseau..."
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"
+                      placeholder="Départ anticipé, panne réseau…"
+                      className="min-h-0 resize-none"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Motif pause (si &gt; 60 min)
-                    </label>
-                    <input
-                      value={editBreakComment}
-                      onChange={(e) => setEditBreakComment(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                    />
-                  </div>
+                </fieldset>
+
+                <fieldset className="space-y-3">
+                  <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500">Heures supplémentaires</legend>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Heures sup. (HH:MM)
-                      </label>
-                      <input
-                        type="time"
-                        value={editOvertimeHm}
-                        onChange={(e) => setEditOvertimeHm(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white"
-                      />
+                      <Label htmlFor="att-ot">Durée (HH:MM)</Label>
+                      <Input id="att-ot" type="time" value={editOvertimeHm} onChange={(e) => setEditOvertimeHm(e.target.value)} />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Statut HS
-                      </label>
-                      <select
-                        value={editOvertimeStatus}
-                        onChange={(e) => setEditOvertimeStatus(e.target.value)}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"
-                      >
+                      <Label htmlFor="att-ot-status">Statut</Label>
+                      <Select id="att-ot-status" value={editOvertimeStatus} onChange={(e) => setEditOvertimeStatus(e.target.value)}>
                         <option value="">—</option>
                         <option value="PENDING">En attente</option>
-                        <option value="APPROVED">Validé</option>
-                        <option value="REJECTED">Refusé</option>
-                      </select>
+                        <option value="APPROVED">Validée</option>
+                        <option value="REJECTED">Refusée</option>
+                      </Select>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Motif heures sup.
-                    </label>
-                    <input
-                      value={editOvertimeReason}
-                      onChange={(e) => setEditOvertimeReason(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                    />
+                    <Label htmlFor="att-ot-reason">Motif heures sup.</Label>
+                    <Input id="att-ot-reason" value={editOvertimeReason} onChange={(e) => setEditOvertimeReason(e.target.value)} />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Justificatif (PDF, JPEG, PNG — max 5 Mo)
-                    </label>
-                    <input
-                      type="file"
-                      accept="application/pdf,image/jpeg,image/png"
-                      onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
-                      className="w-full text-sm"
-                    />
-                    {detailRecord.correctionDocument && detailRecord.id && (
-                      <a
-                        href={`/api/attendance/${detailRecord.id}/document`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-block text-xs text-blue-600"
-                      >
-                        Justificatif actuel
-                      </a>
-                    )}
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                    <p className="text-xs font-semibold text-slate-700">Appliquer aussi sur une période</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="date"
-                        value={bulkFrom}
-                        onChange={(e) => setBulkFrom(e.target.value)}
-                        className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
-                      />
-                      <input
-                        type="date"
-                        value={bulkTo}
-                        onChange={(e) => setBulkTo(e.target.value)}
-                        className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm"
-                      />
-                    </div>
-                    <label className="flex items-center gap-2 text-xs text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={bulkWorkingDays}
-                        onChange={(e) => setBulkWorkingDays(e.target.checked)}
-                      />
-                      Jours ouvrés seulement
-                    </label>
-                    <p className="text-[11px] text-slate-400">
-                      Laissez les deux dates identiques pour corriger uniquement ce jour.
-                    </p>
-                  </div>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => {
-                        if (!detailRecord.id) setDetailRecord(null);
-                        else setEditMode(false);
-                      }}
-                      className="flex-1 h-10 text-sm font-medium text-slate-600 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
+                </fieldset>
+
+                <div>
+                  <Label htmlFor="att-doc">Justificatif (PDF, JPEG, PNG — 5 Mo max.)</Label>
+                  <input
+                    id="att-doc"
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png"
+                    onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+                    className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
+                  />
+                  {detailRecord.correctionDocument && detailRecord.id && (
+                    <a
+                      href={`/api/attendance/${detailRecord.id}/document`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1.5 inline-block text-xs font-medium text-brand-600 hover:underline"
                     >
-                      Annuler
-                    </button>
-                    <button
-                      onClick={handleEditSave}
-                      disabled={submitting}
-                      className="flex-1 h-10 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                    >
-                      {submitting
-                        ? "Enregistrement..."
-                        : detailRecord.id
-                          ? "Enregistrer"
-                          : "Créer ce jour"}
-                    </button>
-                  </div>
+                      Voir le justificatif actuel
+                    </a>
+                  )}
                 </div>
-              ) : canCorrect ? (
-                <button
-                  onClick={() => setEditMode(true)}
-                  className="w-full h-10 inline-flex items-center justify-center gap-2 text-sm font-medium border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-50 transition-colors"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Corriger ce pointage
-                </button>
-              ) : null}
-            </div>
+
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-700">Appliquer aussi sur une période</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input type="date" value={bulkFrom} onChange={(e) => setBulkFrom(e.target.value)} aria-label="Début de la période" />
+                    <Input type="date" value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} aria-label="Fin de la période" />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={bulkWorkingDays}
+                      onChange={(e) => setBulkWorkingDays(e.target.checked)}
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    Jours ouvrés seulement
+                  </label>
+                  <p className="text-xs text-slate-500">Laissez les deux dates identiques pour ne corriger que ce jour.</p>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  color: "green" | "red" | "orange" | "purple";
-}) {
-  const colorMap = {
-    green: { bg: "bg-emerald-50", text: "text-emerald-600", value: "text-emerald-700" },
-    red: { bg: "bg-red-50", text: "text-red-600", value: "text-red-700" },
-    orange: { bg: "bg-amber-50", text: "text-amber-600", value: "text-amber-700" },
-    purple: { bg: "bg-violet-50", text: "text-violet-600", value: "text-violet-700" },
-  };
-  const c = colorMap[color];
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", c.bg, c.text)}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-xs font-medium text-slate-500">{label}</p>
-          <p className={cn("text-2xl font-bold tracking-tight", c.value)}>
-            {value}
-          </p>
-        </div>
-      </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -1585,41 +1271,39 @@ function DetailRow({
   icon: Icon,
   label,
   value,
+  kind,
   badge,
   highlight,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  kind?: StatusKind;
   badge?: string | null;
   highlight?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+      <dt className="flex items-center gap-3 text-sm text-slate-500">
         <Icon className="h-4 w-4 text-slate-400" />
-        <span className="text-sm text-slate-500">{label}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "text-sm font-medium",
-            highlight ? "text-blue-600" : "text-slate-800"
-          )}
-        >
-          {value}
-        </span>
-        {badge && (
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-              statusColors[badge] ?? "bg-slate-100 text-slate-500"
-            )}
-          >
-            {statusLabels[badge] ?? badge}
-          </span>
-        )}
-      </div>
+        {label}
+      </dt>
+      <dd className="flex items-center gap-2">
+        <span className={cn("text-sm font-medium tabular-nums", highlight ? "text-brand-600" : "text-slate-800")}>{value}</span>
+        {kind && badge && <StatusBadge kind={kind} value={badge} />}
+      </dd>
+    </div>
+  );
+}
+
+function NoteBlock({ label, text, icon = false }: { label: string; text: string; icon?: boolean }) {
+  return (
+    <div className="rounded-xl border border-slate-200 p-4">
+      <p className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500">
+        {icon && <MessageSquare className="h-3.5 w-3.5" />}
+        {label}
+      </p>
+      <p className="whitespace-pre-line text-sm text-slate-700">{text}</p>
     </div>
   );
 }
