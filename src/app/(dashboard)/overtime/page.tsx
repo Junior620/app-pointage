@@ -1,19 +1,24 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import {
-  Clock,
-  Check,
-  XCircle,
-  ChevronLeft,
-  ChevronRight,
-  AlertCircle,
-  UserCheck,
-  UserX,
-  Hourglass,
-  Download,
-} from "lucide-react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { Clock, Check, XCircle, UserCheck, UserX, Hourglass, FileSpreadsheet, RotateCcw, CheckCheck } from "lucide-react";
 import { cn, formatTime } from "@/lib/utils";
+import { statusLabel } from "@/lib/status-labels";
+import { useUrlFilters } from "@/lib/use-url-filters";
+import { refreshNavCounts } from "@/lib/use-nav-counts";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { StatusBadge, StructureBadge } from "@/components/ui/StatusBadge";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
+import { Table, THead, Th, Tr, Td, TableSkeletonRows, TableMessageRow } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
+import { StatTile } from "@/components/ui/StatTile";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toaster";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 interface OvertimeRecord {
   id: string;
@@ -35,468 +40,432 @@ interface OvertimeRecord {
   };
 }
 
-const statusBadge: Record<string, { bg: string; label: string }> = {
-  PENDING: { bg: "bg-amber-50 text-amber-700", label: "En attente" },
-  APPROVED: { bg: "bg-emerald-50 text-emerald-700", label: "Validée" },
-  REJECTED: { bg: "bg-red-50 text-red-700", label: "Refusée" },
-};
-
 function formatOvertime(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return `${h}h${m.toString().padStart(2, "0")}`;
 }
 
+const dayLabel = (d: string) =>
+  new Date(d).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+
 export default function OvertimePage() {
+  return (
+    <Suspense fallback={null}>
+      <OvertimeContent />
+    </Suspense>
+  );
+}
+
+function OvertimeContent() {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [filters, setFilters] = useUrlFilters({ status: "", from: "", to: "", structure: "", page: "1" });
+  const statusFilter = filters.status;
+  const dateFrom = filters.from;
+  const dateTo = filters.to;
+  const structureFilter = filters.structure;
+  const page = Math.max(1, parseInt(filters.page, 10) || 1);
+
   const [records, setRecords] = useState<OvertimeRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [structureFilter, setStructureFilter] = useState("");
   const [stats, setStats] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [actioningId, setActioningId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState<Record<string, string>>({});
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<OvertimeRecord | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const perPage = 25;
 
-  const fetchOvertime = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams({
-      page: String(page),
-      limit: String(perPage),
+  const listParams = useCallback(
+    (): Record<string, string> => ({
       ...(statusFilter && { status: statusFilter }),
       ...(dateFrom && { dateFrom }),
       ...(dateTo && { dateTo }),
       ...(structureFilter && { structure: structureFilter }),
-    });
+    }),
+    [statusFilter, dateFrom, dateTo, structureFilter]
+  );
+
+  const fetchOvertime = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ page: String(page), limit: String(perPage), ...listParams() });
     try {
       const res = await fetch(`/api/overtime?${params}`);
       const json = await res.json();
       setRecords(json.data ?? []);
       setTotal(json.pagination?.total ?? 0);
       if (json.stats) setStats(json.stats);
+      setSelected([]);
     } catch (e) {
       console.error(e);
+      toast.error("Impossible de charger les heures supplémentaires.");
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, dateFrom, dateTo, structureFilter]);
+  }, [page, listParams, toast]);
 
   useEffect(() => {
     fetchOvertime();
   }, [fetchOvertime]);
 
-  const validate = async (id: string, status: "APPROVED" | "REJECTED") => {
-    setActioningId(id);
-    setActionError(null);
+  /** Envoie une décision ; renvoie un message d'erreur ou null. */
+  const sendDecision = async (id: string, status: "APPROVED" | "REJECTED", reason?: string): Promise<string | null> => {
     try {
       const res = await fetch(`/api/overtime/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status,
-          ...(status === "REJECTED" && rejectReason[id] && {
-            reason: rejectReason[id],
-          }),
-        }),
+        body: JSON.stringify({ status, ...(status === "REJECTED" && reason ? { reason } : {}) }),
       });
+      if (res.ok) return null;
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg =
-          typeof json.error === "string"
-            ? json.error
-            : "Impossible d'enregistrer la validation. Réessayez.";
-        setActionError(msg);
-        return;
-      }
-      fetchOvertime();
-      setRejectReason((prev) => ({ ...prev, [id]: "" }));
-    } catch (e) {
-      console.error(e);
-      setActionError("Erreur réseau. Vérifiez votre connexion.");
-    } finally {
-      setActioningId(null);
+      return typeof json.error === "string" ? json.error : "Impossible d'enregistrer la validation.";
+    } catch {
+      return "Erreur réseau. Vérifiez votre connexion.";
     }
   };
 
-  const totalPages = Math.ceil(total / perPage);
+  const approve = async (r: OvertimeRecord) => {
+    setActioningId(r.id);
+    const err = await sendDecision(r.id, "APPROVED");
+    setActioningId(null);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    toast.success(`${formatOvertime(r.overtimeMinutes)} validées pour ${r.employee.firstName} ${r.employee.lastName}.`);
+    fetchOvertime();
+    refreshNavCounts();
+  };
 
-  const fetchAllForExport = async (): Promise<OvertimeRecord[]> => {
-    const params = new URLSearchParams({
-      page: "1",
-      limit: "10000",
-      ...(statusFilter && { status: statusFilter }),
-      ...(dateFrom && { dateFrom }),
-      ...(dateTo && { dateTo }),
-      ...(structureFilter && { structure: structureFilter }),
+  const submitReject = async () => {
+    if (!rejecting || !rejectReason.trim()) return;
+    setActioningId(rejecting.id);
+    const err = await sendDecision(rejecting.id, "REJECTED", rejectReason.trim());
+    setActioningId(null);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    toast.success(`Heures sup refusées pour ${rejecting.employee.firstName} ${rejecting.employee.lastName}.`);
+    setRejecting(null);
+    setRejectReason("");
+    fetchOvertime();
+    refreshNavCounts();
+  };
+
+  const approveSelected = async () => {
+    const rows = records.filter((r) => selected.includes(r.id));
+    const minutes = rows.reduce((n, r) => n + r.overtimeMinutes, 0);
+    const ok = await confirm({
+      title: "Valider la sélection",
+      message: `Valider ${rows.length} ligne${rows.length > 1 ? "s" : ""} d'heures sup (${formatOvertime(minutes)} au total) ?`,
+      confirmLabel: "Tout valider",
+      tone: "primary",
     });
-    const res = await fetch(`/api/overtime?${params}`);
-    const json = await res.json();
-    return json.data ?? [];
+    if (!ok) return;
+    setBulkRunning(true);
+    let failed = 0;
+    for (const r of rows) {
+      if (await sendDecision(r.id, "APPROVED")) failed++;
+    }
+    setBulkRunning(false);
+    if (failed === 0) toast.success(`${rows.length} ligne${rows.length > 1 ? "s" : ""} validée${rows.length > 1 ? "s" : ""}.`);
+    else toast.warning(`${rows.length - failed} validée(s), ${failed} en échec : réessayez pour celles-ci.`);
+    fetchOvertime();
+    refreshNavCounts();
+  };
+
+  const totalPages = Math.ceil(total / perPage);
+  const pendingOnPage = records.filter((r) => r.overtimeStatus === "PENDING");
+  const allPendingSelected = pendingOnPage.length > 0 && pendingOnPage.every((r) => selected.includes(r.id));
+
+  /** L'API plafonne `limit` à 100 : on enchaîne les pages pour exporter toute la sélection. */
+  const fetchAllForExport = async (): Promise<OvertimeRecord[]> => {
+    const pageSize = 100;
+    const out: OvertimeRecord[] = [];
+    for (let p = 1; p <= 100; p++) {
+      const params = new URLSearchParams({ ...listParams(), page: String(p), limit: String(pageSize) });
+      const res = await fetch(`/api/overtime?${params}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof json.error === "string" ? json.error : "Export impossible");
+      const batch: OvertimeRecord[] = json.data ?? [];
+      out.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return out;
   };
 
   const exportExcel = async () => {
-    const ExcelJS = (await import("exceljs")).default;
-    const all = await fetchAllForExport();
-    const workbook = new ExcelJS.Workbook();
-    const ws = workbook.addWorksheet("Heures supplémentaires");
+    setExporting(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const all = await fetchAllForExport();
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet("Heures supplémentaires");
 
-    ws.columns = [
-      { header: "Employé", key: "employee", width: 22 },
-      { header: "Matricule", key: "matricule", width: 16 },
-      { header: "Service", key: "service", width: 12 },
-      { header: "Structure", key: "structure", width: 12 },
-      { header: "Date", key: "date", width: 12 },
-      { header: "Arrivée", key: "in", width: 10 },
-      { header: "Départ", key: "out", width: 10 },
-      { header: "Heures sup", key: "ot", width: 12 },
-      { header: "Motif", key: "reason", width: 30 },
-      { header: "Statut", key: "status", width: 12 },
-      { header: "Validé par", key: "validatedBy", width: 18 },
-    ];
+      ws.columns = [
+        { header: "Employé", key: "employee", width: 22 },
+        { header: "Matricule", key: "matricule", width: 16 },
+        { header: "Service", key: "service", width: 12 },
+        { header: "Structure", key: "structure", width: 12 },
+        { header: "Date", key: "date", width: 12 },
+        { header: "Arrivée", key: "in", width: 10 },
+        { header: "Départ", key: "out", width: 10 },
+        { header: "Heures sup", key: "ot", width: 12 },
+        { header: "Motif", key: "reason", width: 30 },
+        { header: "Statut", key: "status", width: 12 },
+        { header: "Validé par", key: "validatedBy", width: 18 },
+      ];
 
-    ws.getRow(1).eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: "FFFFFF" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
-      cell.alignment = { horizontal: "center" };
-    });
-
-    all.forEach((r) => {
-      ws.addRow({
-        employee: `${r.employee.lastName} ${r.employee.firstName}`,
-        matricule: r.employee.matricule,
-        service: r.employee.service,
-        structure: r.employee.structure,
-        date: new Date(r.date).toLocaleDateString("fr-FR"),
-        in: formatTime(r.checkInTime),
-        out: formatTime(r.checkOutTime),
-        ot: formatOvertime(r.overtimeMinutes),
-        reason: r.overtimeReason ?? "—",
-        status: statusBadge[r.overtimeStatus ?? ""]?.label ?? r.overtimeStatus ?? "—",
-        validatedBy: r.overtimeValidatedBy ?? "—",
+      ws.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
+        cell.alignment = { horizontal: "center" };
       });
-    });
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `heures_supplementaires_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
+      all.forEach((r) => {
+        ws.addRow({
+          employee: `${r.employee.lastName} ${r.employee.firstName}`,
+          matricule: r.employee.matricule,
+          service: r.employee.service,
+          structure: r.employee.structure,
+          date: new Date(r.date).toLocaleDateString("fr-FR"),
+          in: formatTime(r.checkInTime),
+          out: formatTime(r.checkOutTime),
+          ot: formatOvertime(r.overtimeMinutes),
+          reason: r.overtimeReason ?? "—",
+          status: statusLabel("overtime", r.overtimeStatus),
+          validatedBy: r.overtimeValidatedBy ?? "—",
+        });
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `heures_supplementaires_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${all.length} ligne${all.length > 1 ? "s" : ""} exportée${all.length > 1 ? "s" : ""}.`);
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Export impossible.");
+    } finally {
+      setExporting(false);
+    }
   };
+
+  const toggleStatus = (value: string) => setFilters({ status: statusFilter === value ? "" : value, page: "1" });
+  const hasActiveFilters = Boolean(statusFilter || dateFrom || dateTo || structureFilter);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            Heures supplémentaires
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Validation des heures sup par la RH — seules les heures validées sont prises en compte pour la paie.
-          </p>
-        </div>
-        <button
-          onClick={exportExcel}
-          className="inline-flex items-center gap-2 px-4 py-2.5 border border-emerald-200 text-emerald-700 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-colors text-sm font-medium"
-        >
-          <Download className="w-4 h-4" />
-          Exporter Excel
-        </button>
+      <PageHeader
+        title="Heures supplémentaires"
+        description="Seules les heures validées par la RH sont prises en compte pour la paie."
+        actions={
+          <Button variant="secondary" onClick={() => void exportExcel()} loading={exporting} icon={<FileSpreadsheet className="h-4 w-4 text-emerald-600" />}>
+            Exporter Excel
+          </Button>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatTile icon={Hourglass} label="En attente" value={stats.pending} tone="warning" onClick={() => toggleStatus("PENDING")} active={statusFilter === "PENDING"} />
+        <StatTile icon={UserCheck} label="Validées" value={stats.approved} tone="success" onClick={() => toggleStatus("APPROVED")} active={statusFilter === "APPROVED"} />
+        <StatTile icon={UserX} label="Refusées" value={stats.rejected} tone="danger" onClick={() => toggleStatus("REJECTED")} active={statusFilter === "REJECTED"} />
+        <StatTile icon={Clock} label="Lignes affichées" value={total} tone="neutral" />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl flex items-center justify-center bg-amber-50 text-amber-600">
-              <Hourglass className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">En attente</p>
-              <p className="text-2xl font-bold text-amber-700">{stats.pending}</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl flex items-center justify-center bg-emerald-50 text-emerald-600">
-              <UserCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Validées</p>
-              <p className="text-2xl font-bold text-emerald-700">{stats.approved}</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl flex items-center justify-center bg-red-50 text-red-600">
-              <UserX className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Refusées</p>
-              <p className="text-2xl font-bold text-red-700">{stats.rejected}</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl flex items-center justify-center bg-slate-50 text-slate-600">
-              <Clock className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Total</p>
-              <p className="text-2xl font-bold text-slate-700">{total}</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FilterBar
+        actions={
+          hasActiveFilters ? (
+            <Button variant="ghost" size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => setFilters({ status: "", from: "", to: "", structure: "", page: "1" })}>
+              Réinitialiser
+            </Button>
+          ) : undefined
+        }
+      >
+        <FilterField label="Statut">
+          <Select value={statusFilter} onChange={(e) => setFilters({ status: e.target.value, page: "1" })}>
+            <option value="">Tous les statuts</option>
+            <option value="PENDING">En attente</option>
+            <option value="APPROVED">Validées</option>
+            <option value="REJECTED">Refusées</option>
+          </Select>
+        </FilterField>
+        <FilterField label="Du">
+          <Input type="date" value={dateFrom} onChange={(e) => setFilters({ from: e.target.value, page: "1" })} />
+        </FilterField>
+        <FilterField label="Au">
+          <Input type="date" value={dateTo} onChange={(e) => setFilters({ to: e.target.value, page: "1" })} />
+        </FilterField>
+        <FilterField label="Structure">
+          <Select value={structureFilter} onChange={(e) => setFilters({ structure: e.target.value, page: "1" })}>
+            <option value="">Toutes structures</option>
+            <option value="SCPB">SCPB</option>
+            <option value="AFREXIA">AFREXIA</option>
+          </Select>
+        </FilterField>
+      </FilterBar>
 
-      {actionError && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-start justify-between gap-3"
-        >
-          <span>{actionError}</span>
-          <button
-            type="button"
-            onClick={() => setActionError(null)}
-            className="shrink-0 font-medium text-red-700 hover:text-red-900 underline-offset-2 hover:underline"
-          >
-            Fermer
-          </button>
-        </div>
-      )}
-
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100">
-          <div className="flex flex-col lg:flex-row gap-3 flex-wrap">
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="">Tous les statuts</option>
-              <option value="PENDING">En attente</option>
-              <option value="APPROVED">Validées</option>
-              <option value="REJECTED">Refusées</option>
-            </select>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            />
-            <select
-              value={structureFilter}
-              onChange={(e) => {
-                setStructureFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-            >
-              <option value="">Toutes structures</option>
-              <option value="SCPB">SCPB</option>
-              <option value="AFREXIA">AFREXIA</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Employé
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Arrivée / Départ
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Heures sup
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Motif
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                [...Array(5)].map((_, i) => (
-                  <tr key={i} className="border-b border-slate-50">
-                    <td colSpan={7} className="px-6 py-4">
-                      <div className="h-5 bg-slate-100 rounded-lg animate-pulse" />
-                    </td>
-                  </tr>
-                ))
-              ) : records.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
-                    <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                    <p className="text-base font-semibold text-slate-700">
-                      Aucune heure supplémentaire
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Modifiez les filtres ou attendez de nouveaux pointages.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                records.map((r) => {
-                  const badge = statusBadge[r.overtimeStatus ?? ""] || statusBadge.PENDING;
-                  return (
-                    <tr
-                      key={r.id}
-                      className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <div>
-                          <p className="font-medium text-slate-800">
-                            {r.employee.lastName} {r.employee.firstName}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {r.employee.matricule} — {r.employee.service} ({r.employee.structure})
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-slate-700">
-                        {new Date(r.date).toLocaleDateString("fr-FR", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
-                        {formatTime(r.checkInTime)} → {formatTime(r.checkOutTime)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="font-semibold text-violet-600">
-                          {formatOvertime(r.overtimeMinutes)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600 max-w-[200px] truncate">
-                        {r.overtimeReason || (
-                          <span className="text-slate-400 italic">Non renseigné</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                            badge.bg
-                          )}
-                        >
-                          {badge.label}
-                        </span>
-                        {r.overtimeValidatedBy && (
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Par {r.overtimeValidatedBy}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {r.overtimeStatus === "PENDING" && (
-                          <div className="flex items-center justify-end gap-2">
-                            <input
-                              type="text"
-                              placeholder="Motif refus (obligatoire)"
-                              value={rejectReason[r.id] ?? ""}
-                              onChange={(e) =>
-                                setRejectReason((prev) => ({
-                                  ...prev,
-                                  [r.id]: e.target.value,
-                                }))
-                              }
-                              autoComplete="off"
-                              className="w-40 min-w-[10rem] px-2 py-1.5 border border-slate-300 rounded-lg text-sm text-slate-900 bg-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <button
-                              onClick={() => validate(r.id, "APPROVED")}
-                              disabled={actioningId === r.id}
-                              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-50"
-                              title="Valider"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => validate(r.id, "REJECTED")}
-                              disabled={
-                                actioningId === r.id ||
-                                !(rejectReason[r.id] && rejectReason[r.id].trim())
-                              }
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
-                              title="Refuser"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
-            <p className="text-sm text-slate-500">
-              <span className="font-medium text-slate-700">
-                {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
-              </span>{" "}
-              sur <span className="font-medium text-slate-700">{total}</span>
-            </p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+      <Card className="overflow-hidden">
+        {selected.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-100 bg-brand-50/60 px-5 py-2.5 text-sm sm:px-6">
+            <span className="font-medium text-brand-800">
+              {selected.length} ligne{selected.length > 1 ? "s" : ""} sélectionnée{selected.length > 1 ? "s" : ""}
+            </span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="success" icon={<CheckCheck className="h-3.5 w-3.5" />} onClick={() => void approveSelected()} loading={bulkRunning}>
+                Valider la sélection
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected([])} disabled={bulkRunning}>
+                Désélectionner
+              </Button>
             </div>
           </div>
         )}
-      </div>
+        <Table>
+          <THead>
+            <tr>
+              <Th className="w-10 pr-0">
+                <input
+                  type="checkbox"
+                  checked={allPendingSelected}
+                  disabled={pendingOnPage.length === 0}
+                  onChange={() => setSelected(allPendingSelected ? [] : pendingOnPage.map((r) => r.id))}
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40"
+                  aria-label="Sélectionner toutes les lignes en attente"
+                />
+              </Th>
+              <Th>Employé</Th>
+              <Th>Date</Th>
+              <Th>Arrivée → départ</Th>
+              <Th>Heures sup</Th>
+              <Th>Motif</Th>
+              <Th>Statut</Th>
+              <Th align="right">
+                <span className="sr-only">Actions</span>
+              </Th>
+            </tr>
+          </THead>
+          <tbody>
+            {loading ? (
+              <TableSkeletonRows cols={8} />
+            ) : records.length === 0 ? (
+              <TableMessageRow cols={8}>
+                <EmptyState icon={Clock} title="Aucune heure supplémentaire" description="Modifiez les filtres ou attendez de nouveaux pointages." />
+              </TableMessageRow>
+            ) : (
+              records.map((r) => {
+                const pending = r.overtimeStatus === "PENDING";
+                return (
+                  <Tr key={r.id} className={cn(selected.includes(r.id) && "bg-brand-50/40")}>
+                    <Td className="w-10 pr-0">
+                      {pending && (
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(r.id)}
+                          onChange={() => setSelected((prev) => (prev.includes(r.id) ? prev.filter((x) => x !== r.id) : [...prev, r.id]))}
+                          className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                          aria-label={`Sélectionner ${r.employee.firstName} ${r.employee.lastName}`}
+                        />
+                      )}
+                    </Td>
+                    <Td>
+                      <p className="font-medium text-slate-800">
+                        {r.employee.lastName} {r.employee.firstName}
+                      </p>
+                      <p className="flex items-center gap-1.5 text-xs text-slate-500">
+                        {r.employee.matricule} · {r.employee.service}
+                        <StructureBadge value={r.employee.structure} className="px-1.5 py-0 text-[10px]" />
+                      </p>
+                    </Td>
+                    <Td className="whitespace-nowrap">{dayLabel(r.date)}</Td>
+                    <Td className="whitespace-nowrap tabular-nums">
+                      {formatTime(r.checkInTime)} → {formatTime(r.checkOutTime)}
+                    </Td>
+                    <Td>
+                      <span className="font-semibold tabular-nums text-violet-600">{formatOvertime(r.overtimeMinutes)}</span>
+                    </Td>
+                    <Td className="max-w-[220px]">
+                      {r.overtimeReason ? (
+                        <span className="block truncate" title={r.overtimeReason}>
+                          {r.overtimeReason}
+                        </span>
+                      ) : (
+                        <span className="italic text-slate-400">Non renseigné</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <StatusBadge kind="overtime" value={r.overtimeStatus ?? "PENDING"} />
+                      {r.overtimeValidatedBy && <p className="mt-0.5 text-xs text-slate-500">Par {r.overtimeValidatedBy}</p>}
+                    </Td>
+                    <Td align="right">
+                      {pending && (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button size="sm" variant="success" onClick={() => void approve(r)} loading={actioningId === r.id} disabled={bulkRunning} icon={<Check className="h-3.5 w-3.5" />}>
+                            Valider
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setRejecting(r);
+                              setRejectReason("");
+                            }}
+                            disabled={actioningId === r.id || bulkRunning}
+                            className="hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                            icon={<XCircle className="h-3.5 w-3.5" />}
+                          >
+                            Refuser
+                          </Button>
+                        </div>
+                      )}
+                    </Td>
+                  </Tr>
+                );
+              })
+            )}
+          </tbody>
+        </Table>
+        {!loading && (
+          <Pagination page={page} totalPages={totalPages} total={total} pageSize={perPage} itemLabel={["ligne", "lignes"]} onPageChange={(p) => setFilters({ page: String(p) })} />
+        )}
+      </Card>
+
+      <Modal
+        open={rejecting !== null}
+        onClose={() => setRejecting(null)}
+        dismissible={actioningId === null}
+        size="sm"
+        title="Refuser les heures sup"
+        description={
+          rejecting
+            ? `${rejecting.employee.firstName} ${rejecting.employee.lastName} · ${dayLabel(rejecting.date)} · ${formatOvertime(rejecting.overtimeMinutes)}`
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejecting(null)} disabled={actioningId !== null}>
+              Annuler
+            </Button>
+            <Button variant="danger" onClick={() => void submitReject()} loading={actioningId !== null} disabled={!rejectReason.trim()}>
+              Refuser
+            </Button>
+          </>
+        }
+      >
+        <Field label="Motif du refus" required hint="Visible dans l'historique et l'export.">
+          {(id) => (
+            <Textarea id={id} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="Ex. : travail non demandé par le responsable" data-autofocus />
+          )}
+        </Field>
+      </Modal>
     </div>
   );
 }
