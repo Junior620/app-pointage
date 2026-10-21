@@ -4,7 +4,9 @@ import { Skeleton } from "./EmptyState";
 
 export function Table({ className, children, ...props }: ComponentProps<"table">) {
   return (
-    <div className="overflow-x-auto">
+    // `relative` : les libellés `sr-only` (position absolue) restent dans la zone défilante
+    // au lieu d'élargir toute la page.
+    <div className="relative overflow-x-auto">
       <table className={cn("w-full text-sm", className)} {...props}>
         {children}
       </table>
@@ -21,7 +23,7 @@ export function Th({ className, align = "left", ...props }: ComponentProps<"th">
     <th
       scope="col"
       className={cn(
-        "whitespace-nowrap px-5 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:px-6",
+        "whitespace-nowrap px-3 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 first:pl-5 last:pr-5 sm:px-4 sm:first:pl-6 sm:last:pr-6",
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left",
         className
       )}
@@ -38,7 +40,7 @@ export function Td({ className, align = "left", ...props }: ComponentProps<"td">
   return (
     <td
       className={cn(
-        "px-5 py-3 text-slate-700 sm:px-6",
+        "px-3 py-3 text-slate-700 first:pl-5 last:pr-5 sm:px-4 sm:first:pl-6 sm:last:pr-6",
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left",
         className
       )}
@@ -54,7 +56,7 @@ export function TableSkeletonRows({ rows = 5, cols }: { rows?: number; cols: num
       {Array.from({ length: rows }, (_, r) => (
         <tr key={r} className="border-b border-slate-100">
           {Array.from({ length: cols }, (_, c) => (
-            <td key={c} className="px-5 py-3.5 sm:px-6">
+            <td key={c} className="px-3 py-3.5 first:pl-5 last:pr-5 sm:px-4 sm:first:pl-6 sm:last:pr-6">
               <Skeleton className="h-4" />
             </td>
           ))}

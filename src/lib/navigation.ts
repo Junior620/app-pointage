@@ -18,6 +18,8 @@ export type NavCountKey = "overtime" | "leaves" | "missions";
 export type NavLink = {
   href: string;
   label: string;
+  /** Libellé plus court pour le menu latéral (sinon `label`) */
+  menuLabel?: string;
   icon: LucideIcon;
   adminOnly?: boolean;
   countKey?: NavCountKey;
@@ -48,7 +50,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Demandes",
     links: [
-      { href: "/leaves", label: "Autorisations d'absence", icon: CalendarOff, countKey: "leaves" },
+      { href: "/leaves", label: "Autorisations d'absence", menuLabel: "Autorisations", icon: CalendarOff, countKey: "leaves" },
       { href: "/missions", label: "Missions", icon: MapPin, countKey: "missions" },
     ],
   },

@@ -282,7 +282,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
       )}
 
       {/* Indicateurs du jour */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5">
         <StatTile
           icon={UserCheck}
           label="Présents"
@@ -322,7 +322,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
           }
           icon={todoTotal > 0 ? <AlertTriangle className="h-5 w-5 text-amber-500" /> : <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
         />
-        <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-4">
           {todo.map((t) => {
             const Icon = t.icon;
             const active = t.count > 0;
@@ -349,7 +349,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
                   <span className={cn("block text-xl font-bold tabular-nums", active ? "text-slate-900" : "text-slate-400")}>
                     {counts || t.key === "breaks" ? t.count : "–"}
                   </span>
-                  <span className="block truncate text-xs font-medium text-slate-600">{t.label}</span>
+                  <span className="block text-xs font-medium leading-snug text-slate-600">{t.label}</span>
                 </span>
                 <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-500" />
               </Link>

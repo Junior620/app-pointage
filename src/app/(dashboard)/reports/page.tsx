@@ -109,6 +109,9 @@ interface ReportData {
 
 type EmployeeSuggestion = { id: string; firstName: string; lastName: string; matricule: string; service: string; label: string };
 
+/** Heures au format français (virgule décimale) : 441,3 h */
+const fmtH = (n: number) => `${n.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} h`;
+
 const initials = (name: string) =>
   name
     .split(" ")
@@ -343,7 +346,8 @@ function ReportsContent() {
       <div className="space-y-3">
         <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-fit" role="group" aria-label="Période rapide">
           {presets.map((p) => {
-            const active = dateFrom === p.from && dateTo === p.to;
+            // Un seul raccourci actif quand deux couvrent la même période (ex. octobre = mois et trimestre).
+            const active = presets.find((x) => x.from === dateFrom && x.to === dateTo)?.key === p.key;
             return (
               <button
                 key={p.key}
@@ -478,7 +482,7 @@ function ReportsContent() {
               <StatTile icon={TrendingUp} label="Taux de présence" value={`${summary.presenceRate} %`} tone="success" sub={`Ponctualité moyenne ${summary.avgPunctuality} %`} />
               <StatTile icon={AlertTriangle} label="Retards" value={summary.totalRetards} tone="warning" sub="sur la période" />
               <StatTile icon={UserX} label="Absences" value={summary.totalAbsences} tone="danger" sub="sur la période" />
-              <StatTile icon={Clock} label="Heures travaillées" value={`${summary.totalHours} h`} tone="brand" sub={`dont ${summary.totalOvertimeHours} h sup`} />
+              <StatTile icon={Clock} label="Heures travaillées" value={fmtH(summary.totalHours)} tone="brand" sub={`dont ${fmtH(summary.totalOvertimeHours)} sup`} />
             </div>
           )}
 
@@ -532,7 +536,7 @@ function ReportsContent() {
                   icon={Trophy}
                   iconClass="text-emerald-500"
                   tone="success"
-                  items={report.topPresents.map((e) => ({ id: e.id, name: e.name, sub: e.service, value: `${e.presents} j`, extra: `${e.totalHours} h` }))}
+                  items={report.topPresents.map((e) => ({ id: e.id, name: e.name, sub: e.service, value: `${e.presents} j`, extra: fmtH(e.totalHours) }))}
                 />
               )}
               {report.topRetards.length > 0 && (
@@ -556,7 +560,7 @@ function ReportsContent() {
                   icon={Clock}
                   iconClass="text-violet-500"
                   tone="violet"
-                  items={report.topOvertime.map((e) => ({ id: e.id, name: e.name, sub: e.service, value: `${e.overtimeHours} h` }))}
+                  items={report.topOvertime.map((e) => ({ id: e.id, name: e.name, sub: e.service, value: fmtH(e.overtimeHours) }))}
                 />
               )}
               {report.topOvertimeIssues.length > 0 && (
@@ -569,7 +573,7 @@ function ReportsContent() {
                     id: e.id,
                     name: e.name,
                     sub: `${e.service} · ${e.requests} demande${e.requests > 1 ? "s" : ""} en suspens`,
-                    value: `${e.overtimeHours} h`,
+                    value: fmtH(e.overtimeHours),
                   }))}
                 />
               )}
@@ -626,9 +630,9 @@ function ReportsContent() {
                       <Td align="center">{r.retards > 0 ? <Badge tone="warning">{r.retards}</Badge> : <span className="text-slate-300">0</span>}</Td>
                       <Td align="center" className="font-medium tabular-nums text-violet-600">{r.missions || <span className="text-slate-300">0</span>}</Td>
                       <Td align="center" className="font-medium tabular-nums text-sky-600">{r.permissions || <span className="text-slate-300">0</span>}</Td>
-                      <Td align="center" className="font-medium tabular-nums">{r.totalHours} h</Td>
+                      <Td align="center" className="whitespace-nowrap font-medium tabular-nums">{fmtH(r.totalHours)}</Td>
                       <Td align="center" className="font-medium tabular-nums text-violet-600">
-                        {r.overtimeHours > 0 ? `${r.overtimeHours} h` : <span className="text-slate-300">0</span>}
+                        {r.overtimeHours > 0 ? fmtH(r.overtimeHours) : <span className="text-slate-300">0</span>}
                       </Td>
                       <Td align="center">
                         <Badge tone={r.punctualityRate >= 90 ? "success" : r.punctualityRate >= 70 ? "warning" : "danger"}>{r.punctualityRate} %</Badge>

@@ -65,7 +65,9 @@ function SidebarContent({ userRole, onNavigate }: { userRole: string; onNavigate
                             active ? "text-white" : "text-slate-400 group-hover:text-slate-200"
                           )}
                         />
-                        <span className="flex-1 truncate">{link.label}</span>
+                        <span className="flex-1 truncate" title={link.menuLabel ? link.label : undefined}>
+                          {link.menuLabel ?? link.label}
+                        </span>
                         {count > 0 && (
                           <span
                             className={cn(

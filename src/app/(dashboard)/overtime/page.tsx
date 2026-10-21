@@ -343,8 +343,7 @@ function OvertimeContent() {
                 />
               </Th>
               <Th>Employé</Th>
-              <Th>Date</Th>
-              <Th>Arrivée → départ</Th>
+              <Th>Jour</Th>
               <Th>Heures sup</Th>
               <Th>Motif</Th>
               <Th>Statut</Th>
@@ -355,9 +354,9 @@ function OvertimeContent() {
           </THead>
           <tbody>
             {loading ? (
-              <TableSkeletonRows cols={8} />
+              <TableSkeletonRows cols={7} />
             ) : records.length === 0 ? (
-              <TableMessageRow cols={8}>
+              <TableMessageRow cols={7}>
                 <EmptyState icon={Clock} title="Aucune heure supplémentaire" description="Modifiez les filtres ou attendez de nouveaux pointages." />
               </TableMessageRow>
             ) : (
@@ -376,7 +375,7 @@ function OvertimeContent() {
                         />
                       )}
                     </Td>
-                    <Td>
+                    <Td className="whitespace-nowrap">
                       <p className="font-medium text-slate-800">
                         {r.employee.lastName} {r.employee.firstName}
                       </p>
@@ -385,14 +384,16 @@ function OvertimeContent() {
                         <StructureBadge value={r.employee.structure} className="px-1.5 py-0 text-[10px]" />
                       </p>
                     </Td>
-                    <Td className="whitespace-nowrap">{dayLabel(r.date)}</Td>
-                    <Td className="whitespace-nowrap tabular-nums">
-                      {formatTime(r.checkInTime)} → {formatTime(r.checkOutTime)}
+                    <Td className="whitespace-nowrap">
+                      <span className="block">{dayLabel(r.date)}</span>
+                      <span className="block text-xs tabular-nums text-slate-500">
+                        {formatTime(r.checkInTime)} → {formatTime(r.checkOutTime)}
+                      </span>
                     </Td>
                     <Td>
                       <span className="font-semibold tabular-nums text-violet-600">{formatOvertime(r.overtimeMinutes)}</span>
                     </Td>
-                    <Td className="max-w-[220px]">
+                    <Td className="min-w-[140px] max-w-[200px]">
                       {r.overtimeReason ? (
                         <span className="block truncate" title={r.overtimeReason}>
                           {r.overtimeReason}
@@ -408,8 +409,18 @@ function OvertimeContent() {
                     <Td align="right">
                       {pending && (
                         <div className="flex items-center justify-end gap-1.5">
-                          <Button size="sm" variant="success" onClick={() => void approve(r)} loading={actioningId === r.id} disabled={bulkRunning} icon={<Check className="h-3.5 w-3.5" />}>
-                            Valider
+                          <Button
+                            size="sm"
+                            variant="success"
+                            onClick={() => void approve(r)}
+                            loading={actioningId === r.id}
+                            disabled={bulkRunning}
+                            icon={<Check className="h-3.5 w-3.5" />}
+                            className="px-2 2xl:px-3"
+                            title="Valider"
+                            aria-label={`Valider les heures sup de ${r.employee.firstName} ${r.employee.lastName}`}
+                          >
+                            <span className="hidden 2xl:inline">Valider</span>
                           </Button>
                           <Button
                             size="sm"
@@ -419,10 +430,12 @@ function OvertimeContent() {
                               setRejectReason("");
                             }}
                             disabled={actioningId === r.id || bulkRunning}
-                            className="hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                            className="px-2 hover:border-red-200 hover:bg-red-50 hover:text-red-700 2xl:px-3"
                             icon={<XCircle className="h-3.5 w-3.5" />}
+                            title="Refuser"
+                            aria-label={`Refuser les heures sup de ${r.employee.firstName} ${r.employee.lastName}`}
                           >
-                            Refuser
+                            <span className="hidden 2xl:inline">Refuser</span>
                           </Button>
                         </div>
                       )}
