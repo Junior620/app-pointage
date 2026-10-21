@@ -56,7 +56,7 @@ export function resolveEmployeeStatsPeriod(
       mParsed >= 1 && mParsed <= 12 ? mParsed - 1 : today.getMonth();
     const from = startOfLocalDay(new Date(y, monthIndex, 1));
     const lastDay = startOfLocalDay(new Date(y, monthIndex + 1, 0));
-    let to = lastDay > today ? today : lastDay;
+    const to = lastDay > today ? today : lastDay;
     if (from > today) {
       return {
         period: "month",
@@ -91,7 +91,7 @@ export function resolveEmployeeStatsPeriod(
     const startMonth = (q - 1) * 3;
     const from = startOfLocalDay(new Date(y, startMonth, 1));
     const endQuarter = startOfLocalDay(new Date(y, startMonth + 3, 0));
-    let to = endQuarter > today ? today : endQuarter;
+    const to = endQuarter > today ? today : endQuarter;
     if (from > today) {
       return {
         period: "quarter",

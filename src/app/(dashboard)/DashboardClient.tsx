@@ -151,10 +151,10 @@ export default function DashboardClient({ userName }: { userName: string }) {
             Bonjour, {userName}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Apercu des presences et anomalies du jour.
+            Aperçu des présences et anomalies du jour.
             {today.totalEmployees > 0 && (
               <span className="ml-1 font-medium text-slate-700">
-                {today.totalEmployees} employe{today.totalEmployees > 1 ? "s" : ""} actif{today.totalEmployees > 1 ? "s" : ""}.
+                {today.totalEmployees} employé{today.totalEmployees > 1 ? "s" : ""} actif{today.totalEmployees > 1 ? "s" : ""}.
               </span>
             )}
             {hasData && isNonWorkingDay && (
@@ -202,12 +202,12 @@ export default function DashboardClient({ userName }: { userName: string }) {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <KpiCard icon={UserCheck} label="Presents" value={today.present} color="emerald"
+        <KpiCard icon={UserCheck} label="Présents" value={today.present} color="emerald"
           sub={!isNonWorkingDay && today.totalEmployees > 0 ? `${Math.round((today.present / today.totalEmployees) * 100)}%` : undefined} />
         <KpiCard icon={UserX} label="Absents" value={today.absent} color="red"
-          sub={today.absent > 0 ? `${today.absent} non justifie${today.absent > 1 ? "s" : ""}` : undefined} />
+          sub={today.absent > 0 ? `${today.absent} non justifié${today.absent > 1 ? "s" : ""}` : undefined} />
         <KpiCard icon={Clock} label="Retards" value={today.late} color="amber"
-          sub={today.present > 0 ? `${Math.round((today.late / today.present) * 100)}% des presents` : undefined} />
+          sub={today.present > 0 ? `${Math.round((today.late / today.present) * 100)}% des présents` : undefined} />
         <KpiCard icon={Briefcase} label="Missions" value={today.missionOngoing ?? today.mission} color="purple" sub={(today.missionOngoing ?? today.mission) > 0 ? "en cours" : undefined} />
         <KpiCard icon={Shield} label="Autorisations d'absence" value={today.permissionOngoing ?? today.permission} color="blue" sub={(today.permissionOngoing ?? today.permission) > 0 ? "en cours" : undefined} />
       </div>
@@ -217,7 +217,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
         <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-5">
           <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
-            A surveiller aujourd&apos;hui
+            À surveiller aujourd&apos;hui
           </h3>
           <div className="flex flex-wrap gap-2">
             {today.late > 0 && (
@@ -237,10 +237,10 @@ export default function DashboardClient({ userName }: { userName: string }) {
       {!hasData && (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center">
           <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-          <p className="text-base font-semibold text-slate-700">Aucune donnee disponible</p>
-          <p className="mt-2 text-sm text-slate-500">Les statistiques s&apos;afficheront apres les premiers pointages.</p>
+          <p className="text-base font-semibold text-slate-700">Aucune donnée disponible</p>
+          <p className="mt-2 text-sm text-slate-500">Les statistiques s&apos;afficheront après les premiers pointages.</p>
           <Link href="/employees" className="mt-4 inline-flex items-center gap-2 h-9 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
-            <Plus className="h-4 w-4" /> Ajouter un employe
+            <Plus className="h-4 w-4" /> Ajouter un employé
           </Link>
         </div>
       )}
@@ -250,7 +250,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-base font-semibold text-slate-900 mb-4">
-              Tendance de presence — 30 jours
+              Tendance de présence — 30 jours
             </h3>
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={data?.trend30 ?? []}>
@@ -258,7 +258,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Line type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} name="Presents" dot={false} />
+                <Line type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} name="Présents" dot={false} />
                 <Line type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2} name="Absents" dot={false} />
                 <Line type="monotone" dataKey="late" stroke="#f59e0b" strokeWidth={2} name="Retards" dot={false} />
               </LineChart>
@@ -266,7 +266,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-base font-semibold text-slate-900 mb-4">
-              Repartition du jour
+              Répartition du jour
             </h3>
             {pieData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -282,7 +282,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
               </ResponsiveContainer>
             ) : (
               <p className="text-sm text-slate-400 text-center py-16">
-                {isNonWorkingDay ? "Pas de pointage (jour non ouvré)" : "Aucune donnee"}
+                {isNonWorkingDay ? "Pas de pointage (jour non ouvré)" : "Aucune donnée"}
               </p>
             )}
           </div>
@@ -322,11 +322,11 @@ export default function DashboardClient({ userName }: { userName: string }) {
                   )}>
                     {struct}
                   </span>
-                  <span className="text-xs text-slate-400">{stats.total} employes</span>
+                  <span className="text-xs text-slate-400">{stats.total} employés</span>
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Presents</span>
+                    <span className="text-slate-500">Présents</span>
                     <span className="font-semibold text-emerald-600">{stats.present}</span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -344,7 +344,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
                     />
                   </div>
                   <p className="text-xs text-slate-400 text-right">
-                    {stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}% de presence
+                    {stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}% de présence
                   </p>
                 </div>
               </div>
@@ -404,9 +404,9 @@ export default function DashboardClient({ userName }: { userName: string }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-t border-slate-100">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employe</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employé</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Structure</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Arrivee</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Arrivée</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
                 </tr>
               </thead>
@@ -437,7 +437,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
                         "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
                         r.checkInStatus === "ON_TIME" ? "bg-emerald-50 text-emerald-700" : r.checkInStatus === "LATE" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"
                       )}>
-                        {r.checkInStatus === "ON_TIME" ? "A l'heure" : r.checkInStatus === "LATE" ? "Retard" : r.finalStatus}
+                        {r.checkInStatus === "ON_TIME" ? "À l'heure" : r.checkInStatus === "LATE" ? "Retard" : r.finalStatus}
                       </span>
                     </td>
                   </tr>

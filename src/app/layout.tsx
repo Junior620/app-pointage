@@ -13,8 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pointage RH - Système de gestion des présences",
+  title: {
+    default: "Pointage RH",
+    template: "%s · Pointage RH",
+  },
   description: "Système de pointage horaire avec chatbot WhatsApp et portail Web RH/DG",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({

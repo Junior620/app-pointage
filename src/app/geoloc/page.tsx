@@ -37,6 +37,7 @@ function GeolocForm() {
   const [lateSent, setLateSent] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [earlyConfirm, setEarlyConfirm] = useState<{ message: string; scheduledEnd?: string } | null>(null);
+  const [cancelled, setCancelled] = useState(false);
 
   const hasStartedRef = useRef(false);
   const hasSubmittedRef = useRef(false);
@@ -101,6 +102,7 @@ function GeolocForm() {
     setResult(null);
     setPendingCoords(null);
     setEarlyConfirm(null);
+    setCancelled(false);
     hasSubmittedRef.current = false;
 
     if (!navigator.geolocation) {
@@ -156,7 +158,7 @@ function GeolocForm() {
       const res = await fetch("/api/geoloc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, action: "LATE_REASON", comment: trimmed }),
+        body: JSON.stringify({ phone, action: "LATE_REASON", comment: trimmed, exp, sig }),
       });
       const json = await res.json();
       const data = json.data ?? json;
@@ -298,11 +300,28 @@ function GeolocForm() {
               onClick={() => {
                 setPendingCoords(null);
                 setEarlyConfirm(null);
-                hasStartedRef.current = false;
+                setCancelled(true);
               }}
               className="w-full py-2 text-sm text-slate-500"
             >
               Annuler
+            </button>
+          </div>
+        )}
+
+        {cancelled && !busy && (
+          <div className="text-center py-4 space-y-4">
+            <p className="text-sm text-slate-600">
+              Départ non enregistré. Vous pourrez pointer votre départ plus tard avec le même lien
+              (valable 15 minutes) ou en renvoyant <strong>2</strong> sur WhatsApp.
+            </p>
+            <button
+              type="button"
+              onClick={() => requestGeolocation()}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-medium"
+            >
+              <Navigation className="w-4 h-4" />
+              Relancer le pointage
             </button>
           </div>
         )}

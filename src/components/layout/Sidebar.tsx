@@ -4,40 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import {
-  LayoutDashboard,
-  Users,
-  ClipboardCheck,
-  CalendarOff,
-  MapPin,
-  Settings,
-  FileBarChart,
-  LogOut,
-  Menu,
-  X,
-  Clock,
-  Coffee,
-  UserCog,
-} from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const navLinks: {
-  href: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  adminOnly?: boolean;
-}[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/users", label: "Utilisateurs", icon: UserCog, adminOnly: true },
-  { href: "/employees", label: "Employés", icon: Users },
-  { href: "/attendance", label: "Pointages", icon: ClipboardCheck },
-  { href: "/breaks", label: "Pauses", icon: Coffee },
-  { href: "/overtime", label: "Heures sup", icon: Clock },
-  { href: "/leaves", label: "Autorisations d'absence", icon: CalendarOff },
-  { href: "/missions", label: "Missions", icon: MapPin },
-  { href: "/settings", label: "Paramètres", icon: Settings },
-  { href: "/reports", label: "Rapports", icon: FileBarChart },
-];
+import { NAV_LINKS, isNavLinkActive, roleLabel } from "@/lib/navigation";
 
 interface SidebarProps {
   userName: string;
@@ -59,10 +28,7 @@ export default function Sidebar({ userName, userRole, userEmail }: SidebarProps)
     router.refresh();
   };
 
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string) => isNavLinkActive(pathname, href);
 
   const sidebarContent = (
     <div className="flex flex-col h-full">
@@ -79,7 +45,7 @@ export default function Sidebar({ userName, userRole, userEmail }: SidebarProps)
       </div>
 
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {navLinks
+        {NAV_LINKS
           .filter((link) => !link.adminOnly || userRole === "ADMIN") // menu Utilisateurs : ADMIN uniquement
           .map((link) => {
           const Icon = link.icon;
@@ -110,7 +76,7 @@ export default function Sidebar({ userName, userRole, userEmail }: SidebarProps)
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white truncate">{userName}</p>
-            <p className="text-xs text-slate-400 truncate">{userRole}</p>
+            <p className="text-xs text-slate-400 truncate">{roleLabel(userRole)}</p>
           </div>
         </div>
         <button

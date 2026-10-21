@@ -55,16 +55,20 @@ export async function POST(request: NextRequest) {
 
     const { phone, action, comment, confirmEarlyCheckout } = parsed.data;
 
-    if (action !== "LATE_REASON") {
-      const link = verifyGeolocLink({
-        phone,
-        action,
-        exp: parsed.data.exp,
-        sig: parsed.data.sig,
-      });
-      if (!link.ok) {
-        return NextResponse.json({ error: link.message }, { status: 400 });
-      }
+    // Le motif de retard est envoyé depuis la page ouverte par le lien d'arrivée :
+    // on exige la signature de ce lien, sinon n'importe qui connaissant le numéro pourrait l'écrire.
+    const link = verifyGeolocLink({
+      phone,
+      action: action === "LATE_REASON" ? "CHECK_IN" : action,
+      exp: parsed.data.exp,
+      sig: parsed.data.sig,
+    });
+    if (!link.ok) {
+      const message =
+        action === "LATE_REASON"
+          ? "Ce lien a expiré. Envoyez le motif de votre retard directement sur WhatsApp."
+          : link.message;
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     const employee = await findEmployeeByWhatsappPhone(phone);

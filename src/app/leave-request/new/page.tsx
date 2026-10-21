@@ -3,8 +3,7 @@ import type { Metadata } from "next";
 import LeaveRequestNewForm from "./LeaveRequestNewForm";
 
 export const metadata: Metadata = {
-  title: "Demande d'autorisation d'absence | Pointage RH",
-  robots: "noindex, nofollow",
+  title: "Demande d'autorisation d'absence",
 };
 
 export default function LeaveRequestNewPage() {

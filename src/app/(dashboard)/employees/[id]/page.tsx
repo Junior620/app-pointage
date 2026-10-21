@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -49,6 +50,19 @@ function finalStatusLabel(status: string): string {
     default:
       return status;
   }
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const employee = await prisma.employee.findUnique({
+    where: { id },
+    select: { firstName: true, lastName: true },
+  });
+  return { title: employee ? `${employee.firstName} ${employee.lastName}` : "Employé" };
 }
 
 export default async function EmployeeDetailPage({

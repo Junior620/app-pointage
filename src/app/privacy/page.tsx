@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Politique de confidentialité | Pointage RH",
+  title: "Politique de confidentialité",
+  robots: { index: true, follow: true },
   description:
     "Politique de confidentialité de Pointage RH : données collectées, finalités, conservation et droits des utilisateurs.",
 };
@@ -17,10 +18,10 @@ export default function PrivacyPage() {
           <header className="mb-8 border-b border-slate-100 pb-6">
             <p className="text-sm font-medium text-blue-700">Pointage RH</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
-              Politique de confidentialite
+              Politique de confidentialité
             </h1>
             <p className="mt-3 text-sm text-slate-500">
-              Derniere mise a jour : {updatedAt}
+              Dernière mise à jour : {updatedAt}
             </p>
           </header>
 
@@ -30,71 +31,71 @@ export default function PrivacyPage() {
                 1. Objet
               </h2>
               <p className="mt-2">
-                La presente politique de confidentialite explique comment
+                La présente politique de confidentialité explique comment
                 l&apos;application Pointage RH collecte, utilise, conserve et
-                protege les donnees personnelles des utilisateurs (employes,
+                protège les données personnelles des utilisateurs (employés,
                 responsables RH, administrateurs et direction).
               </p>
             </section>
 
             <section>
               <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
-                2. Donnees collectees
+                2. Données collectées
               </h2>
-              <p className="mt-2">Selon votre role, nous pouvons traiter :</p>
+              <p className="mt-2">Selon votre rôle, nous pouvons traiter :</p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>
-                  Donnees d&apos;identification : nom, prenom, matricule,
-                  service, structure, role.
+                  Données d&apos;identification : nom, prénom, matricule,
+                  service, structure, rôle.
                 </li>
                 <li>
-                  Coordonnees professionnelles : numero WhatsApp, e-mail de
+                  Coordonnées professionnelles : numéro WhatsApp, e-mail de
                   connexion.
                 </li>
                 <li>
-                  Donnees de pointage : heures d&apos;arrivee/depart, statuts
-                  (present, absent, retard, mission, autorisation
+                  Données de pointage : heures d&apos;arrivée/départ, statuts
+                  (présent, absent, retard, mission, autorisation
                   d&apos;absence), commentaires.
                 </li>
                 <li>
-                  Donnees de geolocalisation : position GPS associee aux
-                  pointages (arrivee/depart) et distance au site de reference.
+                  Données de géolocalisation : position GPS associée aux
+                  pointages (arrivée/départ) et distance au site de référence.
                 </li>
                 <li>
-                  Donnees RH : demandes d&apos;autorisations d&apos;absence,
+                  Données RH : demandes d&apos;autorisations d&apos;absence,
                   missions, heures
-                  supplementaires, validations/refus, date et motif de depart
-                  (demission, fin de contrat, licenciement, abandon) le cas
-                  echeant.
+                  supplémentaires, validations/refus, date et motif de départ
+                  (démission, fin de contrat, licenciement, abandon) le cas
+                  échéant.
                 </li>
                 <li>
                   Journaux techniques et d&apos;audit : historique des actions,
-                  traces de securite et de fonctionnement.
+                  traces de sécurité et de fonctionnement.
                 </li>
               </ul>
             </section>
 
             <section>
               <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
-                3. Finalites du traitement
+                3. Finalités du traitement
               </h2>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>
-                  Gerer la presence et la ponctualite des employes.
+                  Gérer la présence et la ponctualité des employés.
                 </li>
                 <li>
-                  Gerer les workflows RH (autorisations d&apos;absence, missions,
+                  Gérer les workflows RH (autorisations d&apos;absence, missions,
                   heures
-                  supplementaires).
+                  supplémentaires).
                 </li>
                 <li>
-                  Envoyer des notifications operationnelles via WhatsApp.
+                  Envoyer des notifications opérationnelles via WhatsApp.
                 </li>
                 <li>
                   Produire des tableaux de bord, statistiques et rapports RH.
                 </li>
                 <li>
-                  Assurer la securite, la tracabilite et la prevention de
+                  Assurer la sécurité, la traçabilité et la prévention de
                   fraude.
                 </li>
               </ul>
@@ -102,24 +103,24 @@ export default function PrivacyPage() {
 
             <section>
               <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
-                4. Base legale
+                4. Base légale
               </h2>
               <p className="mt-2">
-                Les traitements sont realises pour l&apos;execution de la relation
-                de travail, l&apos;interet legitime de l&apos;entreprise
-                (organisation, securite, prevention des abus), et le respect des
-                obligations legales et sociales applicables.
+                Les traitements sont réalisés pour l&apos;exécution de la relation
+                de travail, l&apos;intérêt légitime de l&apos;entreprise
+                (organisation, sécurité, prévention des abus), et le respect des
+                obligations légales et sociales applicables.
               </p>
             </section>
 
             <section>
               <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
-                5. Partage des donnees
+                5. Partage des données
               </h2>
               <p className="mt-2">
-                Les donnees sont accessibles uniquement aux personnes habilitees
+                Les données sont accessibles uniquement aux personnes habilitées
                 (RH, administration, direction et responsables autorises), ainsi
-                qu&apos;aux prestataires techniques necessaires au fonctionnement du
+                qu&apos;aux prestataires techniques nécessaires au fonctionnement du
                 service (hebergement, authentification, messagerie WhatsApp),
                 dans la limite de leurs missions.
               </p>
@@ -127,24 +128,24 @@ export default function PrivacyPage() {
 
             <section>
               <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
-                6. Duree de conservation
+                6. Durée de conservation
               </h2>
               <p className="mt-2">
-                Les donnees sont conservees pendant la duree necessaire aux
-                finalites de gestion RH, puis archivees ou supprimees selon les
-                obligations legales, comptables, sociales et les politiques
+                Les données sont conservées pendant la durée nécessaire aux
+                finalités de gestion RH, puis archivées ou supprimées selon les
+                obligations légales, comptables, sociales et les politiques
                 internes de conservation.
               </p>
             </section>
 
             <section>
               <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
-                7. Securite
+                7. Sécurité
               </h2>
               <p className="mt-2">
                 Nous mettons en place des mesures techniques et organisationnelles
-                raisonnables pour proteger les donnees : controle d&apos;acces,
-                journalisation, segmentation des roles, protection des secrets,
+                raisonnables pour protéger les données : contrôle d&apos;accès,
+                journalisation, segmentation des rôles, protection des secrets,
                 supervision et sauvegardes.
               </p>
             </section>
@@ -154,9 +155,9 @@ export default function PrivacyPage() {
                 8. Vos droits
               </h2>
               <p className="mt-2">
-                Vous pouvez, selon la reglementation applicable, demander
-                l&apos;acces, la rectification, la limitation ou l&apos;opposition au
-                traitement de vos donnees, ainsi que toute clarification sur leur
+                Vous pouvez, selon la réglementation applicable, demander
+                l&apos;accès, la rectification, la limitation ou l&apos;opposition au
+                traitement de vos données, ainsi que toute clarification sur leur
                 usage.
               </p>
             </section>
@@ -166,8 +167,8 @@ export default function PrivacyPage() {
                 9. Contact
               </h2>
               <p className="mt-2">
-                Pour toute question relative a la confidentialite ou a vos
-                donnees personnelles, contactez votre service RH ou
+                Pour toute question relative à la confidentialité ou à vos
+                données personnelles, contactez votre service RH ou
                 l&apos;administrateur de l&apos;application.
               </p>
             </section>
@@ -178,7 +179,7 @@ export default function PrivacyPage() {
               href="/login"
               className="inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
-              Retour a la connexion
+              Retour à la connexion
             </Link>
           </footer>
         </div>
