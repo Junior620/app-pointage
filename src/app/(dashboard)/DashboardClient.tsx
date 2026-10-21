@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   UserCheck,
@@ -16,6 +16,10 @@ import {
   RefreshCw,
   Landmark,
   Coffee,
+  CalendarOff,
+  MapPin,
+  CheckCircle2,
+  type LucideIcon,
 } from "lucide-react";
 import {
   LineChart,
@@ -33,6 +37,18 @@ import {
   Legend,
 } from "recharts";
 import { cn, formatTime } from "@/lib/utils";
+import { CHART_COLORS, CHART_TOOLTIP_STYLE } from "@/lib/chart-colors";
+import { STRUCTURE_BRANDS, isStructureCode } from "@/lib/brand";
+import { useNavCounts } from "@/lib/use-nav-counts";
+import { Card, CardHeader } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Field";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState, Skeleton } from "@/components/ui/EmptyState";
+import { StatusBadge, StructureBadge } from "@/components/ui/StatusBadge";
+import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
+import StructureLogo from "@/components/brand/StructureLogo";
 
 interface DashboardData {
   today: {
@@ -79,490 +95,572 @@ interface DashboardData {
   };
 }
 
-const PIE_COLORS = ["#10b981", "#ef4444", "#f59e0b", "#8b5cf6", "#3b82f6"];
+/** Rechargement automatique au retour sur l'onglet, au plus une fois par minute. */
+const FOCUS_REFRESH_MS = 60 * 1000;
+
+const EMPTY_TODAY: DashboardData["today"] = {
+  totalEmployees: 0,
+  present: 0,
+  absent: 0,
+  late: 0,
+  mission: 0,
+  permission: 0,
+  missionOngoing: 0,
+  permissionOngoing: 0,
+  isNonWorkingDay: false,
+};
+
+function plural(n: number, singular: string, pluralForm = `${singular}s`) {
+  return n > 1 ? pluralForm : singular;
+}
+
+function formatMinutes(min: number) {
+  return `${Math.floor(min / 60)}h${(min % 60).toString().padStart(2, "0")}`;
+}
+
+function pct(part: number, whole: number) {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
+}
 
 export default function DashboardClient({ userName }: { userName: string }) {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [structureFilter, setStructureFilter] = useState("");
+  const [tick, setTick] = useState(0);
+  const requestKey = `${structureFilter}|${tick}`;
+  const [result, setResult] = useState<{ key: string; data: DashboardData | null; error: boolean } | null>(null);
+  const lastLoadRef = useRef(0);
+  const counts = useNavCounts();
 
-  const fetchDashboard = useCallback(() => {
-    setLoading(true);
+  useEffect(() => {
+    let cancelled = false;
     const params = structureFilter ? `?structure=${structureFilter}` : "";
-    fetch(`/api/dashboard${params}`)
-      .then((r) => r.json())
-      .then((json) => setData(json))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [structureFilter]);
+    lastLoadRef.current = Date.now();
+    fetch(`/api/dashboard${params}`, { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return (await r.json()) as DashboardData;
+      })
+      .then((json) => {
+        if (!cancelled) setResult({ key: requestKey, data: json, error: false });
+      })
+      .catch(() => {
+        if (!cancelled) setResult((prev) => ({ key: requestKey, data: prev?.data ?? null, error: true }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestKey, structureFilter]);
 
   useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
-
-  useEffect(() => {
-    const onFocus = () => fetchDashboard();
+    const onFocus = () => {
+      if (Date.now() - lastLoadRef.current > FOCUS_REFRESH_MS) setTick((t) => t + 1);
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [fetchDashboard]);
+  }, []);
 
-  const today = data?.today ?? { totalEmployees: 0, present: 0, absent: 0, late: 0, mission: 0, permission: 0, missionOngoing: 0, permissionOngoing: 0, isNonWorkingDay: false };
+  const data = result?.data ?? null;
+  const loading = result?.key !== requestKey;
+  const refresh = () => setTick((t) => t + 1);
+
+  const today = data?.today ?? EMPTY_TODAY;
   const hasData = today.totalEmployees > 0;
   const isNonWorkingDay = today.isNonWorkingDay ?? false;
+  const missionsNow = today.missionOngoing ?? today.mission;
+  const permissionsNow = today.permissionOngoing ?? today.permission;
+  const firstName = userName.trim().split(/\s+/)[0] || userName;
 
-  const pieData = isNonWorkingDay
-    ? []
-    : [
-        { name: "Présents", value: today.present },
-        { name: "Absents", value: today.absent },
-        { name: "Retards", value: today.late },
-        { name: "Missions (en cours)", value: today.missionOngoing ?? today.mission },
-        { name: "Autorisations d'absence (en cours)", value: today.permissionOngoing ?? today.permission },
-      ].filter((d) => d.value > 0);
-
-  const structureBarData = data?.byStructure
-    ? Object.entries(data.byStructure).map(([struct, stats]) => ({
-        name: struct,
-        Présents: stats.present,
-        Absents: stats.absent,
-        Retards: stats.late,
-      }))
-    : [];
-
-  if (loading && !data) {
+  if (!data && loading) {
     return (
       <div className="space-y-6">
-        <div className="h-20 bg-white rounded-2xl border border-slate-200 animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <Skeleton className="h-16 w-72" />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-[120px] bg-white rounded-2xl border border-slate-200 animate-pulse" />
+            <Skeleton key={i} className="h-[104px] rounded-2xl" />
           ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Skeleton className="h-80 rounded-2xl lg:col-span-2" />
+          <Skeleton className="h-80 rounded-2xl" />
         </div>
       </div>
     );
   }
 
+  if (!data && result?.error) {
+    return (
+      <Card>
+        <EmptyState
+          icon={AlertTriangle}
+          title="Impossible de charger le tableau de bord"
+          description="Le serveur n'a pas répondu. Vérifiez votre connexion puis réessayez."
+          action={
+            <Button onClick={refresh} icon={<RefreshCw className="h-4 w-4" />}>
+              Réessayer
+            </Button>
+          }
+        />
+      </Card>
+    );
+  }
+
+  const pieData = isNonWorkingDay
+    ? []
+    : [
+        { name: "Présents", value: today.present, color: CHART_COLORS.present },
+        { name: "Absents", value: today.absent, color: CHART_COLORS.absent },
+        { name: "Retards", value: today.late, color: CHART_COLORS.late },
+        { name: "Missions", value: missionsNow, color: CHART_COLORS.mission },
+        { name: "Autorisations", value: permissionsNow, color: CHART_COLORS.permission },
+      ].filter((d) => d.value > 0);
+
+  const structureBarData = Object.entries(data?.byStructure ?? {}).map(([struct, stats]) => ({
+    name: struct,
+    Présents: stats.present,
+    Absents: stats.absent,
+    Retards: stats.late,
+  }));
+
+  const todo = [
+    { key: "overtime", label: "Heures sup à valider", count: counts?.overtime ?? 0, href: "/overtime?status=PENDING", icon: Clock },
+    { key: "leaves", label: "Autorisations en attente", count: counts?.leaves ?? 0, href: "/leaves?status=PENDING", icon: CalendarOff },
+    { key: "missions", label: "Missions en attente", count: counts?.missions ?? 0, href: "/missions?status=PENDING", icon: MapPin },
+    { key: "breaks", label: "Retours de pause manquants", count: data?.breaks?.missingReturn ?? 0, href: "/breaks", icon: Coffee },
+  ];
+  const todoTotal = todo.reduce((n, t) => n + t.count, 0);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            Bonjour, {userName}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
+      <PageHeader
+        title={`Bonjour, ${firstName}`}
+        description={
+          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
             Aperçu des présences et anomalies du jour.
-            {today.totalEmployees > 0 && (
-              <span className="ml-1 font-medium text-slate-700">
-                {today.totalEmployees} employé{today.totalEmployees > 1 ? "s" : ""} actif{today.totalEmployees > 1 ? "s" : ""}.
+            {hasData && (
+              <span className="font-medium text-slate-700">
+                {today.totalEmployees} {plural(today.totalEmployees, "employé actif", "employés actifs")}.
               </span>
             )}
-            {hasData && isNonWorkingDay && (
-              <span className="ml-1 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                Samedi / Dimanche — pas de pointage
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <select
-            value={structureFilter}
-            onChange={(e) => setStructureFilter(e.target.value)}
-            className="h-10 px-3 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Toutes structures</option>
-            <option value="SCPB">SCPB</option>
-            <option value="AFREXIA">AFREXIA</option>
-          </select>
-          <button
-            onClick={fetchDashboard}
-            className="h-10 w-10 rounded-xl border border-slate-300 bg-white flex items-center justify-center text-slate-500 hover:bg-slate-50 transition-colors"
-            title="Actualiser"
-          >
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          </button>
-          <Link
-            href="/reports"
-            className="inline-flex items-center gap-2 h-10 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-          >
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Rapports</span>
-          </Link>
-        </div>
-      </div>
+          </span>
+        }
+        actions={
+          <>
+            <Select
+              value={structureFilter}
+              onChange={(e) => setStructureFilter(e.target.value)}
+              className="w-auto min-w-[170px]"
+              aria-label="Filtrer par structure"
+            >
+              <option value="">Toutes structures</option>
+              <option value="SCPB">SCPB</option>
+              <option value="AFREXIA">AFREXIA</option>
+            </Select>
+            <Button variant="secondary" size="icon" onClick={refresh} aria-label="Actualiser" title="Actualiser">
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+            <ButtonLink href="/reports" icon={<FileText className="h-4 w-4" />}>
+              <span className="hidden sm:inline">Rapports</span>
+            </ButtonLink>
+          </>
+        }
+      />
 
-      {/* Jour non ouvré : message clair */}
+      {result?.error && data && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span>Actualisation impossible : les chiffres affichés peuvent dater.</span>
+          <Button size="sm" variant="secondary" onClick={refresh}>
+            Réessayer
+          </Button>
+        </div>
+      )}
+
       {hasData && isNonWorkingDay && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
-          <p className="text-sm font-medium text-slate-700">
-            Jour non ouvré (samedi ou dimanche) — pas de planning « jour de semaine ». Le pointage reste possible pour un travail volontaire (heures sup. au départ) ; les indicateurs ci-dessous ne comptent pas d&apos;absences pour cette journée.
-          </p>
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+          <span className="font-semibold text-slate-800">Week-end.</span> Le pointage reste possible pour un travail
+          volontaire (compté en heures sup au départ). Aucune absence n&apos;est comptée aujourd&apos;hui.
         </div>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <KpiCard icon={UserCheck} label="Présents" value={today.present} color="emerald"
-          sub={!isNonWorkingDay && today.totalEmployees > 0 ? `${Math.round((today.present / today.totalEmployees) * 100)}%` : undefined} />
-        <KpiCard icon={UserX} label="Absents" value={today.absent} color="red"
-          sub={today.absent > 0 ? `${today.absent} non justifié${today.absent > 1 ? "s" : ""}` : undefined} />
-        <KpiCard icon={Clock} label="Retards" value={today.late} color="amber"
-          sub={today.present > 0 ? `${Math.round((today.late / today.present) * 100)}% des présents` : undefined} />
-        <KpiCard icon={Briefcase} label="Missions" value={today.missionOngoing ?? today.mission} color="purple" sub={(today.missionOngoing ?? today.mission) > 0 ? "en cours" : undefined} />
-        <KpiCard icon={Shield} label="Autorisations d'absence" value={today.permissionOngoing ?? today.permission} color="blue" sub={(today.permissionOngoing ?? today.permission) > 0 ? "en cours" : undefined} />
+      {/* Indicateurs du jour */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+        <KpiCard
+          icon={UserCheck}
+          label="Présents"
+          value={today.present}
+          tone="success"
+          href="/attendance?status=PRESENT"
+          sub={!isNonWorkingDay && hasData ? `${pct(today.present, today.totalEmployees)} % de l'effectif` : undefined}
+        />
+        <KpiCard
+          icon={UserX}
+          label="Absents"
+          value={today.absent}
+          tone="danger"
+          href="/attendance?status=ABSENT"
+          sub={isNonWorkingDay ? "Non compté le week-end" : undefined}
+        />
+        <KpiCard
+          icon={Clock}
+          label="Retards"
+          value={today.late}
+          tone="warning"
+          href="/attendance"
+          sub={!isNonWorkingDay && today.present > 0 ? `${pct(today.late, today.present)} % des présents` : undefined}
+        />
+        <KpiCard icon={Briefcase} label="En mission" value={missionsNow} tone="violet" href="/missions" />
+        <KpiCard icon={Shield} label="En autorisation" value={permissionsNow} tone="info" href="/leaves" />
       </div>
 
-      {/* Alerts */}
-      {hasData && (today.late > 0 || today.absent > 0) && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/30 p-5">
-          <h3 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            À surveiller aujourd&apos;hui
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {today.late > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50">
-                <Clock className="h-3.5 w-3.5" /> {today.late} retard{today.late > 1 ? "s" : ""}
-              </span>
-            )}
-            {today.absent > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50">
-                <UserX className="h-3.5 w-3.5" /> {today.absent} absence{today.absent > 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
+      {/* À traiter */}
+      <Card>
+        <CardHeader
+          title="À traiter"
+          description={
+            todoTotal > 0
+              ? `${todoTotal} ${plural(todoTotal, "élément attend", "éléments attendent")} une action de votre part.`
+              : "Rien en attente pour le moment."
+          }
+          icon={todoTotal > 0 ? <AlertTriangle className="h-5 w-5 text-amber-500" /> : <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+        />
+        <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+          {todo.map((t) => {
+            const Icon = t.icon;
+            const active = t.count > 0;
+            return (
+              <Link
+                key={t.key}
+                href={t.href}
+                className={cn(
+                  "group flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+                  active
+                    ? "border-amber-200 bg-amber-50/60 hover:bg-amber-50"
+                    : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                    active ? "bg-amber-100 text-amber-700" : "bg-white text-slate-400"
+                  )}
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={cn("block text-xl font-bold tabular-nums", active ? "text-slate-900" : "text-slate-400")}>
+                    {counts || t.key === "breaks" ? t.count : "–"}
+                  </span>
+                  <span className="block truncate text-xs font-medium text-slate-600">{t.label}</span>
+                </span>
+                <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-500" />
+              </Link>
+            );
+          })}
         </div>
-      )}
+      </Card>
 
       {!hasData && (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center">
-          <Users className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-          <p className="text-base font-semibold text-slate-700">Aucune donnée disponible</p>
-          <p className="mt-2 text-sm text-slate-500">Les statistiques s&apos;afficheront après les premiers pointages.</p>
-          <Link href="/employees" className="mt-4 inline-flex items-center gap-2 h-9 rounded-xl px-4 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
-            <Plus className="h-4 w-4" /> Ajouter un employé
-          </Link>
-        </div>
+        <Card>
+          <EmptyState
+            icon={Users}
+            title="Aucune donnée disponible"
+            description="Les statistiques s'afficheront après les premiers pointages."
+            action={
+              <ButtonLink href="/employees" icon={<Plus className="h-4 w-4" />}>
+                Ajouter un employé
+              </ButtonLink>
+            }
+          />
+        </Card>
       )}
 
-      {/* Charts: Trend line + Pie */}
+      {/* Tendance + répartition */}
       {hasData && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900 mb-4">
-              Tendance de présence — 30 jours
-            </h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={data?.trend30 ?? []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} name="Présents" dot={false} />
-                <Line type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2} name="Absents" dot={false} />
-                <Line type="monotone" dataKey="late" stroke="#f59e0b" strokeWidth={2} name="Retards" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900 mb-4">
-              Répartition du jour
-            </h3>
-            {pieData.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader title="Tendance de présence" description="30 derniers jours" />
+            <div className="px-2 pb-4 pt-2 sm:px-4">
               <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} dataKey="value" label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
+                <LineChart data={data?.trend30 ?? []} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} minTickGap={16} />
+                  <YAxis tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="present" stroke={CHART_COLORS.present} strokeWidth={2} name="Présents" dot={false} />
+                  <Line type="monotone" dataKey="absent" stroke={CHART_COLORS.absent} strokeWidth={2} name="Absents" dot={false} />
+                  <Line type="monotone" dataKey="late" stroke={CHART_COLORS.late} strokeWidth={2} name="Retards" dot={false} />
+                </LineChart>
               </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-slate-400 text-center py-16">
-                {isNonWorkingDay ? "Pas de pointage (jour non ouvré)" : "Aucune donnée"}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          </Card>
 
-      {/* Structure comparison */}
-      {hasData && structureBarData.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900 mb-4 flex items-center gap-2">
-              <Landmark className="h-4 w-4 text-slate-500" />
-              Comparaison par structure
-            </h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={structureBarData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="Présents" fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Absents" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Retards" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Structure KPIs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {Object.entries(data?.byStructure ?? {}).map(([struct, stats]) => (
-              <div key={struct} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={cn(
-                    "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                    struct === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
-                  )}>
-                    {struct}
-                  </span>
-                  <span className="text-xs text-slate-400">{stats.total} employés</span>
+          <Card>
+            <CardHeader title="Répartition du jour" />
+            {pieData.length > 0 ? (
+              <div className="flex flex-col items-center gap-4 px-5 pb-5 pt-2 sm:px-6">
+                <div className="relative h-[190px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieData} dataKey="value" innerRadius={58} outerRadius={86} paddingAngle={2} stroke="none">
+                        {pieData.map((d) => (
+                          <Cell key={d.name} fill={d.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-2xl font-bold tabular-nums text-slate-900">
+                      {pct(today.present, today.totalEmployees)} %
+                    </span>
+                    <span className="text-xs text-slate-500">de présence</span>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Présents</span>
-                    <span className="font-semibold text-emerald-600">{stats.present}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Absents</span>
-                    <span className="font-semibold text-red-600">{stats.absent}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Retards</span>
-                    <span className="font-semibold text-amber-600">{stats.late}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
-                    <div
-                      className="bg-emerald-500 h-2 rounded-full"
-                      style={{ width: `${stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-400 text-right">
-                    {stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}% de présence
-                  </p>
-                </div>
+                <ul className="grid w-full grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                  {pieData.map((d) => (
+                    <li key={d.name} className="flex items-center gap-2 text-slate-600">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                      <span className="truncate">{d.name}</span>
+                      <span className="ml-auto font-semibold tabular-nums text-slate-900">{d.value}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ))}
+            ) : (
+              <EmptyState title={isNonWorkingDay ? "Pas de pointage (week-end)" : "Aucune donnée"} />
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* Comparaison des structures */}
+      {hasData && structureBarData.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader title="Comparaison par structure" icon={<Landmark className="h-5 w-5 text-slate-400" />} />
+            <div className="px-2 pb-4 pt-2 sm:px-4">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={structureBarData} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: CHART_COLORS.axis }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: "#f1f5f9" }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Présents" fill={CHART_COLORS.present} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Absents" fill={CHART_COLORS.absent} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Retards" fill={CHART_COLORS.late} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {Object.entries(data?.byStructure ?? {}).map(([struct, stats]) => {
+              const rate = pct(stats.present, stats.total);
+              const brand = isStructureCode(struct) ? STRUCTURE_BRANDS[struct] : null;
+              return (
+                <Card key={struct} className="p-5">
+                  <div className="mb-4 flex items-center justify-between gap-2">
+                    {brand ? <StructureLogo code={brand.code} size="md" /> : <StructureBadge value={struct} />}
+                    <span className="text-xs text-slate-500">
+                      {stats.total} {plural(stats.total, "employé")}
+                    </span>
+                  </div>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Présents</dt>
+                      <dd className="font-semibold tabular-nums text-emerald-600">{stats.present}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Absents</dt>
+                      <dd className="font-semibold tabular-nums text-red-600">{stats.absent}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-slate-500">Retards</dt>
+                      <dd className="font-semibold tabular-nums text-amber-600">{stats.late}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div className={cn("h-full rounded-full", brand?.accentClass ?? "bg-emerald-500")} style={{ width: `${rate}%` }} />
+                  </div>
+                  <p className="mt-1.5 text-right text-xs text-slate-500">{rate} % de présence</p>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Top Retards / Absences */}
+      {/* Classements 30 jours */}
       {hasData && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <TopList
-            title="Top retards (30 jours)"
+            title="Top retards"
             icon={Clock}
             iconColor="text-amber-500"
-            items={(data?.alerts?.topLate ?? []).map((e) => ({
-              name: `${e.firstName ?? ""} ${e.lastName ?? ""}`,
-              initials: `${(e.firstName ?? "?")[0]}${(e.lastName ?? "?")[0]}`,
-              service: e.service ?? "",
-              structure: e.structure ?? "",
-              count: e.count,
-              label: `${e.count} retard${e.count > 1 ? "s" : ""}`,
-              badgeColor: "bg-amber-50 text-amber-700",
-              avatarColor: "bg-amber-100 text-amber-700",
-            }))}
-            emptyText="Aucun retard ce mois"
+            tone="warning"
+            unit={["retard", "retards"]}
+            items={data?.alerts?.topLate ?? []}
+            emptyText="Aucun retard sur 30 jours"
           />
           <TopList
-            title="Top absences (30 jours)"
+            title="Top absences"
             icon={UserX}
             iconColor="text-red-500"
-            items={(data?.alerts?.topAbsent ?? []).map((e) => ({
-              name: `${e.firstName ?? ""} ${e.lastName ?? ""}`,
-              initials: `${(e.firstName ?? "?")[0]}${(e.lastName ?? "?")[0]}`,
-              service: e.service ?? "",
-              structure: e.structure ?? "",
-              count: e.count,
-              label: `${e.count} absence${e.count > 1 ? "s" : ""}`,
-              badgeColor: "bg-red-50 text-red-700",
-              avatarColor: "bg-red-100 text-red-700",
-            }))}
-            emptyText="Aucune absence ce mois"
+            tone="danger"
+            unit={["absence", "absences"]}
+            items={data?.alerts?.topAbsent ?? []}
+            emptyText="Aucune absence sur 30 jours"
           />
         </div>
       )}
 
-      {/* Recent check-ins */}
+      {/* Derniers pointages */}
       {hasData && (data?.recentCheckIns ?? []).length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="p-6 pb-4 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-900">Derniers pointages du jour</h3>
-            <Link href="/attendance" className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
-              Voir tout <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-t border-slate-100">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employé</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Structure</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Arrivée</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.recentCheckIns ?? []).map((r) => (
-                  <tr key={r.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-7 w-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
-                          {r.employee.firstName[0]}{r.employee.lastName[0]}
-                        </div>
-                        <span className="font-medium text-slate-800">{r.employee.firstName} {r.employee.lastName}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className={cn(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                        r.employee.structure === "AFREXIA" ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
-                      )}>
-                        {r.employee.structure}
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Derniers pointages du jour"
+            className="pb-4"
+            actions={
+              <Link href="/attendance" className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700">
+                Voir tout <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            }
+          />
+          <Table>
+            <THead>
+              <tr>
+                <Th>Employé</Th>
+                <Th>Structure</Th>
+                <Th>Arrivée</Th>
+                <Th>Statut</Th>
+              </tr>
+            </THead>
+            <tbody>
+              {(data?.recentCheckIns ?? []).map((r) => (
+                <Tr key={r.id}>
+                  <Td>
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-700">
+                        {r.employee.firstName[0]}
+                        {r.employee.lastName[0]}
                       </span>
-                    </td>
-                    <td className="px-6 py-3 text-slate-600">
-                      {formatTime(r.checkInTime)}
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className={cn(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                        r.checkInStatus === "ON_TIME" ? "bg-emerald-50 text-emerald-700" : r.checkInStatus === "LATE" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"
-                      )}>
-                        {r.checkInStatus === "ON_TIME" ? "À l'heure" : r.checkInStatus === "LATE" ? "Retard" : r.finalStatus}
+                      <span className="font-medium text-slate-800">
+                        {r.employee.firstName} {r.employee.lastName}
                       </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    </div>
+                  </Td>
+                  <Td>
+                    <StructureBadge value={r.employee.structure} />
+                  </Td>
+                  <Td className="tabular-nums">{formatTime(r.checkInTime)}</Td>
+                  <Td>
+                    {r.checkInStatus ? (
+                      <StatusBadge kind="checkIn" value={r.checkInStatus} />
+                    ) : (
+                      <StatusBadge kind="final" value={r.finalStatus} />
+                    )}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
       )}
 
-      {/* Pause tracking */}
+      {/* Pauses */}
       {hasData && (
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="p-6 pb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Coffee className="h-5 w-5 text-amber-600" />
-              <h3 className="text-base font-semibold text-slate-900">Suivi des pauses</h3>
-            </div>
-            <Link href="/breaks" className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
-              Ouvrir la page pauses <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-          <div className="px-6 pb-4 flex flex-wrap gap-2">
-            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-amber-50 text-amber-700">
-              En pause: {data?.breaks?.onBreak ?? 0}
-            </span>
-            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-emerald-50 text-emerald-700">
-              Retours pointés: {data?.breaks?.completed ?? 0}
-            </span>
-            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-red-50 text-red-700">
-              Retours manquants: {data?.breaks?.missingReturn ?? 0}
-            </span>
-            <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-700">
-              Pause moyenne: {Math.floor((data?.breaks?.avgMinutes ?? 0) / 60)}h{((data?.breaks?.avgMinutes ?? 0) % 60).toString().padStart(2, "0")}
-            </span>
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Suivi des pauses"
+            icon={<Coffee className="h-5 w-5 text-amber-600" />}
+            actions={
+              <Link href="/breaks" className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700">
+                Page pauses <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            }
+          />
+          <div className="flex flex-wrap gap-2 px-5 pb-4 pt-3 sm:px-6">
+            <Badge tone="warning">En pause : {data?.breaks?.onBreak ?? 0}</Badge>
+            <Badge tone="success">Retours pointés : {data?.breaks?.completed ?? 0}</Badge>
+            <Badge tone="danger">Retours manquants : {data?.breaks?.missingReturn ?? 0}</Badge>
+            <Badge tone="neutral">Pause moyenne : {formatMinutes(data?.breaks?.avgMinutes ?? 0)}</Badge>
           </div>
           {(data?.breaks?.records ?? []).length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-t border-slate-100">
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Employé</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Début pause</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Retour pause</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Durée</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Statut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.breaks?.records ?? []).map((row) => (
-                    <tr key={row.id} className="border-t border-slate-50 hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-3 font-medium text-slate-800">
-                        {row.employee.firstName} {row.employee.lastName}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {formatTime(row.breakStartTime)}
-                      </td>
-                      <td className="px-6 py-3 text-slate-600">
-                        {formatTime(row.breakEndTime)}
-                      </td>
-                      <td className="px-6 py-3 text-slate-700">
-                        {Math.floor((row.breakMinutes ?? 0) / 60)}h{((row.breakMinutes ?? 0) % 60).toString().padStart(2, "0")}
-                      </td>
-                      <td className="px-6 py-3">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                            row.onBreak
-                              ? "bg-amber-50 text-amber-700"
-                              : row.missingReturn
-                                ? "bg-red-50 text-red-700"
-                                : "bg-emerald-50 text-emerald-700"
-                          )}
-                        >
-                          {row.onBreak ? "En pause" : row.missingReturn ? "Retour manquant" : "Pause clôturée"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <THead>
+                <tr>
+                  <Th>Employé</Th>
+                  <Th>Début</Th>
+                  <Th>Retour</Th>
+                  <Th>Durée</Th>
+                  <Th>Statut</Th>
+                </tr>
+              </THead>
+              <tbody>
+                {(data?.breaks?.records ?? []).map((row) => (
+                  <Tr key={row.id}>
+                    <Td className="font-medium text-slate-800">
+                      {row.employee.firstName} {row.employee.lastName}
+                    </Td>
+                    <Td className="tabular-nums">{formatTime(row.breakStartTime)}</Td>
+                    <Td className="tabular-nums">{formatTime(row.breakEndTime)}</Td>
+                    <Td className="tabular-nums">{formatMinutes(row.breakMinutes ?? 0)}</Td>
+                    <Td>
+                      <Badge tone={row.onBreak ? "warning" : row.missingReturn ? "danger" : "success"} dot>
+                        {row.onBreak ? "En pause" : row.missingReturn ? "Retour manquant" : "Pause clôturée"}
+                      </Badge>
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
           ) : (
-            <p className="px-6 pb-6 text-sm text-slate-500">Aucune pause enregistrée aujourd&apos;hui.</p>
+            <p className="px-5 pb-5 text-sm text-slate-500 sm:px-6">Aucune pause enregistrée aujourd&apos;hui.</p>
           )}
-        </div>
+        </Card>
       )}
     </div>
   );
 }
 
+const KPI_TONES = {
+  success: { icon: "bg-emerald-50 text-emerald-600", value: "text-emerald-700" },
+  danger: { icon: "bg-red-50 text-red-600", value: "text-red-700" },
+  warning: { icon: "bg-amber-50 text-amber-600", value: "text-amber-700" },
+  violet: { icon: "bg-violet-50 text-violet-600", value: "text-violet-700" },
+  info: { icon: "bg-sky-50 text-sky-600", value: "text-sky-700" },
+} as const;
+
 function KpiCard({
   icon: Icon,
   label,
   value,
-  color,
+  tone,
   sub,
+  href,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   label: string;
   value: number;
-  color: "emerald" | "red" | "amber" | "purple" | "blue";
+  tone: keyof typeof KPI_TONES;
   sub?: string;
+  href: string;
 }) {
-  const colorMap = {
-    emerald: { bg: "bg-emerald-50", text: "text-emerald-600", value: "text-emerald-700" },
-    red: { bg: "bg-red-50", text: "text-red-600", value: "text-red-700" },
-    amber: { bg: "bg-amber-50", text: "text-amber-600", value: "text-amber-700" },
-    purple: { bg: "bg-violet-50", text: "text-violet-600", value: "text-violet-700" },
-    blue: { bg: "bg-blue-50", text: "text-blue-600", value: "text-blue-700" },
-  };
-  const c = colorMap[color];
+  const c = KPI_TONES[tone];
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center", c.bg, c.text)}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-xs font-medium text-slate-500">{label}</p>
-          <p className={cn("text-2xl font-bold tracking-tight", c.value)}>{value}</p>
-          {sub && <p className="text-xs text-slate-400">{sub}</p>}
-        </div>
+    <Link
+      href={href}
+      className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-slate-500">{label}</p>
+        <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", c.icon)}>
+          <Icon className="h-4 w-4" />
+        </span>
       </div>
-    </div>
+      <p className={cn("mt-2 text-3xl font-bold tracking-tight tabular-nums", c.value)}>{value}</p>
+      <p className="mt-0.5 h-4 truncate text-xs text-slate-500">{sub ?? ""}</p>
+    </Link>
   );
 }
 
@@ -570,55 +668,55 @@ function TopList({
   title,
   icon: Icon,
   iconColor,
+  tone,
+  unit,
   items,
   emptyText,
 }: {
   title: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
   iconColor: string;
-  items: {
-    name: string;
-    initials: string;
-    service: string;
-    structure: string;
-    count: number;
-    label: string;
-    badgeColor: string;
-    avatarColor: string;
-  }[];
+  tone: "warning" | "danger";
+  unit: [string, string];
+  items: DashboardData["alerts"]["topLate"];
   emptyText: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="p-6 pb-3 flex items-center gap-2">
-        <Icon className={cn("h-5 w-5", iconColor)} />
-        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-      </div>
+    <Card className="overflow-hidden">
+      <CardHeader title={title} description="30 derniers jours" icon={<Icon className={cn("h-5 w-5", iconColor)} />} />
       {items.length === 0 ? (
-        <div className="px-6 pb-6 pt-2 text-center">
-          <p className="text-sm text-slate-400 py-4">{emptyText}</p>
-        </div>
+        <EmptyState title={emptyText} className="py-8" />
       ) : (
-        <div className="px-6 pb-4 space-y-1">
-          {items.map((item, i) => (
-            <div key={i} className="flex items-center justify-between py-2.5 px-2 rounded-xl hover:bg-slate-50 transition-colors">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-slate-400 w-5 text-center">{i + 1}</span>
-                <div className={cn("h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold", item.avatarColor)}>
-                  {item.initials}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-800">{item.name}</p>
-                  <p className="text-xs text-slate-400">{item.service} — {item.structure}</p>
+        <ol className="space-y-0.5 px-3 pb-4 pt-3 sm:px-4">
+          {items.map((e, i) => (
+            <li key={`${e.matricule ?? i}`} className="flex items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="w-5 text-center text-xs font-bold text-slate-400">{i + 1}</span>
+                <span
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                    tone === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                  )}
+                >
+                  {(e.firstName ?? "?")[0]}
+                  {(e.lastName ?? "?")[0]}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-800">
+                    {e.firstName ?? ""} {e.lastName ?? ""}
+                  </p>
+                  <p className="truncate text-xs text-slate-500">
+                    {[e.service, e.structure].filter(Boolean).join(" · ")}
+                  </p>
                 </div>
               </div>
-              <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium", item.badgeColor)}>
-                {item.label}
-              </span>
-            </div>
+              <Badge tone={tone}>
+                {e.count} {e.count > 1 ? unit[1] : unit[0]}
+              </Badge>
+            </li>
           ))}
-        </div>
+        </ol>
       )}
-    </div>
+    </Card>
   );
 }
