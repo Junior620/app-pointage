@@ -3,7 +3,7 @@
 /*
  * Couleurs de marque.
  * Les valeurs « brand » sont provisoires (bleu actuel) : remplacez-les par la couleur commune du groupe.
- * Les valeurs « scpb » et « afrexia » servent aux badges, logos de secours et pages employé.
+ * Les valeurs « scpb » et « afrexia » (tirées des logos) servent aux badges, barres et pages employé.
  * Voir aussi src/lib/brand.ts (logos) et src/lib/chart-colors.ts (graphiques).
  */
 @theme {
@@ -19,17 +19,20 @@
   --color-brand-900: #1e3a8a;
   --color-brand-950: #172554;
 
-  --color-scpb-50: #f0f9ff;
-  --color-scpb-100: #e0f2fe;
-  --color-scpb-500: #0ea5e9;
-  --color-scpb-600: #0284c7;
-  --color-scpb-700: #0369a1;
+  /* Couleurs relevées sur les logos (public/brand/) */
+  --color-scpb-50: #f6f8e9;
+  --color-scpb-100: #e8eecb;
+  --color-scpb-500: #94a538;
+  --color-scpb-600: #7a8a2c;
+  --color-scpb-700: #5c6824;
+  --color-scpb-accent: #f7ad21;
 
-  --color-afrexia-50: #fffbeb;
-  --color-afrexia-100: #fef3c7;
-  --color-afrexia-500: #f59e0b;
-  --color-afrexia-600: #d97706;
-  --color-afrexia-700: #b45309;
+  --color-afrexia-50: #ebf5ee;
+  --color-afrexia-100: #cde6d6;
+  --color-afrexia-500: #35834f;
+  --color-afrexia-600: #24683c;
+  --color-afrexia-700: #174f2c;
+  --color-afrexia-accent: #8a6a2a;
 
   /* Fond du menu latéral et des pages publiques */
   --color-ink-800: #1e293b;

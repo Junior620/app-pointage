@@ -261,13 +261,14 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 
 | Élément | Où |
 |---------|----|
-| Couleurs (`brand-*`, `scpb-*`, `afrexia-*`, `ink-*`) | `@theme` dans `src/app/globals.css` — valeurs **provisoires** à remplacer par les couleurs officielles. |
-| Logos des structures | `src/lib/brand.ts` (`STRUCTURE_BRANDS`) : chemin du logo clair (`logo`) et pour fond sombre (`logoOnDark`). Tant que `logo` vaut `null`, un monogramme coloré s'affiche. |
-| Fichiers de logo | `public/brand/` (ex. `scpb.svg`, `afrexia.svg`, ou PNG ≥ 512 px). |
+| Couleurs | `@theme` dans `src/app/globals.css` : `scpb-*` (olive #94a538, orange #f7ad21) et `afrexia-*` (vert forêt #24683c) relevées sur les logos ; `brand-*` (couleur commune de l'interface, bleu provisoire) ; `ink-*` (fonds sombres). |
+| Logos des structures | `src/lib/brand.ts` (`STRUCTURE_BRANDS`) : `logo`, `logoOnDark`, `wordmark` (le logo contient-il le nom ?), `hex` (exports). Sans fichier, un monogramme coloré s'affiche. |
+| Fichiers de logo | `public/brand/scpb.png` et `public/brand/afrexia.png` (recadrés, 240 px de haut), générés à partir des originaux fournis `logo.png` (SCPB) et `logo-dark.png` (AFREXIA). |
+| Logos dans les PDF | `addPdfLogos(doc, structures)` (`src/lib/pdf-branding.ts`) : rapports, listes employés / missions, ordre de mission et demande d'autorisation (logo de la structure de l'employé). |
 | Pictogramme de l'application | `src/components/brand/BrandMark.tsx`, favicon `src/app/icon.svg`, icône iOS `src/app/apple-icon.tsx`. |
 | Couleurs des graphiques | `src/lib/chart-colors.ts`. |
 
-**Remplacer un logo** : déposer le fichier dans `public/brand/`, puis renseigner son chemin dans `STRUCTURE_BRANDS` (ex. `logo: "/brand/scpb.svg"`). Écrans RH : les deux logos côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
+**Remplacer un logo** : déposer le nouveau fichier dans `public/brand/` (PNG transparent recadré ou SVG), mettre à jour son chemin dans `STRUCTURE_BRANDS` et, s'il change de proportions, `LOGO_RATIO` dans `src/lib/pdf-branding.ts`. Écrans RH : les deux logos côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
 
 ### 8.3 Composants partagés (`src/components/ui/`)
 

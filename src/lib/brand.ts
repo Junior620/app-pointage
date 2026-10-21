@@ -7,12 +7,16 @@ export type StructureBrand = {
   /** Nom affiché à côté du logo */
   name: string;
   /**
-   * Logo pour fond clair (chemin dans public/, ex. "/brand/scpb.svg").
-   * null tant que le fichier officiel n'est pas fourni : un monogramme s'affiche à la place.
+   * Logo pour fond clair (chemin dans public/, ex. "/brand/scpb.png").
+   * null si aucun fichier : un monogramme s'affiche à la place.
    */
   logo: string | null;
   /** Variante pour fond sombre (menu latéral). Si absente, le logo clair est posé sur une pastille blanche. */
   logoOnDark: string | null;
+  /** Le logo contient déjà le nom écrit (sinon le nom est affiché à côté du pictogramme). */
+  wordmark: boolean;
+  /** Couleur principale (hexadécimal) pour les exports PDF / Excel. */
+  hex: string;
   /** Classes Tailwind (couleurs définies dans globals.css) */
   badgeClass: string;
   monogramClass: string;
@@ -22,24 +26,33 @@ export type StructureBrand = {
 export const APP_NAME = "Pointage RH";
 export const APP_TAGLINE = "Gestion des présences";
 
+/**
+ * Logos : fichiers recadrés et allégés dans public/brand/ (scpb.png, afrexia.png),
+ * générés à partir des originaux fournis (logo.png, logo-dark.png).
+ */
 export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
   SCPB: {
     code: "SCPB",
     name: "SCPB",
-    logo: null,
+    logo: "/brand/scpb.png",
+    // Lettres noires : sur fond sombre, le logo est posé sur une pastille blanche.
     logoOnDark: null,
+    wordmark: true,
+    hex: "#7a8a2c",
     badgeClass: "bg-scpb-50 text-scpb-700 ring-scpb-100",
     monogramClass: "bg-scpb-600 text-white",
-    accentClass: "bg-scpb-600",
+    accentClass: "bg-scpb-500",
   },
   AFREXIA: {
     code: "AFREXIA",
     name: "AFREXIA",
-    logo: null,
-    logoOnDark: null,
+    logo: "/brand/afrexia.png",
+    logoOnDark: "/brand/afrexia.png",
+    wordmark: false,
+    hex: "#24683c",
     badgeClass: "bg-afrexia-50 text-afrexia-700 ring-afrexia-100",
     monogramClass: "bg-afrexia-600 text-white",
-    accentClass: "bg-afrexia-600",
+    accentClass: "bg-afrexia-500",
   },
 };
 

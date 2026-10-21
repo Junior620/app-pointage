@@ -114,7 +114,7 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-8 flex flex-col items-center gap-3">
-            <CoBrand onDark size="md" />
+            <CoBrand onDark size="lg" />
           </div>
         </div>
       </main>

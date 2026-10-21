@@ -5,14 +5,14 @@ import { cn } from "@/lib/utils";
 import { STRUCTURE_BRANDS, type StructureCode } from "@/lib/brand";
 
 const SIZES = {
-  sm: { img: "h-6", mono: "h-6 px-1.5 text-[10px]" },
-  md: { img: "h-8", mono: "h-8 px-2 text-xs" },
-  lg: { img: "h-12", mono: "h-11 px-3 text-sm" },
+  sm: { img: "h-6", mono: "h-6 px-1.5 text-[10px]", name: "text-xs" },
+  md: { img: "h-8", mono: "h-8 px-2 text-xs", name: "text-sm" },
+  lg: { img: "h-12", mono: "h-11 px-3 text-sm", name: "text-base" },
 } as const;
 
 /**
- * Logo d'une structure. Sans fichier fourni (ou si l'image ne charge pas),
- * affiche un monogramme aux couleurs de la structure.
+ * Logo d'une structure. Sans fichier (ou si l'image ne charge pas), affiche un monogramme
+ * aux couleurs de la structure. Si le logo n'inclut pas le nom, celui-ci est écrit à côté.
  */
 export default function StructureLogo({
   code,
@@ -32,20 +32,21 @@ export default function StructureLogo({
 
   if (src && !failed) {
     return (
-      <span
-        className={cn(
-          "inline-flex items-center",
-          needsChip && "rounded-lg bg-white px-1.5 py-1",
-          className
+      <span className={cn("inline-flex items-center gap-1.5", className)}>
+        <span className={cn("inline-flex items-center", needsChip && "rounded-md bg-white px-1.5 py-0.5")}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={brand.wordmark ? brand.name : ""}
+            className={cn("w-auto object-contain", SIZES[size].img)}
+            onError={() => setFailed(true)}
+          />
+        </span>
+        {!brand.wordmark && (
+          <span className={cn("font-bold tracking-wide", SIZES[size].name, onDark ? "text-white" : "text-slate-800")}>
+            {brand.name}
+          </span>
         )}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={brand.name}
-          className={cn("w-auto object-contain", SIZES[size].img)}
-          onError={() => setFailed(true)}
-        />
       </span>
     );
   }

@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { statusLabel } from "@/lib/status-labels";
 import { fetchAllEmployees } from "@/lib/fetch-all-employees";
+import { addPdfLogos } from "@/lib/pdf-branding";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { refreshNavCounts } from "@/lib/use-nav-counts";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -867,6 +868,7 @@ function DetailLine({ label, value }: { label: string; value: string }) {
 async function downloadLeaveRequestPdf(leave: LeaveRequest): Promise<void> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4" });
+  await addPdfLogos(doc, [leave.employee.structure], { top: 6, height: 10 });
   let y = 18;
   doc.setFontSize(15);
   doc.setFont("helvetica", "bold");

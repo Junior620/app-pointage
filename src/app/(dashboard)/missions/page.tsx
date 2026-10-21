@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { getMissionDurationDays } from "@/lib/mission-days";
 import { statusLabel } from "@/lib/status-labels";
 import { fetchAllEmployees } from "@/lib/fetch-all-employees";
+import { addPdfLogos } from "@/lib/pdf-branding";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { refreshNavCounts } from "@/lib/use-nav-counts";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -946,6 +947,7 @@ async function exportPdf(all: Mission[]) {
   const doc = new jsPDF({ orientation: "landscape" });
   const now = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 
+  await addPdfLogos(doc);
   doc.setFontSize(16);
   doc.text("Rapport des missions", 14, 18);
   doc.setFontSize(9);
@@ -981,6 +983,7 @@ async function exportPdf(all: Mission[]) {
   const approved = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt);
   if (approved.length > 0) {
     doc.addPage("a4", "landscape");
+    await addPdfLogos(doc);
     doc.setFontSize(14);
     doc.text("Récapitulatif paie — Missions approuvées", 14, 18);
     doc.setFontSize(9);
@@ -1079,6 +1082,7 @@ async function downloadMissionPdf(m: Mission) {
   const doc = new jsPDF();
   const today = new Date();
 
+  await addPdfLogos(doc, [m.originStructure ?? m.employee.structure], { top: 6, height: 10 });
   doc.setFontSize(14);
   doc.text("ORDRE DE MISSION", 105, 15, { align: "center" });
   doc.setFontSize(10);

@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { z } from "zod";
 import { departureReasonLabel } from "@/lib/departure-labels";
 import { fetchAllEmployees as fetchAllEmployeePages } from "@/lib/fetch-all-employees";
+import { addPdfLogos } from "@/lib/pdf-branding";
 import { useDebouncedCommit, useUrlFilters } from "@/lib/use-url-filters";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -318,8 +319,10 @@ function EmployeesContent() {
     const doc = new jsPDF({ orientation: "landscape" });
     const now = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 
-    const generatePage = (title: string, data: Employee[], startNew: boolean) => {
+    const sectionPages: { page: number; structures: string[] }[] = [];
+    const generatePage = (title: string, data: Employee[], startNew: boolean, structures: string[] = ["SCPB", "AFREXIA"]) => {
       if (startNew) doc.addPage("a4", "landscape");
+      sectionPages.push({ page: doc.getNumberOfPages(), structures });
 
       doc.setFontSize(16);
       doc.text(title, 14, 18);
@@ -359,9 +362,13 @@ function EmployeesContent() {
 
     const scpb = all.filter((e) => e.structure === "SCPB");
     const afrexia = all.filter((e) => e.structure === "AFREXIA");
-    if (scpb.length > 0) generatePage("Employés — SCPB", scpb, true);
-    if (afrexia.length > 0) generatePage("Employés — AFREXIA", afrexia, true);
+    if (scpb.length > 0) generatePage("Employés — SCPB", scpb, true, ["SCPB"]);
+    if (afrexia.length > 0) generatePage("Employés — AFREXIA", afrexia, true, ["AFREXIA"]);
 
+    for (const section of sectionPages) {
+      doc.setPage(section.page);
+      await addPdfLogos(doc, section.structures);
+    }
     doc.save(`employes_${new Date().toISOString().slice(0, 10)}.pdf`);
     toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (PDF).`);
   };

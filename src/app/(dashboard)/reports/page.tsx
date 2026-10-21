@@ -23,6 +23,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { cn } from "@/lib/utils";
 import { CHART_COLORS, CHART_SERIES, CHART_TOOLTIP_STYLE } from "@/lib/chart-colors";
 import { useUrlFilters } from "@/lib/use-url-filters";
+import { addPdfLogos } from "@/lib/pdf-branding";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -866,6 +867,8 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, periodLabel
   const { autoTable } = await import("jspdf-autotable");
 
   const doc = new jsPDF({ orientation: "landscape" });
+  const structuresInReport = [...new Set(rows.map((r) => r.structure))];
+  await addPdfLogos(doc, structuresInReport);
   doc.setFontSize(16);
   doc.text("Rapport de pointage", 14, 18);
   doc.setFontSize(10);
@@ -908,6 +911,7 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, periodLabel
     const structRows = rows.filter((r) => r.structure === label);
     if (structRows.length === 0) continue;
     doc.addPage();
+    await addPdfLogos(doc, [label]);
     doc.setFontSize(14);
     doc.setTextColor(0);
     doc.text(`Récapitulatif — ${label}`, 14, 18);
