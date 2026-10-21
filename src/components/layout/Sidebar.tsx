@@ -1,133 +1,149 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { LogOut, Menu, X } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NAV_LINKS, isNavLinkActive, roleLabel } from "@/lib/navigation";
+import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
+import { NAV_GROUPS, isNavLinkActive } from "@/lib/navigation";
+import { useNavCounts } from "@/lib/use-nav-counts";
+import BrandMark from "@/components/brand/BrandMark";
+import CoBrand from "@/components/brand/CoBrand";
 
 interface SidebarProps {
-  userName: string;
   userRole: string;
-  userEmail: string;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
-export default function Sidebar({ userName, userRole, userEmail }: SidebarProps) {
+function SidebarContent({ userRole, onNavigate }: { userRole: string; onNavigate?: () => void }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
+  const counts = useNavCounts();
 
-  const handleLogout = async () => {
-    setLoggingOut(true);
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
-  };
-
-  const isActive = (href: string) => isNavLinkActive(pathname, href);
-
-  const sidebarContent = (
-    <div className="flex flex-col h-full">
-      <div className="px-6 py-6">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-600 text-white font-bold text-lg">
-            P
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-white">Pointage RH</h1>
-            <p className="text-xs text-slate-400">Gestion des présences</p>
-          </div>
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-3 px-5 py-5">
+        <BrandMark className="h-10 w-10" />
+        <div className="min-w-0">
+          <p className="truncate text-base font-bold leading-tight text-white">{APP_NAME}</p>
+          <p className="truncate text-xs text-slate-400">{APP_TAGLINE}</p>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-        {NAV_LINKS
-          .filter((link) => !link.adminOnly || userRole === "ADMIN") // menu Utilisateurs : ADMIN uniquement
-          .map((link) => {
-          const Icon = link.icon;
-          const active = isActive(link.href);
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4" aria-label="Navigation principale">
+        {NAV_GROUPS.map((group) => {
+          const links = group.links.filter((l) => !l.adminOnly || userRole === "ADMIN");
+          if (links.length === 0) return null;
           return (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
-                active
-                  ? "bg-blue-600 text-white shadow-sm shadow-blue-600/30"
-                  : "text-slate-400 hover:bg-white/5 hover:text-white"
-              )}
-            >
-              <Icon className="w-5 h-5 shrink-0" />
-              {link.label}
-            </Link>
+            <div key={group.label}>
+              <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {group.label}
+              </p>
+              <ul className="space-y-0.5">
+                {links.map((link) => {
+                  const Icon = link.icon;
+                  const active = isNavLinkActive(pathname, link.href);
+                  const count = link.countKey && counts ? counts[link.countKey] : 0;
+                  return (
+                    <li key={link.href}>
+                      <Link
+                        href={link.href}
+                        onClick={onNavigate}
+                        aria-current={active ? "page" : undefined}
+                        className={cn(
+                          "group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400",
+                          active
+                            ? "bg-brand-600 text-white shadow-sm shadow-brand-950/40"
+                            : "text-slate-300 hover:bg-white/5 hover:text-white"
+                        )}
+                      >
+                        <Icon
+                          className={cn(
+                            "h-[18px] w-[18px] shrink-0",
+                            active ? "text-white" : "text-slate-400 group-hover:text-slate-200"
+                          )}
+                        />
+                        <span className="flex-1 truncate">{link.label}</span>
+                        {count > 0 && (
+                          <span
+                            className={cn(
+                              "min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-semibold tabular-nums",
+                              active ? "bg-white/20 text-white" : "bg-amber-400/15 text-amber-300"
+                            )}
+                            aria-label={`${count} à traiter`}
+                          >
+                            {count > 99 ? "99+" : count}
+                          </span>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           );
         })}
       </nav>
 
-      <div className="px-4 py-4 border-t border-white/10">
-        <div className="flex items-center gap-3 mb-3 px-2">
-          <div className="w-9 h-9 rounded-full bg-blue-600/30 flex items-center justify-center text-blue-300 text-sm font-semibold">
-            {userName.charAt(0).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{userName}</p>
-            <p className="text-xs text-slate-400 truncate">{roleLabel(userRole)}</p>
-          </div>
-        </div>
-        <button
-          onClick={handleLogout}
-          disabled={loggingOut}
-          className="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          {loggingOut ? "Déconnexion..." : "Se déconnecter"}
-        </button>
+      <div className="border-t border-white/10 px-5 py-4">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Structures</p>
+        <CoBrand onDark size="sm" />
       </div>
     </div>
   );
+}
+
+export default function Sidebar({ userRole, mobileOpen, onMobileClose }: SidebarProps) {
+  const drawerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    drawerRef.current?.querySelector<HTMLElement>("a[href]")?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onMobileClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen, onMobileClose]);
 
   return (
     <>
-      {/* Mobile hamburger */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-slate-800 rounded-lg text-white shadow-lg"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/60 z-40"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile sidebar */}
-      <aside
+      {/* Mobile : panneau coulissant */}
+      <div
         className={cn(
-          "lg:hidden fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 transform transition-transform duration-300",
+          "fixed inset-0 z-40 bg-ink-950/60 transition-opacity lg:hidden",
+          mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        )}
+        onClick={onMobileClose}
+        aria-hidden="true"
+      />
+      <aside
+        ref={drawerRef}
+        id="mobile-sidebar"
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 w-72 transform bg-ink-900 transition-transform duration-300 lg:hidden",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
+        aria-label="Menu"
+        aria-hidden={!mobileOpen}
+        inert={!mobileOpen}
       >
         <button
-          onClick={() => setMobileOpen(false)}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white"
+          type="button"
+          onClick={onMobileClose}
+          className="absolute right-3 top-5 rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-white"
+          aria-label="Fermer le menu"
         >
-          <X className="w-5 h-5" />
+          <X className="h-5 w-5" />
         </button>
-        {sidebarContent}
+        <SidebarContent userRole={userRole} onNavigate={onMobileClose} />
       </aside>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-slate-900 border-r border-white/5">
-        {sidebarContent}
+      {/* Bureau : colonne fixe */}
+      <aside className="hidden border-r border-white/5 bg-ink-900 lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
+        <SidebarContent userRole={userRole} />
       </aside>
     </>
   );
