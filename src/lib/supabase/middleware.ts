@@ -32,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Routes publiques (pas de protection)
-  const publicRoutes = ["/login", "/onboarding", "/geoloc", "/qr-chatbot", "/privacy", "/leave-request", "/mission-request"];
+  const publicRoutes = ["/login", "/onboarding", "/geoloc", "/qr-chatbot", "/privacy", "/leave-request", "/mission-request", "/apple-icon", "/icon", "/brand/"];
   const isPublic =
     publicRoutes.some((r) => pathname.startsWith(r)) ||
     pathname.startsWith("/api/webhooks") ||

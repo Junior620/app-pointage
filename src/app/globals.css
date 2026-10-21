@@ -1,8 +1,45 @@
 @import "tailwindcss";
 
+/*
+ * Couleurs de marque.
+ * Les valeurs « brand » sont provisoires (bleu actuel) : remplacez-les par la couleur commune du groupe.
+ * Les valeurs « scpb » et « afrexia » servent aux badges, logos de secours et pages employé.
+ * Voir aussi src/lib/brand.ts (logos) et src/lib/chart-colors.ts (graphiques).
+ */
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+  --color-brand-950: #172554;
+
+  --color-scpb-50: #f0f9ff;
+  --color-scpb-100: #e0f2fe;
+  --color-scpb-500: #0ea5e9;
+  --color-scpb-600: #0284c7;
+  --color-scpb-700: #0369a1;
+
+  --color-afrexia-50: #fffbeb;
+  --color-afrexia-100: #fef3c7;
+  --color-afrexia-500: #f59e0b;
+  --color-afrexia-600: #d97706;
+  --color-afrexia-700: #b45309;
+
+  /* Fond du menu latéral et des pages publiques */
+  --color-ink-800: #1e293b;
+  --color-ink-900: #0f172a;
+  --color-ink-950: #020617;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 @theme inline {
@@ -55,5 +92,45 @@ main td input:-webkit-autofill:focus {
   }
   to {
     transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
