@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PublicShell, { PublicCard } from "@/components/layout/PublicShell";
 
 export const metadata: Metadata = {
   title: "Politique de confidentialité",
@@ -12,11 +13,10 @@ const updatedAt = "03 avril 2026";
 
 export default function PrivacyPage() {
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="mx-auto w-full max-w-4xl px-6 py-12 md:py-16">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:p-10">
+    <PublicShell width="xl" footer={false}>
+        <PublicCard className="md:p-10">
           <header className="mb-8 border-b border-slate-100 pb-6">
-            <p className="text-sm font-medium text-blue-700">Pointage RH</p>
+            <p className="text-sm font-medium text-brand-700">Pointage RH · SCPB · AFREXIA</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
               Politique de confidentialité
             </h1>
@@ -177,13 +177,12 @@ export default function PrivacyPage() {
           <footer className="mt-10 border-t border-slate-100 pt-6">
             <Link
               href="/login"
-              className="inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              className="inline-flex rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-700"
             >
               Retour à la connexion
             </Link>
           </footer>
-        </div>
-      </div>
-    </main>
+        </PublicCard>
+    </PublicShell>
   );
 }

@@ -2,9 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, CheckCircle2, Loader2, Send } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { CalendarDays, MapPin, Send } from "lucide-react";
+import PublicShell, { PublicCard } from "@/components/layout/PublicShell";
+import { EmployeeRecap, PublicFormDone, PublicFormLoading, PublicFormUnavailable } from "@/components/layout/PublicFormStates";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { MissionPrefill } from "./mission-types";
+
+function dayCount(start: string, end: string): number {
+  const a = new Date(`${start}T12:00:00`);
+  const b = new Date(`${end}T12:00:00`);
+  return Math.round((b.getTime() - a.getTime()) / 86_400_000) + 1;
+}
 
 export default function MissionRequestNewForm() {
   const searchParams = useSearchParams();
@@ -29,7 +38,7 @@ export default function MissionRequestNewForm() {
 
   const loadPrefill = useCallback(async () => {
     if (!token) {
-      setPrefillError("Lien incomplet (paramètre t manquant). Ouvrez le lien reçu sur WhatsApp.");
+      setPrefillError("Lien incomplet : ouvrez directement le lien reçu sur WhatsApp.");
       setLoading(false);
       return;
     }
@@ -56,9 +65,11 @@ export default function MissionRequestNewForm() {
     void loadPrefill();
   }, [loadPrefill]);
 
+  const datesInvalid = Boolean(startDate && endDate && endDate < startDate);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token || !prefill) return;
+    if (!token || !prefill || datesInvalid) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -78,10 +89,7 @@ export default function MissionRequestNewForm() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg =
-          typeof json.error === "string"
-            ? json.error
-            : "Envoi impossible. Vérifiez les champs ou redemandez un lien.";
+        const msg = typeof json.error === "string" ? json.error : "Envoi impossible. Vérifiez les champs ou redemandez un lien.";
         setSubmitError(msg);
         return;
       }
@@ -93,116 +101,102 @@ export default function MissionRequestNewForm() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-slate-600">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        <p className="text-sm">Chargement du formulaire…</p>
-      </div>
-    );
-  }
-
-  if (prefillError || !prefill) {
-    return (
-      <div className="mx-auto max-w-md rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-900">
-        <p className="font-semibold">Formulaire indisponible</p>
-        <p className="mt-2 text-sm">{prefillError}</p>
-      </div>
-    );
-  }
+  if (loading) return <PublicFormLoading />;
+  if (prefillError || !prefill) return <PublicFormUnavailable message={prefillError} />;
 
   if (done) {
     return (
-      <div className="mx-auto max-w-md rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
-        <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
-        <p className="mt-4 text-lg font-semibold text-emerald-900">Demande mission envoyée</p>
-        <p className="mt-2 text-sm text-emerald-800">
-          Votre demande a été transmise à la RH/administration. Vous serez notifié après validation ou refus.
-        </p>
-      </div>
+      <PublicFormDone structure={prefill.structure} title="Demande de mission envoyée">
+        Votre demande a été transmise aux RH. Vous serez prévenu sur WhatsApp après validation ou refus.
+      </PublicFormDone>
     );
   }
 
+  const days = startDate && endDate && !datesInvalid ? dayCount(startDate, endDate) : null;
+
   return (
-    <div className="mx-auto max-w-lg">
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h1 className="text-lg font-bold text-slate-900">Demande d&apos;ordre de mission</h1>
-        <p className="mt-1 text-xs text-slate-500">
-          Renseignez les champs ci-dessous. Les informations employé proviennent de votre fiche.
-          {expiresIn != null && (
-            <span className="block mt-1 text-amber-700">
-              Ce lien expire dans environ {expiresIn} minutes.
-            </span>
+    <PublicShell structure={prefill.structure}>
+      <PublicCard>
+        <EmployeeRecap title="Demande d'ordre de mission" employee={prefill} expiresIn={expiresIn} />
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {submitError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{submitError}</div>}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Date de départ" required>
+              {(id) => (
+                <Input
+                  id={id}
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    if (!endDate) setEndDate(e.target.value);
+                  }}
+                  required
+                />
+              )}
+            </Field>
+            <Field label="Date de retour" required error={datesInvalid ? "La date de retour doit être après le départ." : undefined}>
+              {(id) => <Input id={id} type="date" value={endDate} min={startDate || undefined} onChange={(e) => setEndDate(e.target.value)} required aria-invalid={datesInvalid} />}
+            </Field>
+          </div>
+          {days != null && (
+            <p className="-mt-2 flex items-center gap-1.5 text-sm text-slate-600">
+              <CalendarDays className="h-4 w-4 text-slate-400" />
+              {days} jour{days > 1 ? "s" : ""} de mission
+            </p>
           )}
-        </p>
-      </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        {submitError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{submitError}</div>
-        )}
+          <Field label="Lieu de mission">
+            {(id) => (
+              <div className="relative">
+                <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input id={id} value={location} onChange={(e) => setLocation(e.target.value)} maxLength={255} placeholder="Ex. : Douala, Bonanjo" className="pl-9" />
+              </div>
+            )}
+          </Field>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Date départ mission</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Structure d'accueil">
+              {(id) => (
+                <Select id={id} value={hostStructure} onChange={(e) => setHostStructure(e.target.value)}>
+                  <option value="">Aucune (mission externe)</option>
+                  <option value="SCPB">SCPB</option>
+                  <option value="AFREXIA">AFREXIA</option>
+                </Select>
+              )}
+            </Field>
+            <Field label="Moyen de transport">
+              {(id) => <Input id={id} value={transport} onChange={(e) => setTransport(e.target.value)} maxLength={500} placeholder="Véhicule, avion, car…" />}
+            </Field>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Date retour mission</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
-          </div>
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Lieu de mission</label>
-          <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} maxLength={255} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" placeholder="Ex. Douala, Bonanjo" />
-        </div>
+          <Field label="Objet de la mission" required hint="5 caractères minimum.">
+            {(id) => (
+              <Textarea id={id} value={reason} onChange={(e) => setReason(e.target.value)} rows={4} required minLength={5} placeholder="Décrivez l'objet de la mission." />
+            )}
+          </Field>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Structure d&apos;accueil</label>
-            <select value={hostStructure} onChange={(e) => setHostStructure(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
-              <option value="">Aucune (mission externe)</option>
-              <option value="SCPB">SCPB</option>
-              <option value="AFREXIA">AFREXIA</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Moyen de transport</label>
-            <input type="text" value={transport} onChange={(e) => setTransport(e.target.value)} maxLength={500} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" placeholder="Véhicule, avion, transport commun..." />
-          </div>
-        </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <input
+              type="checkbox"
+              checked={certify}
+              onChange={(e) => setCertify(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span className="text-sm leading-snug text-slate-700">Je certifie sur l&apos;honneur l&apos;exactitude des informations transmises.</span>
+          </label>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Objet de la mission</label>
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={4} required minLength={5} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm resize-y min-h-[100px]" placeholder="Décrivez l'objet de la mission." />
-        </div>
-
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <input type="checkbox" checked={certify} onChange={(e) => setCertify(e.target.checked)} className="mt-1 rounded border-slate-300 text-blue-600" />
-          <span className="text-sm text-slate-700 leading-snug">
-            Je certifie sur l&apos;honneur l&apos;exactitude des informations transmises.
-          </span>
-        </label>
-
-        <button type="submit" disabled={submitting || !certify} className={cn("w-full inline-flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white", certify && !submitting ? "bg-blue-600 hover:bg-blue-700" : "bg-slate-300 cursor-not-allowed")}>
-          {submitting ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Envoi…
-            </>
-          ) : (
-            <>
-              <Send className="h-4 w-4" />
-              Envoyer la demande de mission
-            </>
-          )}
-        </button>
-        <p className="flex items-center justify-center gap-1 text-center text-xs text-slate-400">
-          <CalendarDays className="h-3.5 w-3.5" />
-          Après validation, la RH pourra télécharger l&apos;ordre de mission à imprimer et signer.
-        </p>
-      </form>
-    </div>
+          <Button type="submit" size="lg" className="w-full" loading={submitting} disabled={!certify || datesInvalid} icon={<Send className="h-4 w-4" />}>
+            Envoyer la demande de mission
+          </Button>
+          {!certify && <p className="-mt-2 text-center text-xs text-slate-500">Cochez la case de certification pour envoyer.</p>}
+        </form>
+      </PublicCard>
+      <p className="mt-4 px-2 text-center text-xs text-slate-500">
+        Après validation, les RH éditent l&apos;ordre de mission à imprimer et signer.
+      </p>
+    </PublicShell>
   );
 }
