@@ -3,7 +3,8 @@ import { formatTime } from "./utils";
 import type { WhatsAppListSection, WhatsAppReplyButton } from "./whatsapp";
 
 /**
- * Menu WhatsApp : boutons adaptés à l'état du jour, et liste regroupée (9 entrées) derrière « Plus d'options ».
+ * Menu WhatsApp : toujours les boutons Arrivée / Départ / Plus d'options, avec une ligne sur l'état du jour,
+ * et liste regroupée (9 entrées) derrière « Plus d'options ».
  * Les numéros 1 à 15 restent acceptés en texte (parseIntent) : seul l'affichage change.
  */
 
@@ -51,23 +52,24 @@ export function menuChoice(id: string): Intent[] | "LIST" | null {
   return MENU_ACTIONS[id] ?? null;
 }
 
-const BUTTONS = {
-  CHECK_IN: { id: "menu:CHECK_IN", title: "Pointer mon arrivée" },
-  CHECK_OUT: { id: "menu:CHECK_OUT", title: "Pointer mon départ" },
-  BREAK_START: { id: "menu:BREAK_START", title: "Début de pause" },
-  BREAK_END: { id: "menu:BREAK_END", title: "Retour de pause" },
-  STATUS: { id: "menu:STATUS", title: "Mon statut du jour" },
-  LEAVE_FORM: { id: "menu:LEAVE_FORM", title: "Demander une absence" },
-  MORE: { id: MENU_LIST_ID, title: "Plus d'options" },
-} satisfies Record<string, WhatsAppReplyButton>;
+/** Toujours les mêmes, dans le même ordre : l'arrivée et le départ sont les actions de tous les jours. */
+const DAY_BUTTONS: WhatsAppReplyButton[] = [
+  { id: "menu:CHECK_IN", title: "Pointer mon arrivée" },
+  { id: "menu:CHECK_OUT", title: "Pointer mon départ" },
+  { id: MENU_LIST_ID, title: "Plus d'options" },
+];
 
-const STATE_BUTTONS: Record<DayState, WhatsAppReplyButton[]> = {
-  NOT_ARRIVED: [BUTTONS.CHECK_IN, BUTTONS.LEAVE_FORM, BUTTONS.MORE],
-  WORKING: [BUTTONS.CHECK_OUT, BUTTONS.BREAK_START, BUTTONS.MORE],
-  ON_BREAK: [BUTTONS.BREAK_END, BUTTONS.MORE],
-  BREAK_DONE: [BUTTONS.CHECK_OUT, BUTTONS.STATUS, BUTTONS.MORE],
-  DONE: [BUTTONS.STATUS, BUTTONS.MORE],
-};
+/** Où trouver le reste, selon l'état du jour (la pause n'a pas de bouton direct). */
+function hintLine(state: DayState): string {
+  switch (state) {
+    case "WORKING":
+      return "Pour la pause : touchez « Plus d'options » ou tapez *13*.";
+    case "ON_BREAK":
+      return "Pour le retour de pause : touchez « Plus d'options » ou tapez *14*.";
+    default:
+      return "Absence, mission, historique : touchez « Plus d'options ».";
+  }
+}
 
 function stateLine(state: DayState, record: DayRecord): string {
   switch (state) {
@@ -88,8 +90,8 @@ function stateLine(state: DayState, record: DayRecord): string {
 export function dayMenu(intro: string, record: DayRecord): { body: string; buttons: WhatsAppReplyButton[] } {
   const state = dayState(record);
   return {
-    body: `${intro}\n\n${stateLine(state, record)}\n\nVous pouvez aussi répondre par un numéro (*1* arrivée, *2* départ…).`,
-    buttons: STATE_BUTTONS[state],
+    body: `${intro}\n\n${stateLine(state, record)}\n\n${hintLine(state)}`,
+    buttons: DAY_BUTTONS,
   };
 }
 
