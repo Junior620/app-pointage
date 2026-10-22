@@ -51,12 +51,19 @@ export async function sendWhatsAppMessage(
   }
 }
 
-/** Envoie un message avec boutons (Arrivé, Départ, Statut). Max 3 boutons. */
-export async function sendWhatsAppButtons(to: string): Promise<void> {
+export type WhatsAppReplyButton = { id: string; title: string };
+
+export type WhatsAppListSection = {
+  title: string;
+  rows: { id: string; title: string; description?: string }[];
+};
+
+/** Message interactif (boutons ou liste). Renvoie false si l'envoi a échoué : l'appelant envoie alors du texte. */
+async function sendWhatsAppInteractive(to: string, interactive: object, label: string): Promise<boolean> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
-  if (!phoneNumberId || !accessToken) return;
+  if (!phoneNumberId || !accessToken) return false;
 
   const toNumber = toWhatsAppPhone(to);
   const url = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
@@ -71,26 +78,43 @@ export async function sendWhatsAppButtons(to: string): Promise<void> {
       messaging_product: "whatsapp",
       to: toNumber,
       type: "interactive",
-      interactive: {
-        type: "button",
-        body: {
-          text: "Choisissez une action pour votre pointage :",
-        },
-        action: {
-          buttons: [
-            { type: "reply", reply: { id: "BTN_ARRIVE", title: "Arrivé" } },
-            { type: "reply", reply: { id: "BTN_DEPART", title: "Départ" } },
-            { type: "reply", reply: { id: "BTN_STATUT", title: "Mon statut" } },
-          ],
-        },
-      },
+      interactive,
     }),
   });
 
   if (!response.ok) {
     const error = await response.text();
-    console.error("[WhatsApp] Erreur envoi boutons vers", toNumber, ":", response.status, error);
+    console.error(`[WhatsApp] Erreur envoi ${label} vers`, toNumber, ":", response.status, error);
+    return false;
   }
+  return true;
+}
+
+/** Message avec 1 à 3 boutons de réponse (titre ≤ 20 caractères). */
+export function sendWhatsAppReplyButtons(to: string, body: string, buttons: WhatsAppReplyButton[]): Promise<boolean> {
+  return sendWhatsAppInteractive(
+    to,
+    {
+      type: "button",
+      body: { text: body },
+      action: { buttons: buttons.map((reply) => ({ type: "reply", reply })) },
+    },
+    "boutons"
+  );
+}
+
+/** Message « liste » : un bouton qui ouvre jusqu'à 10 lignes réparties en sections. */
+export function sendWhatsAppList(
+  to: string,
+  body: string,
+  buttonText: string,
+  sections: WhatsAppListSection[]
+): Promise<boolean> {
+  return sendWhatsAppInteractive(
+    to,
+    { type: "list", body: { text: body }, action: { button: buttonText, sections } },
+    "liste"
+  );
 }
 
 /** `appUrl` : adresse de l'espace de l'entreprise de l'employé (orgBaseUrl), APP_BASE_URL par défaut. */
