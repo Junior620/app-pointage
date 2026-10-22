@@ -4,6 +4,9 @@ import { Suspense, useEffect, useState, useCallback } from "react";
 import { Clock, Check, XCircle, UserCheck, UserX, Hourglass, FileSpreadsheet, RotateCcw, CheckCheck } from "lucide-react";
 import { cn, formatTime } from "@/lib/utils";
 import { statusLabel } from "@/lib/status-labels";
+import { downloadBlob } from "@/lib/documents/download";
+import { EXCEL_DATE_FORMAT, EXCEL_DURATION_FORMAT, excelDay, excelDuration, finishSheet, setColumnFormats } from "@/lib/excel-format";
+import { fileDateStamp } from "@/lib/export-format";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { refreshNavCounts } from "@/lib/use-nav-counts";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -220,36 +223,29 @@ function OvertimeContent() {
         { header: "Validé par", key: "validatedBy", width: 18 },
       ];
 
-      ws.getRow(1).eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: "FFFFFF" } };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
-        cell.alignment = { horizontal: "center" };
-      });
-
       all.forEach((r) => {
         ws.addRow({
           employee: `${r.employee.lastName} ${r.employee.firstName}`,
           matricule: r.employee.matricule,
           service: r.employee.service,
           structure: r.employee.structure,
-          date: new Date(r.date).toLocaleDateString("fr-FR"),
+          date: excelDay(r.date),
           in: formatTime(r.checkInTime),
           out: formatTime(r.checkOutTime),
-          ot: formatOvertime(r.overtimeMinutes),
+          ot: excelDuration(r.overtimeMinutes),
           reason: r.overtimeReason ?? "—",
           status: statusLabel("overtime", r.overtimeStatus),
           validatedBy: r.overtimeValidatedBy ?? "—",
         });
       });
 
+      setColumnFormats(ws, { date: EXCEL_DATE_FORMAT, ot: EXCEL_DURATION_FORMAT });
+      finishSheet(ws);
       const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `heures_supplementaires_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(
+        new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        `heures_supplementaires_${fileDateStamp()}.xlsx`
+      );
       toast.success(`${all.length} ligne${all.length > 1 ? "s" : ""} exportée${all.length > 1 ? "s" : ""}.`);
     } catch (e) {
       console.error(e);

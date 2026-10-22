@@ -3,9 +3,6 @@
 import type { jsPDF } from "jspdf";
 import { STRUCTURE_BRANDS, STRUCTURE_CODES, type StructureCode } from "@/lib/brand";
 
-/** Proportions largeur / hauteur des fichiers de public/brand/ */
-const LOGO_RATIO: Record<StructureCode, number> = { SCPB: 411 / 240, AFREXIA: 255 / 240 };
-
 const cache = new Map<string, Promise<string | null>>();
 
 function loadDataUrl(path: string): Promise<string | null> {
@@ -39,8 +36,9 @@ export async function addPdfLogos(
   structures: (StructureCode | string | null | undefined)[] = STRUCTURE_CODES,
   { top = 8, height = 11, right = 14 }: { top?: number; height?: number; right?: number } = {}
 ): Promise<void> {
-  const codes = structures.filter((c): c is StructureCode => c === "SCPB" || c === "AFREXIA");
-  const unique = [...new Set(codes.length ? codes : STRUCTURE_CODES)];
+  const requested = new Set(structures.filter((c): c is StructureCode => c === "SCPB" || c === "AFREXIA"));
+  // Toujours dans l'ordre de STRUCTURE_CODES, quel que soit l'ordre des lignes du rapport.
+  const unique = requested.size ? STRUCTURE_CODES.filter((c) => requested.has(c)) : STRUCTURE_CODES;
   const images = await Promise.all(
     unique.map(async (code) => {
       const path = STRUCTURE_BRANDS[code].logo;
@@ -55,7 +53,7 @@ export async function addPdfLogos(
   for (const { code, data } of [...images].reverse()) {
     if (!data) continue;
     const brand = STRUCTURE_BRANDS[code];
-    const w = height * LOGO_RATIO[code];
+    const w = height * brand.logoAspect;
     if (!brand.wordmark) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);

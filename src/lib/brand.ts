@@ -15,6 +15,8 @@ export type StructureBrand = {
   logoOnDark: string | null;
   /** Le logo contient déjà le nom écrit (sinon le nom est affiché à côté du pictogramme). */
   wordmark: boolean;
+  /** Proportion largeur / hauteur du fichier `logo` (pour les PDF et documents Word). */
+  logoAspect: number;
   /** Couleur principale (hexadécimal) pour les exports PDF / Excel. */
   hex: string;
   /** Classes Tailwind (couleurs définies dans globals.css) */
@@ -25,6 +27,12 @@ export type StructureBrand = {
 
 export const APP_NAME = "Pointage RH";
 export const APP_TAGLINE = "Gestion des présences";
+
+/**
+ * Couleur des en-têtes de tableaux dans les exports PDF / Excel / Word.
+ * Alignée sur `--color-brand-600` (globals.css) : à changer en même temps que la couleur principale.
+ */
+export const EXPORT_ACCENT_HEX = "#2563eb";
 
 /**
  * Logos : fichiers recadrés et allégés dans public/brand/ (scpb.png, afrexia.png),
@@ -38,6 +46,7 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     // Lettres noires : sur fond sombre, le logo est posé sur une pastille blanche.
     logoOnDark: null,
     wordmark: true,
+    logoAspect: 411 / 240,
     hex: "#7a8a2c",
     badgeClass: "bg-scpb-50 text-scpb-700 ring-scpb-100",
     monogramClass: "bg-scpb-600 text-white",
@@ -49,6 +58,7 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     logo: "/brand/afrexia.png",
     logoOnDark: "/brand/afrexia.png",
     wordmark: false,
+    logoAspect: 255 / 240,
     hex: "#24683c",
     badgeClass: "bg-afrexia-50 text-afrexia-700 ring-afrexia-100",
     monogramClass: "bg-afrexia-600 text-white",

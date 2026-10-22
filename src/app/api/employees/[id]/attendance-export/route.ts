@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
+import { toInputDateLocal } from "@/lib/period-range";
 import {
   resolveAttendanceExportRange,
   fetchAttendanceExportLines,
@@ -32,7 +33,7 @@ export async function GET(
 
     const lines = await fetchAttendanceExportLines([id], from, to);
     const buffer = await buildAttendanceExportBuffer(lines, "Pointages");
-    const filename = `pointages_${employee.matricule}_${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}.xlsx`;
+    const filename = `pointages_${employee.matricule}_${toInputDateLocal(from)}_${toInputDateLocal(to)}.xlsx`;
 
     return new NextResponse(buffer, {
       headers: {
