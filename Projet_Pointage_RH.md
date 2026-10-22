@@ -55,7 +55,7 @@ RH ──► Navigateur ──► Supabase Auth ──► Dashboard Next.js ─�
 
 ### 3.2 Bot WhatsApp — séquence type
 
-1. L’employé envoie un message texte (`1`–`15`, « arrivé », « départ », etc.) ou touche un bouton / une ligne du menu (annexe B). « Bonjour » ou un message non compris affiche les **boutons du jour** ; « menu », « aide » ou le bouton **Plus d’options** affiche la **liste** regroupée.
+1. L’employé envoie un message texte (`1`–`15`, « arrivé », « départ », etc.) ou touche un bouton / une ligne du menu (annexe B). « Bonjour » ou un message non compris affiche les boutons **Pointer mon arrivée · Pointer mon départ · Plus d’options**, avec l’état du jour ; « menu », « aide » ou le bouton **Plus d’options** affiche la **liste** regroupée.
 2. Pour pointage : le serveur enregistre une intention dans `pendingActions` (clé = téléphone normalisé) et envoie un **lien** vers `/geoloc` avec `phone` + `action` (`CHECK_IN` | `CHECK_OUT`).
 3. Les **positions envoyées comme message « location » WhatsApp** sont **refusées** (anti-fraude) : l’employé doit utiliser le lien et « Récupérer ma position maintenant ».
 4. `POST /api/geoloc` valide le corps (`phone`, `lat`, `lng`, `action`, `comment?`), retrouve l’employé, appelle `processCheckIn` ou `processCheckOut`, renvoie une réponse JSON et **envoie le message WhatsApp** de retour.
@@ -367,7 +367,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-22 | §9, §10, §13, annexe A | Multi-entreprise : table `organizations`, `organization_id` partout, `tenantDb`, sous-domaines (`goldenbeans.staf-track.com`), crons par entreprise, marque par entreprise, `pnpm org:create`, `pnpm tenant:check`. |
 | 2026-10-21 | §7, §8, §9, §11 | Refonte UI/UX et marque : composants partagés, navigation groupée avec compteurs, filtres dans l'adresse, pages publiques `PublicShell`, `GET /api/nav-counts`, `GET /api/geoloc/context`, corrections listées au §11. |
 | 2026-10-22 | §7, §8, §11 | Vérification du rendu de tous les documents générés : modules `pdf-kit`, `excel-format`, `export-format`, `src/lib/documents/` ; documents individuels refaits (logo, sections, signatures, pied de page) ; corrections listées au §11. |
-| 2026-10-22 | §3.2, §4.3, annexe B | Menu WhatsApp allégé : boutons selon l'état du jour et liste regroupée en 9 entrées (au lieu de 15 lignes de texte) ; numéros 1 à 15 inchangés. |
+| 2026-10-22 | §3.2, §4.3, annexe B | Menu WhatsApp allégé : boutons et liste regroupée en 9 entrées (au lieu de 15 lignes de texte) ; numéros 1 à 15 inchangés. Boutons fixes Arrivée · Départ · Plus d'options, avec l'état du jour (demande des utilisateurs). |
 
 ## 13. Multi-entreprise
 
@@ -440,13 +440,17 @@ Les chiffres **1 à 15** restent acceptés en texte (`parseIntent`, `src/lib/int
 
 **Affichage** (`src/lib/whatsapp-menu.ts`) :
 
-| État du jour | Boutons (« Bonjour » ou message non compris) |
-|--------------|-----------------------------------------------|
-| Pas encore arrivé | Pointer mon arrivée · Demander une absence · Plus d'options |
-| Arrivé | Pointer mon départ · Début de pause · Plus d'options |
-| En pause | Retour de pause · Plus d'options |
-| Pause terminée | Pointer mon départ · Mon statut du jour · Plus d'options |
-| Journée terminée | Mon statut du jour · Plus d'options |
+« Bonjour » ou un message non compris : toujours les trois mêmes boutons, dans le même ordre, **Pointer mon arrivée · Pointer mon départ · Plus d'options** (l'arrivée et le départ sont les actions de tous les jours). Au-dessus, une ligne sur l'état du jour et un rappel :
+
+| État du jour | Ligne d'état | Rappel |
+|--------------|--------------|--------|
+| Pas encore arrivé | « Vous n'avez pas encore pointé votre arrivée aujourd'hui. » | Absence, mission, historique : « Plus d'options » |
+| Arrivé | « Arrivée pointée à HH:MM. » | Pause : « Plus d'options » ou *13* |
+| En pause | « En pause depuis HH:MM. » | Retour de pause : « Plus d'options » ou *14* |
+| Pause terminée | « Arrivée à HH:MM, retour de pause à HH:MM. » | Absence, mission, historique : « Plus d'options » |
+| Journée terminée | « Journée terminée : départ pointé à HH:MM. » | Absence, mission, historique : « Plus d'options » |
+
+Un bouton touché à contretemps (arrivée déjà pointée, départ sans arrivée) reçoit la réponse habituelle du bot.
 
 **Plus d'options** (ou « menu ») : liste WhatsApp de 9 lignes.
 - **Pointage** : arrivée (1), départ (2), pause (13 ou 14 selon l'état), statut du jour (3).
