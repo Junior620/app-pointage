@@ -55,7 +55,7 @@ RH ──► Navigateur ──► Supabase Auth ──► Dashboard Next.js ─�
 
 ### 3.2 Bot WhatsApp — séquence type
 
-1. L’employé envoie un message texte (`1`–`11`, « arrivé », « départ », etc.) ou clique **Arrivée** / **Départ** / **Statut**.
+1. L’employé envoie un message texte (`1`–`15`, « arrivé », « départ », etc.) ou touche un bouton / une ligne du menu (annexe B). « Bonjour » ou un message non compris affiche les **boutons du jour** ; « menu », « aide » ou le bouton **Plus d’options** affiche la **liste** regroupée.
 2. Pour pointage : le serveur enregistre une intention dans `pendingActions` (clé = téléphone normalisé) et envoie un **lien** vers `/geoloc` avec `phone` + `action` (`CHECK_IN` | `CHECK_OUT`).
 3. Les **positions envoyées comme message « location » WhatsApp** sont **refusées** (anti-fraude) : l’employé doit utiliser le lien et « Récupérer ma position maintenant ».
 4. `POST /api/geoloc` valide le corps (`phone`, `lat`, `lng`, `action`, `comment?`), retrouve l’employé, appelle `processCheckIn` ou `processCheckOut`, renvoie une réponse JSON et **envoie le message WhatsApp** de retour.
@@ -107,7 +107,8 @@ RH ──► Navigateur ──► Supabase Auth ──► Dashboard Next.js ─�
 | `src/lib/attendance-engine.ts` | Géofence, check-in/out, calcul heures sup, auto-checkout. |
 | `src/app/api/webhooks/whatsapp/route.ts` | Webhook Meta, intents, saisie motif retard / départ anticipé / heures sup. |
 | `src/lib/intent-parser.ts` | Parsing commandes WhatsApp + option `skipNumericMenuShortcuts`. |
-| `src/lib/whatsapp.ts` | Envoi messages, boutons, demande de localisation (lien). |
+| `src/lib/whatsapp.ts` | Envoi messages, boutons de réponse (`sendWhatsAppReplyButtons`), liste (`sendWhatsAppList`), demande de localisation (lien). |
+| `src/lib/whatsapp-menu.ts` | Menu WhatsApp : état du jour, boutons, liste regroupée, correspondance bouton / ligne → intentions (annexe B). |
 | `src/app/api/geoloc/route.ts` | Pointage effectif après capture GPS navigateur. |
 | `src/lib/auth.ts` | `getSession`, `requireRole`. |
 | `src/lib/supabase/middleware.ts` | Routes publiques vs protégées. |
@@ -366,6 +367,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-22 | §9, §10, §13, annexe A | Multi-entreprise : table `organizations`, `organization_id` partout, `tenantDb`, sous-domaines (`goldenbeans.staf-track.com`), crons par entreprise, marque par entreprise, `pnpm org:create`, `pnpm tenant:check`. |
 | 2026-10-21 | §7, §8, §9, §11 | Refonte UI/UX et marque : composants partagés, navigation groupée avec compteurs, filtres dans l'adresse, pages publiques `PublicShell`, `GET /api/nav-counts`, `GET /api/geoloc/context`, corrections listées au §11. |
 | 2026-10-22 | §7, §8, §11 | Vérification du rendu de tous les documents générés : modules `pdf-kit`, `excel-format`, `export-format`, `src/lib/documents/` ; documents individuels refaits (logo, sections, signatures, pied de page) ; corrections listées au §11. |
+| 2026-10-22 | §3.2, §4.3, annexe B | Menu WhatsApp allégé : boutons selon l'état du jour et liste regroupée en 9 entrées (au lieu de 15 lignes de texte) ; numéros 1 à 15 inchangés. |
 
 ## 13. Multi-entreprise
 
@@ -434,7 +436,24 @@ DEFAULT_ORG_SLUG=groupe
 
 ## Annexe B — Menu numérique WhatsApp (rappel)
 
-Les chiffres **1 à 11** sont décrits dans `HELP_MESSAGE` / `getWelcomeMessage` (`src/lib/intent-parser.ts`). Lorsqu’un **motif d’heures sup** est attendu pour la journée, ces raccourcis sont **désactivés** pour éviter les collisions avec une saisie numérique.
+Les chiffres **1 à 15** restent acceptés en texte (`parseIntent`, `src/lib/intent-parser.ts`). Lorsqu’un **motif d’heures sup** est attendu pour la journée, les raccourcis de consultation sont **désactivés** pour éviter les collisions avec une saisie numérique ; **1**, **2**, **13** et **14** (pointage) restent actifs.
+
+**Affichage** (`src/lib/whatsapp-menu.ts`) :
+
+| État du jour | Boutons (« Bonjour » ou message non compris) |
+|--------------|-----------------------------------------------|
+| Pas encore arrivé | Pointer mon arrivée · Demander une absence · Plus d'options |
+| Arrivé | Pointer mon départ · Début de pause · Plus d'options |
+| En pause | Retour de pause · Plus d'options |
+| Pause terminée | Pointer mon départ · Mon statut du jour · Plus d'options |
+| Journée terminée | Mon statut du jour · Plus d'options |
+
+**Plus d'options** (ou « menu ») : liste WhatsApp de 9 lignes.
+- **Pointage** : arrivée (1), départ (2), pause (13 ou 14 selon l'état), statut du jour (3).
+- **Mon historique** : mes pointages (4 puis 10), mes absences (5 puis 11), mes heures sup (6 puis 8).
+- **Demandes** : demander une absence (12), mes missions (7 puis le lien du 15).
+
+Le détail d'un jour (9) reste accessible par `9 JJ/MM`, rappelé dans la liste. Les anciens boutons `BTN_ARRIVE` / `BTN_DEPART` / `BTN_STATUT` encore présents dans les conversations fonctionnent toujours. Si l'envoi interactif échoue, le bot envoie le menu texte (`getWelcomeMessage` / `HELP_MESSAGE`).
 
 ---
 

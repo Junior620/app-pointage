@@ -1,6 +1,13 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
-import { parseIntent, getWelcomeMessage } from "@/lib/intent-parser";
+import {
+  sendWhatsAppMessage,
+  sendWhatsAppLocationRequest,
+  sendWhatsAppReplyButtons,
+  sendWhatsAppList,
+  normalizePhone,
+} from "@/lib/whatsapp";
+import { dayMenu, fullMenu, menuChoice } from "@/lib/whatsapp-menu";
+import { parseIntent, getWelcomeMessage, HELP_MESSAGE } from "@/lib/intent-parser";
 import { issueLeaveFormToken } from "@/lib/leave-form-token";
 import { issueMissionFormToken } from "@/lib/mission-form-token";
 import {
@@ -10,7 +17,7 @@ import {
 import { formatTime, todayDate, utcCalendarDayBounds } from "@/lib/utils";
 import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
 import { findOrgById, orgBaseUrl, tenantDb, type Db } from "@/lib/tenant";
-import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
+import type { Intent, WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
 const pendingActions = new Map<
@@ -164,7 +171,11 @@ async function handleMessage(
     type: string;
     text?: { body: string };
     location?: { latitude: number; longitude: number };
-    interactive?: { type: string; button_reply?: { id: string; title: string } };
+    interactive?: {
+      type: string;
+      button_reply?: { id: string; title: string };
+      list_reply?: { id: string; title: string };
+    };
   }
 ) {
   cleanPending();
@@ -213,45 +224,19 @@ async function handleMessage(
     return;
   }
 
-  // Clic sur un bouton (Arrivé, Départ, Mon statut)
-  if (message.type === "interactive" && message.interactive?.button_reply) {
-    const id = message.interactive.button_reply.id;
-    if (id === "BTN_ARRIVE") {
-      await sendCheckInLink(db, appUrl, phone, employee.id, normalizedPhone);
-    } else if (id === "BTN_DEPART") {
-      await sendCheckOutLink(db, appUrl, phone, employee.id, normalizedPhone);
-    } else if (id === "BTN_STATUT") {
-      const today = todayDate();
-      const record = await db.attendanceRecord.findUnique({
-        where: { employeeId_date: { employeeId: employee.id, date: today } },
-      });
-      if (!record) {
-        await sendWhatsAppMessage(phone, "Aucun pointage aujourd'hui.");
-      } else {
-        let statusMsg = `📊 *Pointage du jour*\n`;
-        if (record.checkInTime) {
-          const inTime = formatTime(record.checkInTime);
-          statusMsg += `\n✅ Arrivée: ${inTime} (${record.checkInStatus === "LATE" ? "En retard" : "À l'heure"})`;
-        }
-        if (record.checkOutTime) {
-          const outTime = formatTime(record.checkOutTime);
-          statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
-        } else {
-          statusMsg += `\n⏳ Départ: Non encore pointé`;
-        }
-        if (record.breakStartTime) {
-          const breakStartTime = formatTime(record.breakStartTime);
-          statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
-          if (record.breakEndTime) {
-            const breakEndTime = formatTime(record.breakEndTime);
-            statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
-          } else {
-            statusMsg += `\n⚠️ Retour pause: non pointé`;
-          }
-        }
-        statusMsg += `\nStatut: ${record.finalStatus}`;
-        await sendWhatsAppMessage(phone, statusMsg);
-      }
+  const ctx: IntentContext = { db, appUrl, phone, normalizedPhone, employee };
+
+  // Bouton ou ligne de liste du menu (y compris les anciens boutons Arrivé / Départ / Mon statut)
+  if (message.type === "interactive" && message.interactive) {
+    const id = message.interactive.button_reply?.id ?? message.interactive.list_reply?.id ?? "";
+    const choice = menuChoice(id);
+    console.log("[WhatsApp] Menu:", id, "employé:", employee.id);
+    if (choice === "LIST") {
+      await sendFullMenu(ctx);
+    } else if (choice) {
+      for (const intent of choice) await runIntent(ctx, intent);
+    } else {
+      await sendDayMenu(ctx, "Cette option n'est plus disponible.");
     }
     return;
   }
@@ -321,124 +306,160 @@ async function handleMessage(
       }
     }
 
-    switch (intent) {
-      case "CHECK_IN":
-        await sendCheckInLink(db, appUrl, phone, employee.id, normalizedPhone, comment);
-        break;
+    await runIntent(ctx, intent, comment);
+  }
+}
 
-      case "CHECK_OUT":
-        await sendCheckOutLink(db, appUrl, phone, employee.id, normalizedPhone, comment);
-        break;
+type IntentContext = {
+  db: Db;
+  appUrl: string | null;
+  phone: string;
+  normalizedPhone: string;
+  employee: { id: string; firstName: string; active: boolean };
+};
 
-      case "BREAK_START":
-        pendingActions.set(normalizedPhone, {
-          intent: "BREAK_START",
-          timestamp: Date.now(),
-        });
-        await sendWhatsAppLocationRequest(phone, "BREAK_START", appUrl);
-        break;
+/** Traite une intention, qu'elle vienne d'un message texte (numéro, mot-clé) ou du menu (bouton, liste). */
+async function runIntent(ctx: IntentContext, intent: Intent, comment?: string) {
+  const { db, appUrl, phone, normalizedPhone, employee } = ctx;
+  switch (intent) {
+    case "CHECK_IN":
+      await sendCheckInLink(db, appUrl, phone, employee.id, normalizedPhone, comment);
+      break;
 
-      case "BREAK_END":
-        pendingActions.set(normalizedPhone, {
-          intent: "BREAK_END",
-          timestamp: Date.now(),
-        });
-        await sendWhatsAppLocationRequest(phone, "BREAK_END", appUrl);
-        break;
+    case "CHECK_OUT":
+      await sendCheckOutLink(db, appUrl, phone, employee.id, normalizedPhone, comment);
+      break;
 
-      case "STATUS": {
-        const today = todayDate();
-        const record = await db.attendanceRecord.findUnique({
-          where: {
-            employeeId_date: { employeeId: employee.id, date: today },
-          },
-        });
+    case "BREAK_START":
+      pendingActions.set(normalizedPhone, {
+        intent: "BREAK_START",
+        timestamp: Date.now(),
+      });
+      await sendWhatsAppLocationRequest(phone, "BREAK_START", appUrl);
+      break;
 
-        if (!record) {
-          await sendWhatsAppMessage(phone, "Aucun pointage aujourd'hui.");
-        } else {
-          let statusMsg = `📊 *Pointage du jour*\n`;
-          if (record.checkInTime) {
-            const inTime = formatTime(record.checkInTime);
-            statusMsg += `\n✅ Arrivée: ${inTime} (${record.checkInStatus === "LATE" ? "En retard" : "À l'heure"})`;
-          }
-          if (record.checkOutTime) {
-            const outTime = formatTime(record.checkOutTime);
-            statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
-          } else {
-            statusMsg += `\n⏳ Départ: Non encore pointé`;
-          }
-          if (record.breakStartTime) {
-            const breakStartTime = formatTime(record.breakStartTime);
-            statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
-            if (record.breakEndTime) {
-              const breakEndTime = formatTime(record.breakEndTime);
-              statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
-            } else {
-              statusMsg += `\n⚠️ Retour pause: non pointé`;
-            }
-          }
-          statusMsg += `\nStatut: ${record.finalStatus}`;
-          await sendWhatsAppMessage(phone, statusMsg);
-        }
-        break;
-      }
+    case "BREAK_END":
+      pendingActions.set(normalizedPhone, {
+        intent: "BREAK_END",
+        timestamp: Date.now(),
+      });
+      await sendWhatsAppLocationRequest(phone, "BREAK_END", appUrl);
+      break;
 
-      case "MY_ATTENDANCE":
-        await handleMyAttendance(db, phone, employee.id, employee.firstName);
-        break;
+    case "STATUS":
+      await sendTodayStatus(db, phone, employee.id);
+      break;
 
-      case "MY_ABSENCES":
-        await handleMyAbsences(db, phone, employee.id, employee.firstName);
-        break;
+    case "MY_ATTENDANCE":
+      await handleMyAttendance(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "MY_OVERTIME":
-        await handleMyOvertime(db, phone, employee.id, employee.firstName);
-        break;
+    case "MY_ABSENCES":
+      await handleMyAbsences(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "MY_OVERTIME_PENDING":
-        await handleMyOvertimePending(db, phone, employee.id, employee.firstName);
-        break;
+    case "MY_OVERTIME":
+      await handleMyOvertime(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "DAY_DETAIL":
-        await handleDayDetail(
-          db,
-          phone,
-          employee.id,
-          employee.firstName,
-          comment || ""
-        );
-        break;
+    case "MY_OVERTIME_PENDING":
+      await handleMyOvertimePending(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "MY_MISSIONS":
-        await handleMyMissions(db, phone, employee.id, employee.firstName);
-        break;
+    case "DAY_DETAIL":
+      await handleDayDetail(
+        db,
+        phone,
+        employee.id,
+        employee.firstName,
+        comment || ""
+      );
+      break;
 
-      case "MY_PERMISSIONS":
-        await handleMyPermissions(db, phone, employee.id, employee.firstName);
-        break;
+    case "MY_MISSIONS":
+      await handleMyMissions(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "MY_WEEK_SUMMARY":
-        await handleMyWeekSummary(db, phone, employee.id, employee.firstName);
-        break;
+    case "MY_PERMISSIONS":
+      await handleMyPermissions(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "DEMAND_LEAVE_FORM":
-        await handleDemandLeaveFormLink(phone, employee, appUrl);
-        break;
+    case "MY_WEEK_SUMMARY":
+      await handleMyWeekSummary(db, phone, employee.id, employee.firstName);
+      break;
 
-      case "DEMAND_MISSION_FORM":
-        await handleDemandMissionFormLink(phone, employee, appUrl);
-        break;
+    case "DEMAND_LEAVE_FORM":
+      await handleDemandLeaveFormLink(phone, employee, appUrl);
+      break;
 
-      case "GREETING":
-      case "HELP":
-        await sendWhatsAppMessage(phone, getWelcomeMessage(employee.firstName));
-        break;
+    case "DEMAND_MISSION_FORM":
+      await handleDemandMissionFormLink(phone, employee, appUrl);
+      break;
 
-      default:
-        await sendWhatsAppButtons(phone);
+    case "GREETING":
+      await sendDayMenu(ctx, `👋 Bonjour ${employee.firstName}`);
+      break;
+
+    case "HELP":
+      await sendFullMenu(ctx);
+      break;
+
+    default:
+      await sendDayMenu(ctx, "Je n'ai pas compris votre message.");
+  }
+}
+
+function findTodayRecord(db: Db, employeeId: string) {
+  return db.attendanceRecord.findUnique({
+    where: { employeeId_date: { employeeId, date: todayDate() } },
+  });
+}
+
+/** Boutons adaptés à l'état du jour ; menu texte si l'envoi interactif échoue. */
+async function sendDayMenu(ctx: IntentContext, intro: string) {
+  const { body, buttons } = dayMenu(intro, await findTodayRecord(ctx.db, ctx.employee.id));
+  if (!(await sendWhatsAppReplyButtons(ctx.phone, body, buttons))) {
+    await sendWhatsAppMessage(ctx.phone, getWelcomeMessage(ctx.employee.firstName));
+  }
+}
+
+/** Liste regroupée (« Plus d'options », « menu ») ; liste texte des commandes si l'envoi échoue. */
+async function sendFullMenu(ctx: IntentContext) {
+  const { body, buttonText, sections } = fullMenu(await findTodayRecord(ctx.db, ctx.employee.id));
+  if (!(await sendWhatsAppList(ctx.phone, body, buttonText, sections))) {
+    await sendWhatsAppMessage(ctx.phone, HELP_MESSAGE);
+  }
+}
+
+async function sendTodayStatus(db: Db, phone: string, employeeId: string) {
+  const record = await findTodayRecord(db, employeeId);
+  if (!record) {
+    await sendWhatsAppMessage(phone, "Aucun pointage aujourd'hui.");
+    return;
+  }
+  let statusMsg = `📊 *Pointage du jour*\n`;
+  if (record.checkInTime) {
+    const inTime = formatTime(record.checkInTime);
+    statusMsg += `\n✅ Arrivée: ${inTime} (${record.checkInStatus === "LATE" ? "En retard" : "À l'heure"})`;
+  }
+  if (record.checkOutTime) {
+    const outTime = formatTime(record.checkOutTime);
+    statusMsg += `\n🚪 Départ: ${outTime} (${record.checkOutStatus === "AUTO" ? "Auto" : "Manuel"})`;
+  } else {
+    statusMsg += `\n⏳ Départ: Non encore pointé`;
+  }
+  if (record.breakStartTime) {
+    const breakStartTime = formatTime(record.breakStartTime);
+    statusMsg += `\n☕ Départ pause: ${breakStartTime}`;
+    if (record.breakEndTime) {
+      const breakEndTime = formatTime(record.breakEndTime);
+      statusMsg += `\n🔁 Retour pause: ${breakEndTime}`;
+    } else {
+      statusMsg += `\n⚠️ Retour pause: non pointé`;
     }
   }
+  statusMsg += `\nStatut: ${record.finalStatus}`;
+  await sendWhatsAppMessage(phone, statusMsg);
 }
 
 async function handleDemandLeaveFormLink(

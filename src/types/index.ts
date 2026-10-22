@@ -15,7 +15,11 @@ export type WhatsAppMessage = {
   text?: { body: string };
   location?: { latitude: number; longitude: number };
   button?: { payload: string; text: string };
-  interactive?: { type: string; button_reply?: { id: string; title: string } };
+  interactive?: {
+    type: string;
+    button_reply?: { id: string; title: string };
+    list_reply?: { id: string; title: string; description?: string };
+  };
 };
 
 export type WhatsAppWebhookPayload = {
