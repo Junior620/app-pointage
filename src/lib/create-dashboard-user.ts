@@ -1,7 +1,7 @@
 import type { Role } from "@prisma/client";
 import { prisma } from "./prisma";
 import { createSupabaseAdminClient } from "./supabase/admin";
-import { normalizeUserWhatsappPhone } from "./rh-whatsapp-notify";
+import { normalizeUserWhatsappPhone, userWhatsappPhoneConflict } from "./rh-whatsapp-notify";
 
 export class DashboardUserError extends Error {
   constructor(
@@ -14,6 +14,7 @@ export class DashboardUserError extends Error {
 }
 
 export async function createDashboardUser(params: {
+  organizationId: string;
   email: string;
   password: string;
   name: string;
@@ -30,6 +31,7 @@ export async function createDashboardUser(params: {
     );
   }
 
+  // E-mail et numéro WhatsApp sont uniques sur toutes les entreprises (Supabase Auth, webhook).
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     throw new DashboardUserError("Un compte existe déjà avec cet email.", "EMAIL_EXISTS");
@@ -46,21 +48,11 @@ export async function createDashboardUser(params: {
   }
 
   const whatsappPhone = normalizeUserWhatsappPhone(params.whatsappPhone ?? null);
-  if (whatsappPhone) {
-    const conflictEmployee = await prisma.employee.findFirst({
-      where: {
-        OR: [
-          { whatsappPhone },
-          { whatsappPhone: whatsappPhone.replace(/\D/g, "") },
-        ],
-      },
-    });
-    if (conflictEmployee) {
-      throw new DashboardUserError(
-        "Ce numéro WhatsApp est déjà utilisé par un employé.",
-        "UNKNOWN"
-      );
-    }
+  const phoneConflict = await userWhatsappPhoneConflict(whatsappPhone, {
+    organizationId: params.organizationId,
+  });
+  if (phoneConflict) {
+    throw new DashboardUserError(phoneConflict, "UNKNOWN");
   }
 
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -86,6 +78,7 @@ export async function createDashboardUser(params: {
   try {
     return await prisma.user.create({
       data: {
+        organizationId: params.organizationId,
         supabaseAuthId,
         email,
         name,

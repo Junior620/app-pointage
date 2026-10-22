@@ -1,4 +1,4 @@
-import { prisma } from "./prisma";
+import type { Db, TenantScope } from "./tenant";
 import { isWithinZone, haversineDistance } from "./geofence";
 import {
   parseTimeString,
@@ -25,8 +25,8 @@ type CheckResult = {
   earlyMinutes?: number;
 };
 
-async function getScheduleForEmployee(employeeId: string) {
-  const employee = await prisma.employee.findUnique({
+async function getScheduleForEmployee(db: Db, employeeId: string) {
+  const employee = await db.employee.findUnique({
     where: { id: employeeId },
     include: {
       site: { include: { schedules: true } },
@@ -38,8 +38,8 @@ async function getScheduleForEmployee(employeeId: string) {
   return { employee, schedule: employee.site.schedules[0], site: employee.site };
 }
 
-async function isHoliday(date: Date): Promise<boolean> {
-  const holiday = await prisma.holiday.findFirst({
+async function isHoliday(db: Db, date: Date): Promise<boolean> {
+  const holiday = await db.holiday.findFirst({
     where: {
       date: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
     },
@@ -48,12 +48,13 @@ async function isHoliday(date: Date): Promise<boolean> {
 }
 
 async function hasApprovedLeaveOrMission(
+  db: Db,
   employeeId: string,
   date: Date
 ): Promise<{ type: "PERMISSION" | "MISSION" | null }> {
   const { dayStart, dayEnd } = localCalendarDayBounds(date);
 
-  const leave = await prisma.leaveRequest.findFirst({
+  const leave = await db.leaveRequest.findFirst({
     where: {
       employeeId,
       status: "APPROVED",
@@ -64,7 +65,7 @@ async function hasApprovedLeaveOrMission(
   });
   if (leave) return { type: "PERMISSION" };
 
-  const mission = await prisma.mission.findFirst({
+  const mission = await db.mission.findFirst({
     where: {
       employeeId,
       status: "APPROVED",
@@ -144,11 +145,12 @@ function computeBreakDeductedMinutes(measuredMinutes: number): number {
 }
 
 export async function verifyGeofence(
+  { db, organizationId }: TenantScope,
   employeeId: string,
   point: GeoPoint,
   actionType: string
 ): Promise<{ allowed: boolean; distance: number }> {
-  const employee = await prisma.employee.findUnique({
+  const employee = await db.employee.findUnique({
     where: { id: employeeId },
     include: { site: true, checkoutSite: true },
   });
@@ -156,8 +158,9 @@ export async function verifyGeofence(
   const workSites = employee ? getEmployeeWorkSites(employee) : [];
 
   if (!employee || workSites.length === 0) {
-    await prisma.fraudAttempt.create({
+    await db.fraudAttempt.create({
       data: {
+        organizationId,
         employeeId,
         lat: point.lat,
         lng: point.lng,
@@ -176,8 +179,9 @@ export async function verifyGeofence(
   );
 
   if (!allowed) {
-    await prisma.fraudAttempt.create({
+    await db.fraudAttempt.create({
       data: {
+        organizationId,
         employeeId,
         lat: point.lat,
         lng: point.lng,
@@ -191,18 +195,20 @@ export async function verifyGeofence(
 }
 
 export async function processCheckIn(
+  scope: TenantScope,
   employeeId: string,
   point: GeoPoint,
   comment?: string
 ): Promise<CheckResult> {
+  const { db } = scope;
   const now = new Date();
   const today = todayDate();
 
-  if (await isHoliday(today)) {
+  if (await isHoliday(db, today)) {
     return { success: false, message: "Aujourd'hui est un jour férié." };
   }
 
-  const leaveOrMission = await hasApprovedLeaveOrMission(employeeId, today);
+  const leaveOrMission = await hasApprovedLeaveOrMission(db, employeeId, today);
   if (leaveOrMission.type) {
     return {
       success: false,
@@ -210,7 +216,7 @@ export async function processCheckIn(
     };
   }
 
-  const existing = await prisma.attendanceRecord.findUnique({
+  const existing = await db.attendanceRecord.findUnique({
     where: { employeeId_date: { employeeId, date: today } },
   });
 
@@ -218,7 +224,7 @@ export async function processCheckIn(
     return { success: false, message: "Vous avez déjà pointé votre arrivée aujourd'hui." };
   }
 
-  const geo = await verifyGeofence(employeeId, point, "CHECK_IN");
+  const geo = await verifyGeofence(scope, employeeId, point, "CHECK_IN");
   if (!geo.allowed) {
     return {
       success: false,
@@ -226,7 +232,7 @@ export async function processCheckIn(
     };
   }
 
-  const data = await getScheduleForEmployee(employeeId);
+  const data = await getScheduleForEmployee(db, employeeId);
   if (!data) {
     return { success: false, message: "Configuration manquante. Contactez les RH." };
   }
@@ -243,9 +249,10 @@ export async function processCheckIn(
     status = "LATE";
   }
 
-  await prisma.attendanceRecord.upsert({
+  await db.attendanceRecord.upsert({
     where: { employeeId_date: { employeeId, date: today } },
     create: {
+      organizationId: scope.organizationId,
       employeeId,
       date: today,
       checkInTime: now,
@@ -285,15 +292,17 @@ export async function processCheckIn(
 }
 
 export async function processCheckOut(
+  scope: TenantScope,
   employeeId: string,
   point: GeoPoint,
   comment?: string,
   options?: { confirmEarlyCheckout?: boolean }
 ): Promise<CheckResult> {
+  const { db } = scope;
   const now = new Date();
   const today = todayDate();
 
-  const record = await prisma.attendanceRecord.findUnique({
+  const record = await db.attendanceRecord.findUnique({
     where: { employeeId_date: { employeeId, date: today } },
   });
 
@@ -308,7 +317,7 @@ export async function processCheckOut(
     return { success: false, message: "Vous avez déjà pointé votre départ aujourd'hui." };
   }
 
-  const geo = await verifyGeofence(employeeId, point, "CHECK_OUT");
+  const geo = await verifyGeofence(scope, employeeId, point, "CHECK_OUT");
   if (!geo.allowed) {
     return {
       success: false,
@@ -316,7 +325,7 @@ export async function processCheckOut(
     };
   }
 
-  const data = await getScheduleForEmployee(employeeId);
+  const data = await getScheduleForEmployee(db, employeeId);
   if (!data) {
     return { success: false, message: "Configuration manquante. Contactez les RH." };
   }
@@ -383,7 +392,7 @@ export async function processCheckOut(
     const monthStart = startOfMonth(today);
 
     const [weekRecords, monthRecords] = await Promise.all([
-      prisma.attendanceRecord.findMany({
+      db.attendanceRecord.findMany({
         where: {
           employeeId,
           date: { gte: weekStart, lte: today },
@@ -392,7 +401,7 @@ export async function processCheckOut(
         },
         select: { overtimeMinutes: true },
       }),
-      prisma.attendanceRecord.findMany({
+      db.attendanceRecord.findMany({
         where: {
           employeeId,
           date: { gte: monthStart, lte: today },
@@ -418,7 +427,7 @@ export async function processCheckOut(
     overtime = Math.min(overtime, remainingWeek, remainingMonth);
   }
 
-  await prisma.attendanceRecord.update({
+  await db.attendanceRecord.update({
     where: { id: record.id },
     data: {
       checkOutTime: now,
@@ -489,13 +498,15 @@ export async function processCheckOut(
 }
 
 export async function processBreakStart(
+  scope: TenantScope,
   employeeId: string,
   point: GeoPoint
 ): Promise<CheckResult> {
+  const { db } = scope;
   const now = new Date();
   const today = todayDate();
 
-  const record = await prisma.attendanceRecord.findUnique({
+  const record = await db.attendanceRecord.findUnique({
     where: { employeeId_date: { employeeId, date: today } },
   });
   if (!record?.checkInTime) {
@@ -511,7 +522,7 @@ export async function processBreakStart(
     return { success: false, message: "Pause déjà démarrée. Merci de pointer votre retour de pause." };
   }
 
-  const geo = await verifyGeofence(employeeId, point, "BREAK_START");
+  const geo = await verifyGeofence(scope, employeeId, point, "BREAK_START");
   if (!geo.allowed) {
     return {
       success: false,
@@ -519,7 +530,7 @@ export async function processBreakStart(
     };
   }
 
-  await prisma.attendanceRecord.update({
+  await db.attendanceRecord.update({
     where: { id: record.id },
     data: { breakStartTime: now, breakEndTime: null },
   });
@@ -534,13 +545,15 @@ export async function processBreakStart(
 }
 
 export async function processBreakEnd(
+  scope: TenantScope,
   employeeId: string,
   point: GeoPoint
 ): Promise<CheckResult> {
+  const { db } = scope;
   const now = new Date();
   const today = todayDate();
 
-  const record = await prisma.attendanceRecord.findUnique({
+  const record = await db.attendanceRecord.findUnique({
     where: { employeeId_date: { employeeId, date: today } },
   });
   if (!record?.checkInTime) {
@@ -562,7 +575,7 @@ export async function processBreakEnd(
     return { success: false, message: "Le retour de pause est déjà enregistré." };
   }
 
-  const geo = await verifyGeofence(employeeId, point, "BREAK_END");
+  const geo = await verifyGeofence(scope, employeeId, point, "BREAK_END");
   if (!geo.allowed) {
     return {
       success: false,
@@ -572,7 +585,7 @@ export async function processBreakEnd(
 
   const breakMeasuredMinutes = computeBreakMinutes(record.breakStartTime, now, now);
   const breakDeductedMinutes = computeBreakDeductedMinutes(breakMeasuredMinutes);
-  await prisma.attendanceRecord.update({
+  await db.attendanceRecord.update({
     where: { id: record.id },
     data: { breakEndTime: now, breakMinutes: breakMeasuredMinutes, breakDeductedMinutes },
   });
@@ -605,10 +618,10 @@ export type AutoCheckoutResult = {
   missingBreakReturn: boolean;
 };
 
-export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
+export async function runAutoCheckout({ db }: TenantScope): Promise<AutoCheckoutResult[]> {
   const today = todayDate();
 
-  const records = await prisma.attendanceRecord.findMany({
+  const records = await db.attendanceRecord.findMany({
     where: {
       date: today,
       checkInTime: { not: null },
@@ -635,7 +648,7 @@ export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
     const breakDeductedMinutes = computeBreakDeductedMinutes(breakMeasuredMinutes);
     const total = Math.max(0, grossTotal - breakDeductedMinutes);
 
-    await prisma.attendanceRecord.update({
+    await db.attendanceRecord.update({
       where: { id: record.id },
       data: {
         checkOutTime: endTime,
@@ -662,46 +675,49 @@ export async function runAutoCheckout(): Promise<AutoCheckoutResult[]> {
   return results;
 }
 
-export async function runMarkAbsent(): Promise<number> {
+export async function runMarkAbsent({ db, organizationId }: TenantScope): Promise<number> {
   const today = todayDate();
 
   if (!isWorkingDay(today)) return 0;
-  if (await isHoliday(today)) return 0;
+  if (await isHoliday(db, today)) return 0;
 
-  const allActive = await prisma.employee.findMany({
+  const allActive = await db.employee.findMany({
     where: { active: true, whatsappPhone: { not: null } },
     select: { id: true },
   });
 
   let count = 0;
   for (const emp of allActive) {
-    const existing = await prisma.attendanceRecord.findUnique({
+    const existing = await db.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId: emp.id, date: today } },
     });
 
     if (existing) continue;
 
-    const leaveOrMission = await hasApprovedLeaveOrMission(emp.id, today);
+    const leaveOrMission = await hasApprovedLeaveOrMission(db, emp.id, today);
 
     if (leaveOrMission.type === "PERMISSION") {
-      await prisma.attendanceRecord.create({
+      await db.attendanceRecord.create({
         data: {
+          organizationId,
           employeeId: emp.id,
           date: today,
           finalStatus: "PERMISSION",
         },
       });
     } else if (leaveOrMission.type === "MISSION") {
-      await prisma.attendanceRecord.create({
+      await db.attendanceRecord.create({
         data: {
+          organizationId,
           employeeId: emp.id,
           date: today,
           finalStatus: "MISSION",
         },
       });
     } else {
-      await prisma.attendanceRecord.create({
+      await db.attendanceRecord.create({
         data: {
+          organizationId,
           employeeId: emp.id,
           date: today,
           finalStatus: "ABSENT",

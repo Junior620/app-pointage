@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { toInputDateLocal } from "@/lib/period-range";
 import {
   resolveAttendanceExportRange,
@@ -11,7 +10,7 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
 
     const preset = (searchParams.get("preset") || "month") as AttendanceExportPreset;
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
       if (service) where.service = service;
       if (active === "true") where.active = true;
       if (active === "false") where.active = false;
-      const list = await prisma.employee.findMany({
+      const list = await db.employee.findMany({
         where,
         select: { id: true },
       });
@@ -42,7 +41,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Aucun employé sélectionné" }, { status: 400 });
     }
 
-    const lines = await fetchAttendanceExportLines(employeeIds, from, to);
+    const lines = await fetchAttendanceExportLines(db, employeeIds, from, to);
     const buffer = await buildAttendanceExportBuffer(lines, "Pointages");
     const filename = `pointages_${employeeIds.length}employes_${toInputDateLocal(from)}_${toInputDateLocal(to)}.xlsx`;
 

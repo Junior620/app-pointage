@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { getSession, requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
-import { normalizeUserWhatsappPhone } from "@/lib/rh-whatsapp-notify";
+import { getSessionState, requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { normalizeUserWhatsappPhone, userWhatsappPhoneConflict } from "@/lib/rh-whatsapp-notify";
+import { tenantDb } from "@/lib/tenant";
 
 const patchSchema = z.object({
   whatsappPhone: z.union([z.string(), z.null()]).optional(),
@@ -10,12 +10,20 @@ const patchSchema = z.object({
 
 export async function GET() {
   try {
-    const session = await getSession();
-    if (!session) {
+    const state = await getSessionState();
+    if (state.status === "wrong-org") {
+      // Compte valide, mais d'une autre entreprise que celle de l'adresse ouverte.
+      return NextResponse.json(
+        { error: "Ce compte n'appartient pas à cette entreprise.", code: "WRONG_ORG" },
+        { status: 403 }
+      );
+    }
+    if (state.status !== "ok") {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }
+    const { session } = state;
 
-    const user = await prisma.user.findUnique({
+    const user = await tenantDb(session.organizationId).user.findUnique({
       where: { id: session.id },
       select: {
         id: true,
@@ -36,6 +44,7 @@ export async function GET() {
       name: user.name,
       role: user.role,
       whatsappPhone: user.whatsappPhone,
+      organization: session.organization,
     });
   } catch (error) {
     if (error instanceof AuthUnavailableError) return authUnavailableResponse();
@@ -45,7 +54,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN", "DG"]);
+    const { session, org, db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const body = await request.json();
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
@@ -61,42 +70,15 @@ export async function PATCH(request: NextRequest) {
 
     const whatsappPhone = normalizeUserWhatsappPhone(parsed.data.whatsappPhone);
 
-    if (whatsappPhone) {
-      const conflictEmployee = await prisma.employee.findFirst({
-        where: {
-          OR: [
-            { whatsappPhone },
-            { whatsappPhone: whatsappPhone.replace(/\D/g, "") },
-          ],
-        },
-        select: { id: true, matricule: true },
-      });
-      if (conflictEmployee) {
-        return NextResponse.json(
-          {
-            error:
-              "Ce numéro WhatsApp est déjà utilisé par un employé. Utilisez un autre numéro ou contactez l'administrateur.",
-          },
-          { status: 409 }
-        );
-      }
-
-      const conflictUser = await prisma.user.findFirst({
-        where: {
-          whatsappPhone,
-          NOT: { id: session.id },
-        },
-        select: { email: true },
-      });
-      if (conflictUser) {
-        return NextResponse.json(
-          { error: "Ce numéro WhatsApp est déjà utilisé par un autre compte RH." },
-          { status: 409 }
-        );
-      }
+    const conflict = await userWhatsappPhoneConflict(whatsappPhone, {
+      userId: session.id,
+      organizationId: org.id,
+    });
+    if (conflict) {
+      return NextResponse.json({ error: conflict }, { status: 409 });
     }
 
-    const user = await prisma.user.update({
+    const user = await db.user.update({
       where: { id: session.id },
       data: { whatsappPhone },
       select: {

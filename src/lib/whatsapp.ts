@@ -23,7 +23,8 @@ export async function sendWhatsAppMessage(
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
 
   if (!phoneNumberId || !accessToken) {
-    console.error("[WhatsApp] Envoi impossible : WHATSAPP_PHONE_NUMBER_ID ou WHATSAPP_ACCESS_TOKEN manquant");
+    if (process.env.NODE_ENV === "development") console.info("[WhatsApp] (dev, non envoyé) →", to, text);
+    else console.error("[WhatsApp] Envoi impossible : WHATSAPP_PHONE_NUMBER_ID ou WHATSAPP_ACCESS_TOKEN manquant");
     return;
   }
 
@@ -92,19 +93,24 @@ export async function sendWhatsAppButtons(to: string): Promise<void> {
   }
 }
 
+/** `appUrl` : adresse de l'espace de l'entreprise de l'employé (orgBaseUrl), APP_BASE_URL par défaut. */
 export async function sendWhatsAppLocationRequest(
   to: string,
-  action: "CHECK_IN" | "CHECK_OUT" | "BREAK_START" | "BREAK_END"
+  action: "CHECK_IN" | "CHECK_OUT" | "BREAK_START" | "BREAK_END",
+  appUrl?: string | null
 ): Promise<void> {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  const baseUrl = process.env.APP_BASE_URL;
-
-  if (!phoneNumberId || !accessToken) return;
+  const baseUrl = appUrl || process.env.APP_BASE_URL;
 
   const toNumber = toWhatsAppPhone(to);
   const base = baseUrl?.startsWith("http://") || baseUrl?.startsWith("https://") ? baseUrl : `http://${baseUrl || "localhost:3000"}`;
   const geolocUrl = buildGeolocUrl(base, toNumber, action);
+
+  if (!phoneNumberId || !accessToken) {
+    if (process.env.NODE_ENV === "development") console.info("[WhatsApp] (dev, non envoyé) lien GPS →", toNumber, geolocUrl);
+    return;
+  }
   const apiUrl = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
   const response = await fetch(apiUrl, {

@@ -4,6 +4,14 @@ import { createClient } from "@supabase/supabase-js";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Entreprise par défaut (créée aussi par la migration 20261022120000_organizations)
+  const org = await prisma.organization.upsert({
+    where: { slug: "groupe" },
+    update: {},
+    create: { id: "org_groupe", slug: "groupe", name: "SCPB · AFREXIA", structures: ["SCPB", "AFREXIA"] },
+  });
+  const organizationId = org.id;
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -33,6 +41,7 @@ async function main() {
     where: { email: "admin@pointage.com" },
     update: {},
     create: {
+      organizationId,
       supabaseAuthId,
       email: "admin@pointage.com",
       name: "Administrateur",
@@ -58,6 +67,7 @@ async function main() {
       where: { email: "rh@pointage.com" },
       update: {},
       create: {
+        organizationId,
         supabaseAuthId: hrSupabaseId,
         email: "rh@pointage.com",
         name: "Responsable RH",
@@ -72,6 +82,7 @@ async function main() {
     update: {},
     create: {
       id: "default-site",
+      organizationId,
       name: "Siège principal",
       centerLat: 5.3599517,
       centerLng: -4.0082563,
@@ -90,6 +101,7 @@ async function main() {
     },
     create: {
       id: "default-schedule",
+      organizationId,
       siteId: site.id,
       startTime: "08:00",
       endTime: "17:30",
@@ -107,10 +119,11 @@ async function main() {
 
   for (const emp of employees) {
     await prisma.employee.upsert({
-      where: { matricule: emp.matricule },
+      where: { organizationId_matricule: { organizationId, matricule: emp.matricule } },
       update: {},
       create: {
         ...emp,
+        organizationId,
         siteId: site.id,
       },
     });

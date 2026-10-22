@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { orgForEmployeeRequest, WRONG_ORG_LINK_MESSAGE } from "@/lib/tenant";
 import { verifyLeaveFormToken, leaveFormTokenExpiresInMinutes } from "@/lib/leave-form-token";
 
 export async function GET(request: NextRequest) {
@@ -27,6 +28,7 @@ export async function GET(request: NextRequest) {
         service: true,
         structure: true,
         active: true,
+        organizationId: true,
       },
     });
 
@@ -41,6 +43,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const org = await orgForEmployeeRequest(employee.organizationId, request);
+    if (!org) {
+      return NextResponse.json({ error: WRONG_ORG_LINK_MESSAGE }, { status: 400 });
+    }
+
     return NextResponse.json({
       expiresInMinutes: leaveFormTokenExpiresInMinutes(),
       employee: {
@@ -50,6 +57,8 @@ export async function GET(request: NextRequest) {
         service: employee.service,
         structure: employee.structure,
       },
+      /** Structures de l'entreprise (choix de la structure d'accueil d'une mission). */
+      structures: org.structures,
     });
   } catch (e) {
     console.error("[leave-request/prefill]", e);

@@ -54,8 +54,8 @@ export async function updateSession(request: NextRequest) {
   }
 
   // Supabase injoignable alors qu'une session est présente : ce n'est pas une déconnexion.
-  // Les pages continuent (le layout revérifie via getSession()), les API répondent 503.
-  // Rien n'est accordé ici : requireRole() / getSession() restent l'autorité.
+  // Les pages continuent (le layout revérifie via getSessionState()), les API répondent 503.
+  // Rien n'est accordé ici : requireTenant() / getSessionState() restent l'autorité.
   if (auth.status === "unavailable" && hasSessionCookie(request)) {
     if (pathname.startsWith("/api/")) return authUnavailableResponse();
     return supabaseResponse;

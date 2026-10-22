@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import PublicShell, { PublicCard } from "@/components/layout/PublicShell";
+import { OrgStructureNames } from "@/components/org/StructureOptions";
 
 export const metadata: Metadata = {
   title: "Politique de confidentialité",
@@ -16,7 +17,9 @@ export default function PrivacyPage() {
     <PublicShell width="xl" footer={false}>
         <PublicCard className="md:p-10">
           <header className="mb-8 border-b border-slate-100 pb-6">
-            <p className="text-sm font-medium text-brand-700">Pointage RH · SCPB · AFREXIA</p>
+            <p className="text-sm font-medium text-brand-700">
+              Pointage RH · <OrgStructureNames />
+            </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
               Politique de confidentialité
             </h1>

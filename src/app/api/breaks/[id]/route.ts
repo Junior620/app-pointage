@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
 import {
@@ -24,7 +23,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const { id } = await params;
     const body = await request.json();
     const parsed = patchSchema.safeParse(body);
@@ -35,7 +34,7 @@ export async function PATCH(
       );
     }
 
-    const before = await prisma.attendanceRecord.findUnique({ where: { id } });
+    const before = await db.attendanceRecord.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Pointage introuvable" }, { status: 404 });
     }
@@ -101,13 +100,13 @@ export async function PATCH(
       data.breakComment = comment;
     }
 
-    const record = await prisma.attendanceRecord.update({
+    const record = await db.attendanceRecord.update({
       where: { id },
       data,
       include: { employee: { select: { firstName: true, lastName: true, matricule: true } } },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "CORRECTION",
       entity: "AttendanceRecord",

@@ -1,4 +1,6 @@
 import { sendWhatsAppMessage } from "./whatsapp";
+import { structureBrand } from "./brand";
+import { appBaseUrl } from "./tenant";
 
 export type EmployeeWelcomeInput = {
   firstName: string;
@@ -6,6 +8,8 @@ export type EmployeeWelcomeInput = {
   matricule: string;
   service: string;
   structure: string;
+  /** Adresse de l'espace de l'entreprise de l'employé (orgBaseUrl). */
+  appUrl?: string | null;
 };
 
 export function isEmployeeWelcomeEnabled(): boolean {
@@ -14,14 +18,14 @@ export function isEmployeeWelcomeEnabled(): boolean {
 }
 
 export function buildEmployeeWelcomeMessage(emp: EmployeeWelcomeInput): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")?.trim();
+  const baseUrl = emp.appUrl ?? appBaseUrl();
   const businessPhone = process.env.WHATSAPP_BUSINESS_PHONE?.trim();
 
   let msg =
     `👋 *Bienvenue ${emp.firstName} !*\n\n` +
     `Votre compte *Pointage RH* est activé.\n\n` +
     `📋 Matricule : *${emp.matricule}*\n` +
-    `🏢 ${emp.structure} — ${emp.service}\n\n` +
+    `🏢 ${structureBrand(emp.structure)?.name ?? emp.structure} — ${emp.service}\n\n` +
     `*Pour utiliser le bot :* envoyez *Bonjour* ou *menu* sur ce chat.\n\n` +
     `Rappel rapide :\n` +
     `• *1* Arrivée · *2* Départ · *3* Statut\n` +

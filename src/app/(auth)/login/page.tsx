@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { APP_NAME } from "@/lib/brand";
 import BrandMark from "@/components/brand/BrandMark";
 import CoBrand from "@/components/brand/CoBrand";
 import { Button } from "@/components/ui/Button";
+
+const WRONG_ORG_MESSAGE =
+  "Ce compte appartient à une autre entreprise. Connectez-vous depuis l'adresse de votre entreprise.";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -17,6 +20,9 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  // Redirection du dashboard : session ouverte avec un compte d'une autre entreprise.
+  const wrongOrgRedirect = useSearchParams().get("erreur") === "entreprise";
+  const shownError = error || (wrongOrgRedirect ? WRONG_ORG_MESSAGE : "");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,6 +37,26 @@ export default function LoginPage() {
 
     if (error) {
       setError("E-mail ou mot de passe incorrect.");
+      setLoading(false);
+      return;
+    }
+
+    // Le compte doit appartenir à l'entreprise de cette adresse (sous-domaine) et être actif.
+    const me = await fetch("/api/me", { cache: "no-store" }).catch(() => null);
+    // Vérification impossible (réseau ou Supabase injoignable) : ce n'est pas un refus, on garde la session.
+    if (!me || me.status === 503) {
+      setError("Connexion au serveur interrompue. Réessayez dans quelques secondes.");
+      setLoading(false);
+      return;
+    }
+    if (!me.ok) {
+      const body = me ? await me.json().catch(() => null) : null;
+      await supabase.auth.signOut();
+      setError(
+        body?.code === "WRONG_ORG"
+          ? WRONG_ORG_MESSAGE
+          : "Ce compte n'a pas accès à l'espace RH. Contactez un administrateur de l'application."
+      );
       setLoading(false);
       return;
     }
@@ -54,9 +80,9 @@ export default function LoginPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-              {error && (
+              {shownError && (
                 <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200" role="alert">
-                  {error}
+                  {shownError}
                 </div>
               )}
 

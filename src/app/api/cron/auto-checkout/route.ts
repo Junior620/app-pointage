@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAutoCheckout } from "@/lib/attendance-engine";
+import { forEachOrg } from "@/lib/tenant";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { formatTime } from "@/lib/utils";
 
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const results = await runAutoCheckout();
+    const results = (await forEachOrg((scope) => runAutoCheckout(scope))).flat();
 
     let notified = 0;
     for (const r of results) {

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
 import {
   processBreakEnd,
   processBreakStart,
@@ -15,6 +14,8 @@ import {
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { todayDate } from "@/lib/utils";
 import { verifyGeolocLink } from "@/lib/geoloc-link";
+import { notifyRhAdminsWhatsApp } from "@/lib/rh-whatsapp-notify";
+import { DEFAULT_ORG_SLUG, orgForEmployeeRequest, tenantScope, WRONG_ORG_LINK_MESSAGE } from "@/lib/tenant";
 
 const geolocSchema = z.object({
   phone: z.string().min(1, "Le numéro de téléphone est requis"),
@@ -80,6 +81,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce compte employé est désactivé" }, { status: 403 });
     }
 
+    const org = await orgForEmployeeRequest(employee.organizationId, request);
+    if (!org) {
+      return NextResponse.json({ error: WRONG_ORG_LINK_MESSAGE }, { status: 400 });
+    }
+    const scope = tenantScope(org.id);
+    const { db } = scope;
+
     if (action === "LATE_REASON") {
       const reason = comment?.trim();
       if (!reason) {
@@ -87,7 +95,7 @@ export async function POST(request: NextRequest) {
       }
 
       const today = todayDate();
-      const record = await prisma.attendanceRecord.findUnique({
+      const record = await db.attendanceRecord.findUnique({
         where: { employeeId_date: { employeeId: employee.id, date: today } },
       });
 
@@ -103,7 +111,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      await prisma.attendanceRecord.update({
+      await db.attendanceRecord.update({
         where: { id: record.id },
         data: { checkInComment: reason },
       });
@@ -123,14 +131,14 @@ export async function POST(request: NextRequest) {
 
     const result =
       action === "CHECK_IN"
-        ? await processCheckIn(employee.id, point, comment)
+        ? await processCheckIn(scope, employee.id, point, comment)
         : action === "CHECK_OUT"
-          ? await processCheckOut(employee.id, point, comment, {
+          ? await processCheckOut(scope, employee.id, point, comment, {
               confirmEarlyCheckout,
             })
           : action === "BREAK_START"
-            ? await processBreakStart(employee.id, point)
-            : await processBreakEnd(employee.id, point);
+            ? await processBreakStart(scope, employee.id, point)
+            : await processBreakEnd(scope, employee.id, point);
 
     if (result.needsEarlyConfirm) {
       return NextResponse.json({
@@ -149,22 +157,23 @@ export async function POST(request: NextRequest) {
     }
 
     if (result.success && (result.overtimeMinutes ?? 0) > 0) {
+      const ot = result.overtimeMinutes ?? 0;
+      const h = Math.floor(ot / 60);
+      const m = ot % 60;
+      const todayLabel = new Date().toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+      const text = `🕒 Nouvelle heure supplémentaire à valider\n\nEmployé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\nDate : ${todayLabel}\nDurée : ${h}h${m
+        .toString()
+        .padStart(2, "0")}\n\nVous pouvez la traiter dans le module *Heures supplémentaires* du dashboard.`;
+      // Groupe : numéro RH historique (WHATSAPP_HR_PHONE). Autres entreprises : leurs comptes RH / Admin / DG.
       const hrPhone = process.env.WHATSAPP_HR_PHONE;
-      if (hrPhone) {
-        const ot = result.overtimeMinutes ?? 0;
-        const h = Math.floor(ot / 60);
-        const m = ot % 60;
-        const todayLabel = new Date().toLocaleDateString("fr-FR", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
-        await sendWhatsAppMessage(
-          hrPhone,
-          `🕒 Nouvelle heure supplémentaire à valider\n\nEmployé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\nDate : ${todayLabel}\nDurée : ${h}h${m
-            .toString()
-            .padStart(2, "0")}\n\nVous pouvez la traiter dans le module *Heures supplémentaires* du dashboard.`
-        );
+      if (org.slug !== DEFAULT_ORG_SLUG) {
+        await notifyRhAdminsWhatsApp(org, text);
+      } else if (hrPhone) {
+        await sendWhatsAppMessage(hrPhone, text);
       }
     }
 

@@ -22,6 +22,7 @@ import { StatTile } from "@/components/ui/StatTile";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toaster";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import StructureOptions, { useHasSeveralStructures } from "@/components/org/StructureOptions";
 
 interface OvertimeRecord {
   id: string;
@@ -63,6 +64,7 @@ export default function OvertimePage() {
 function OvertimeContent() {
   const toast = useToast();
   const confirm = useConfirm();
+  const severalStructures = useHasSeveralStructures();
   const [filters, setFilters] = useUrlFilters({ status: "", from: "", to: "", structure: "", page: "1" });
   const statusFilter = filters.status;
   const dateFrom = filters.from;
@@ -300,13 +302,14 @@ function OvertimeContent() {
         <FilterField label="Au">
           <Input type="date" value={dateTo} onChange={(e) => setFilters({ to: e.target.value, page: "1" })} />
         </FilterField>
-        <FilterField label="Structure">
-          <Select value={structureFilter} onChange={(e) => setFilters({ structure: e.target.value, page: "1" })}>
-            <option value="">Toutes structures</option>
-            <option value="SCPB">SCPB</option>
-            <option value="AFREXIA">AFREXIA</option>
-          </Select>
-        </FilterField>
+        {severalStructures && (
+          <FilterField label="Structure">
+            <Select value={structureFilter} onChange={(e) => setFilters({ structure: e.target.value, page: "1" })}>
+              <option value="">Toutes structures</option>
+              <StructureOptions />
+            </Select>
+          </FilterField>
+        )}
       </FilterBar>
 
       <Card className="overflow-hidden">

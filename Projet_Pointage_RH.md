@@ -277,12 +277,12 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 |---------|----|
 | Couleurs | `@theme` dans `src/app/globals.css` : `scpb-*` (olive #94a538, orange #f7ad21) et `afrexia-*` (vert forêt #24683c) relevées sur les logos ; `brand-*` (couleur commune de l'interface, bleu provisoire) ; `ink-*` (fonds sombres). |
 | Logos des structures | `src/lib/brand.ts` (`STRUCTURE_BRANDS`) : `logo`, `logoOnDark`, `wordmark` (le logo contient-il le nom ?), `hex` (exports). Sans fichier, un monogramme coloré s'affiche. |
-| Fichiers de logo | `public/brand/scpb.png` et `public/brand/afrexia.png` (recadrés, 240 px de haut), générés à partir des originaux fournis `logo.png` (SCPB) et `logo-dark.png` (AFREXIA). |
+| Fichiers de logo | `public/brand/scpb.png` et `public/brand/afrexia.png` (recadrés, 240 px de haut), générés à partir des originaux fournis `logo.png` (SCPB) et `logo-dark.png` (AFREXIA). `public/brand/goldenbeans.png` (254 × 240) : emblème seul, recadré depuis l'original 1080 × 1080 (`goldenbeans-original.png`, non versionné). Le texte « GOLDEN BEANS » y serait illisible à 24–48 px de haut ou 11 mm, donc `wordmark: false` et le nom est écrit à côté. |
 | Logos dans les PDF | `addPdfLogos(doc, structures)` (`src/lib/pdf-branding.ts`) : rapports, listes employés / missions, ordre de mission et demande d'autorisation (logo de la structure de l'employé). |
 | Pictogramme de l'application | `src/components/brand/BrandMark.tsx`, favicon `src/app/icon.svg`, icône iOS `src/app/apple-icon.tsx`. |
 | Couleurs des graphiques | `src/lib/chart-colors.ts`. |
 
-**Remplacer un logo** : déposer le nouveau fichier dans `public/brand/` (PNG transparent recadré), mettre à jour son chemin dans `STRUCTURE_BRANDS` et, s'il change de proportions, `logoAspect` (largeur / hauteur, utilisé par les PDF et les documents Word). La couleur des en-têtes de tableaux des exports est `EXPORT_ACCENT_HEX` (même fichier). Écrans RH : les deux logos côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
+**Remplacer un logo** : déposer le nouveau fichier dans `public/brand/` (PNG transparent recadré), mettre à jour son chemin dans `STRUCTURE_BRANDS` et, s'il change de proportions, `logoAspect` (largeur / hauteur, utilisé par les PDF et les documents Word). La couleur des en-têtes de tableaux des exports est `EXPORT_ACCENT_HEX` (même fichier). Écrans RH : les logos des structures de l'entreprise côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
 
 ### 8.3 Composants partagés (`src/components/ui/`)
 
@@ -303,8 +303,9 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | Sujet | Détail |
 |-------|--------|
 | **Auth utilisateurs RH** | Supabase ; session lue côté serveur ; API dashboard : 401 si non connecté (middleware). |
-| **Supabase Auth injoignable** | `checkUser()` (`src/lib/supabase/check-user.ts`) distingue « pas de session valide » (aucun cookie, jeton refusé en 4xx, session absente) de « Supabase injoignable » (`fetch failed`, 502/503/504, autre 5xx, réponse illisible). Dans le second cas : **un seul nouvel essai** après 300 ms (pas de nouvel essai si le premier a déjà pris plus de 3 s), puis, si un cookie `sb-…-auth-token` est présent, **pas de déconnexion** : les pages continuent et le layout du tableau de bord affiche « Connexion au serveur interrompue » avec un bouton Réessayer ; les API répondent **503** (`Retry-After: 5`, message « Service de connexion momentanément injoignable… »). Sans cookie de session, redirection vers `/login` et 401 comme avant. Les cookies ne sont pas effacés. |
-| **Rôles** | `requireRole([...])` sur les routes API (ex. ADMIN seul pour suppression employé). Reste l'autorité : le middleware n'accorde jamais l'accès quand Supabase est injoignable, et `getSession()` lève alors `AuthUnavailableError` au lieu de renvoyer `null`. Effets : écran « Connexion au serveur interrompue » si c'est le layout qui échoue, écran d'erreur du tableau de bord (`(dashboard)/error.tsx`) si c'est la page, **503** si c'est une route API : chaque `catch` commence par `if (error instanceof AuthUnavailableError) return authUnavailableResponse();` (même réponse que le middleware). Nouvelle route : ajouter cette ligne dans son `catch`. |
+| **Supabase Auth injoignable** | `checkUser()` (`src/lib/supabase/check-user.ts`) distingue « pas de session valide » (aucun cookie, jeton refusé en 4xx, session absente) de « Supabase injoignable » (`fetch failed`, 502/503/504, autre 5xx, réponse illisible). Dans le second cas : **un seul nouvel essai** après 300 ms (pas de nouvel essai si le premier a déjà pris plus de 3 s), puis, si un cookie `sb-…-auth-token` est présent, **pas de déconnexion** : les pages continuent et le layout du tableau de bord affiche « Connexion au serveur interrompue » avec un bouton Réessayer ; les API répondent **503** (`Retry-After: 5`, message « Service de connexion momentanément injoignable… »). Sans cookie de session, redirection vers `/login` et 401 comme avant. Les cookies ne sont pas effacés. Page de connexion : si `/api/me` répond 503 ou ne répond pas juste après la connexion, message « Connexion au serveur interrompue… » sans déconnexion (le contrôle d'entreprise reste fait par le layout et `requireTenant()`). |
+| **Rôles** | `requireRole([...])` / `requireTenant([...])` sur les routes API (ex. ADMIN seul pour suppression employé). Reste l'autorité : le middleware n'accorde jamais l'accès quand Supabase est injoignable, et `getSessionState()` / `getSession()` lèvent alors `AuthUnavailableError` au lieu de conclure à « anonyme ». Effets : écran « Connexion au serveur interrompue » si c'est le layout qui échoue, écran d'erreur du tableau de bord (`(dashboard)/error.tsx`) si c'est la page, **503** si c'est une route API : chaque `catch` commence par `if (error instanceof AuthUnavailableError) return authUnavailableResponse();` (même réponse que le middleware). Nouvelle route : ajouter cette ligne dans son `catch`. |
+| **Cloisonnement des entreprises** | Voir §13 : `tenantDb(orgId)` sur toutes les requêtes du dashboard, compte valable uniquement sur l'adresse de son entreprise, liens publics refusés sur une autre adresse. |
 | **Données employés** | Accès Prisma via `DATABASE_URL` serveur — ne pas exposer la clé service côté client. |
 | **Webhook WhatsApp** | Route publique ; validation par Meta (token vérification GET). |
 | **RLS Supabase** | Migration `20260403120000_enable_rls_public_tables` : **RLS activée** sur les tables `public` listées (linter 0013). Pas de policies permissives : PostgREST `anon`/`authenticated` sans accès aux lignes par défaut ; Prisma (rôle propriétaire / privilégié) conserve l’accès. |
@@ -317,7 +318,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 
 | Idée | Description |
 |------|-------------|
-| Multi-tenant | `organizationId` sur toutes les tables, isolation stricte RLS + policies par org. |
+| Multi-tenant | **Fait** (§13) : `organizationId` sur toutes les tables, cloisonnement applicatif (`tenantDb`). Piste : RLS + policies par entreprise en défense supplémentaire, création d'entreprise sans déploiement (structures en table). |
 | Congés longs | Module distinct des « permissions » courtes (soldes, types, workflows). |
 | Self-service employé web | Portail sécurisé en plus du WhatsApp. |
 | Facturation | Plans, limites utilisateurs / sites. |
@@ -362,8 +363,45 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-04-03 | §7, §8 | Export permissions Excel client ; pagination missions/permissions. |
 | 2026-04-11 | §6, §11, dashboard | Week-end : pas de retard à l’arrivée ; pointage dimanche ; message dashboard week-end. |
 | 2026-04-11 | §6, annexes env | Défaut heures sup semaine : début fenêtre **18h30** (au lieu de 18h00). Planning type seed : arrivée 8h, marge 30 min, fin 17h30. |
+| 2026-10-22 | §9, §10, §13, annexe A | Multi-entreprise : table `organizations`, `organization_id` partout, `tenantDb`, sous-domaines (`goldenbeans.staf-track.com`), crons par entreprise, marque par entreprise, `pnpm org:create`, `pnpm tenant:check`. |
 | 2026-10-21 | §7, §8, §9, §11 | Refonte UI/UX et marque : composants partagés, navigation groupée avec compteurs, filtres dans l'adresse, pages publiques `PublicShell`, `GET /api/nav-counts`, `GET /api/geoloc/context`, corrections listées au §11. |
 | 2026-10-22 | §7, §8, §11 | Vérification du rendu de tous les documents générés : modules `pdf-kit`, `excel-format`, `export-format`, `src/lib/documents/` ; documents individuels refaits (logo, sections, signatures, pied de page) ; corrections listées au §11. |
+
+## 13. Multi-entreprise
+
+Plusieurs entreprises partagent la même application et la même base, chacune dans un espace cloisonné.
+
+| Entreprise | Adresse | Structures |
+|------------|---------|------------|
+| `groupe` (par défaut) | `staf-track.com` (domaine de `APP_BASE_URL`) | SCPB, AFREXIA |
+| `goldenbeans` | `goldenbeans.staf-track.com` | GOLDENBEANS |
+
+### 13.1 Principe
+
+- Table `organizations` (`slug`, `name`, `structures`) ; colonne `organization_id` sur toutes les tables métier.
+- **L'adresse désigne l'entreprise** : sous-domaine → `slug` (`orgSlugFromHost`, `src/lib/tenant.ts`). Le domaine racine, `www`, `localhost` et les URL Vercel donnent l'entreprise par défaut (`DEFAULT_ORG_SLUG`, « groupe »). En local : `goldenbeans.localhost:3000`.
+- **Un compte RH n'est valable que sur l'adresse de son entreprise** (`getSessionState` → `wrong-org`) : la connexion est refusée avec un message, le dashboard renvoie vers `/login?erreur=entreprise`. Les cookies de session sont propres à chaque sous-domaine.
+- **Accès aux données** : toujours via `requireTenant(roles)` (routes) ou `tenantDb(orgId)` / `tenantScope(orgId)` (fonctions métier). `tenantDb` est une extension Prisma qui ajoute `organizationId` à chaque filtre et refuse toute écriture vers une autre entreprise (`TenantViolationError`). Les créations indiquent `organizationId` explicitement (vérifié par `tsc`).
+- **Règle ESLint** : `@/lib/prisma` est interdit dans `src/app` et `src/components`, sauf pour les liens publics qui retrouvent d'abord l'employé sur toutes les entreprises (jeton signé, numéro WhatsApp).
+- **Unicité** : matricule et numéro d'ordre de mission par entreprise ; numéros WhatsApp (employés et comptes RH) et e-mails des comptes uniques sur toute la base.
+- **Liens publics** (GPS, formulaires) : construits avec `orgBaseUrl(org)` ; refusés s'ils sont ouverts sur l'adresse d'une autre entreprise (`orgForEmployeeRequest`).
+- **WhatsApp** : un seul numéro pour toutes les entreprises ; l'employé est reconnu à son numéro, puis tout se fait dans son entreprise. Alertes RH : comptes RH / Admin / DG de l'entreprise ; les numéros `WHATSAPP_*_NOTIFY_PHONES` et `WHATSAPP_HR_PHONE` ne servent qu'au groupe.
+- **Crons** : un passage par entreprise active (`forEachOrg`), mêmes horaires pour toutes.
+- **Interface** : `OrgProvider` (layout racine) → `useOrg()` ; logos (`CoBrand`), listes de structures (`StructureOptions`), PDF. Les filtres « structure » n'apparaissent que si l'entreprise en a plusieurs.
+
+### 13.2 Ajouter une entreprise
+
+1. Ajouter sa structure à l'enum `Structure` (migration `ALTER TYPE "Structure" ADD VALUE …`), à `STRUCTURE_BRANDS` (`src/lib/brand.ts`), aux couleurs `@theme` (`globals.css`), à `Badge` / `STRUCTURE_TONE` (proportion du logo : `logoAspect`).
+2. Déposer son logo dans `public/brand/<structure>.png` (PNG transparent recadré, ≥ 512 px de large ; variante `-dark` pour le menu si besoin).
+3. Vercel : ajouter le domaine `<slug>.staf-track.com` ; DNS : `CNAME <slug> → cname.vercel-dns.com` ; Supabase Auth : ajouter `https://<slug>.staf-track.com/**` aux URL de redirection.
+4. `pnpm org:create --slug <slug> --name "<Nom>" --structures <STRUCTURE> --admin-email … --admin-name "…"` : crée l'entreprise, recopie les jours fériés du groupe et le premier compte ADMIN (mot de passe saisi, masqué, dans le terminal).
+5. L'administrateur de l'entreprise configure ses sites, horaires, employés et comptes RH depuis son espace.
+
+### 13.3 Migrations
+
+- `20261022120000_organizations` (étape 1/2) : compatible avec l'ancien code (valeur par défaut `org_groupe`, anciennes unicités conservées). À appliquer **avant** le déploiement.
+- `prisma/after-deploy/20261022130000_organizations_finalize` (étape 2/2) : retire les valeurs par défaut et les unicités globales. À déplacer dans `prisma/migrations/` puis appliquer **après** le déploiement, avant de créer une autre entreprise.
+- Contrôle du cloisonnement sur une base locale : `pnpm tenant:check`.
 
 ---
 
@@ -384,6 +422,9 @@ OVERTIME_START_HOUR=18
 OVERTIME_START_MINUTE=30
 OVERTIME_END_HOUR=21
 WHATSAPP_HR_PHONE=
+# Multi-entreprise (§13) : domaine racine = celui de APP_BASE_URL
+APP_BASE_URL=https://staf-track.com
+DEFAULT_ORG_SLUG=groupe
 ```
 
 ---

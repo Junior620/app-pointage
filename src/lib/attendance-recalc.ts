@@ -1,4 +1,4 @@
-import { prisma } from "./prisma";
+import type { Db } from "./tenant";
 import { BREAK_EXPECTED_DURATION_MIN } from "./attendance-engine";
 import { minutesBetween, parseTimeString, isSaturdayOrSunday } from "./utils";
 import { APP_TIMEZONE } from "./timezone";
@@ -20,13 +20,14 @@ export function computeBreakDeductedMinutes(measuredMinutes: number): number {
 }
 
 export async function deriveCheckInStatus(
+  db: Db,
   employeeId: string,
   date: Date,
   checkInTime: Date
 ): Promise<CheckInStatus> {
   if (isSaturdayOrSunday(date)) return "ON_TIME";
 
-  const employee = await prisma.employee.findUnique({
+  const employee = await db.employee.findUnique({
     where: { id: employeeId },
     include: { site: { include: { schedules: true } } },
   });

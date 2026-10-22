@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 
 const siteSchema = z.object({
@@ -32,18 +31,18 @@ const updateBody = z.object({
 
 export async function GET() {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
 
     const [sites, schedules, holidays] = await Promise.all([
-      prisma.site.findMany({
+      db.site.findMany({
         include: { schedules: true },
         orderBy: { name: "asc" },
       }),
-      prisma.schedule.findMany({
+      db.schedule.findMany({
         include: { site: true },
         orderBy: { startTime: "asc" },
       }),
-      prisma.holiday.findMany({ orderBy: { date: "asc" } }),
+      db.holiday.findMany({ orderBy: { date: "asc" } }),
     ]);
 
     return NextResponse.json({ data: { sites, schedules, holidays } });
@@ -59,7 +58,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const body = await request.json();
 
     const parsed = updateBody.safeParse(body);
@@ -73,16 +72,16 @@ export async function PUT(request: NextRequest) {
       const { id, ...rest } = data as { id: string; [key: string]: unknown };
       if (!id) return NextResponse.json({ error: "ID du site requis" }, { status: 400 });
 
-      const before = await prisma.site.findUnique({ where: { id } });
+      const before = await db.site.findUnique({ where: { id } });
       if (!before) return NextResponse.json({ error: "Site non trouvé" }, { status: 404 });
 
-      const site = await prisma.site.update({
+      const site = await db.site.update({
         where: { id },
         data: rest,
         include: { schedules: true },
       });
 
-      await createAuditLog({ actorId: session.id, action: "UPDATE", entity: "Site", entityId: id, before, after: site });
+      await createAuditLog(scope, { actorId: session.id, action: "UPDATE", entity: "Site", entityId: id, before, after: site });
       return NextResponse.json({ data: site });
     }
 
@@ -90,12 +89,12 @@ export async function PUT(request: NextRequest) {
       const { id, ...rest } = data as { id: string; [key: string]: unknown };
       if (!id) return NextResponse.json({ error: "ID du planning requis" }, { status: 400 });
 
-      const before = await prisma.schedule.findUnique({ where: { id } });
+      const before = await db.schedule.findUnique({ where: { id } });
       if (!before) return NextResponse.json({ error: "Planning non trouvé" }, { status: 404 });
 
-      const schedule = await prisma.schedule.update({ where: { id }, data: rest });
+      const schedule = await db.schedule.update({ where: { id }, data: rest });
 
-      await createAuditLog({ actorId: session.id, action: "UPDATE", entity: "Schedule", entityId: id, before, after: schedule });
+      await createAuditLog(scope, { actorId: session.id, action: "UPDATE", entity: "Schedule", entityId: id, before, after: schedule });
       return NextResponse.json({ data: schedule });
     }
 
@@ -103,10 +102,10 @@ export async function PUT(request: NextRequest) {
       const { id, ...rest } = data as { id: string; [key: string]: unknown };
       if (!id) return NextResponse.json({ error: "ID du jour férié requis" }, { status: 400 });
 
-      const before = await prisma.holiday.findUnique({ where: { id } });
+      const before = await db.holiday.findUnique({ where: { id } });
       if (!before) return NextResponse.json({ error: "Jour férié non trouvé" }, { status: 404 });
 
-      const holiday = await prisma.holiday.update({
+      const holiday = await db.holiday.update({
         where: { id },
         data: {
           ...rest,
@@ -114,7 +113,7 @@ export async function PUT(request: NextRequest) {
         },
       });
 
-      await createAuditLog({ actorId: session.id, action: "UPDATE", entity: "Holiday", entityId: id, before, after: holiday });
+      await createAuditLog(scope, { actorId: session.id, action: "UPDATE", entity: "Holiday", entityId: id, before, after: holiday });
       return NextResponse.json({ data: holiday });
     }
 
@@ -131,7 +130,7 @@ export async function PUT(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const body = await request.json();
 
     const parsed = updateBody.safeParse(body);
@@ -147,8 +146,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Données du site invalides", details: validated.error.flatten() }, { status: 400 });
       }
 
-      const site = await prisma.site.create({ data: validated.data, include: { schedules: true } });
-      await createAuditLog({ actorId: session.id, action: "CREATE", entity: "Site", entityId: site.id, after: site });
+      const site = await db.site.create({
+        data: { ...validated.data, organizationId: session.organizationId },
+        include: { schedules: true },
+      });
+      await createAuditLog(scope, { actorId: session.id, action: "CREATE", entity: "Site", entityId: site.id, after: site });
       return NextResponse.json({ data: site }, { status: 201 });
     }
 
@@ -158,11 +160,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Données du planning invalides", details: validated.error.flatten() }, { status: 400 });
       }
 
-      const site = await prisma.site.findUnique({ where: { id: validated.data.siteId } });
+      const site = await db.site.findUnique({ where: { id: validated.data.siteId } });
       if (!site) return NextResponse.json({ error: "Site non trouvé" }, { status: 404 });
 
-      const schedule = await prisma.schedule.create({ data: validated.data });
-      await createAuditLog({ actorId: session.id, action: "CREATE", entity: "Schedule", entityId: schedule.id, after: schedule });
+      const schedule = await db.schedule.create({
+        data: { ...validated.data, organizationId: session.organizationId },
+      });
+      await createAuditLog(scope, { actorId: session.id, action: "CREATE", entity: "Schedule", entityId: schedule.id, after: schedule });
       return NextResponse.json({ data: schedule }, { status: 201 });
     }
 
@@ -172,14 +176,15 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Données du jour férié invalides", details: validated.error.flatten() }, { status: 400 });
       }
 
-      const holiday = await prisma.holiday.create({
+      const holiday = await db.holiday.create({
         data: {
+          organizationId: session.organizationId,
           name: validated.data.name,
           date: new Date(validated.data.date),
           recurring: validated.data.recurring ?? false,
         },
       });
-      await createAuditLog({ actorId: session.id, action: "CREATE", entity: "Holiday", entityId: holiday.id, after: holiday });
+      await createAuditLog(scope, { actorId: session.id, action: "CREATE", entity: "Holiday", entityId: holiday.id, after: holiday });
       return NextResponse.json({ data: holiday }, { status: 201 });
     }
 
@@ -196,7 +201,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const { searchParams } = request.nextUrl;
     const type = searchParams.get("type");
     const id = searchParams.get("id");
@@ -206,10 +211,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (type === "holiday") {
-      const before = await prisma.holiday.findUnique({ where: { id } });
+      const before = await db.holiday.findUnique({ where: { id } });
       if (!before) return NextResponse.json({ error: "Jour férié non trouvé" }, { status: 404 });
-      await prisma.holiday.delete({ where: { id } });
-      await createAuditLog({ actorId: session.id, action: "DELETE", entity: "Holiday", entityId: id, before });
+      await db.holiday.delete({ where: { id } });
+      await createAuditLog(scope, { actorId: session.id, action: "DELETE", entity: "Holiday", entityId: id, before });
       return NextResponse.json({ success: true });
     }
 

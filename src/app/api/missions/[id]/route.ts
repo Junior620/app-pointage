@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
@@ -16,10 +15,10 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
 
-    const mission = await prisma.mission.findUnique({
+    const mission = await db.mission.findUnique({
       where: { id },
       include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
@@ -41,7 +40,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 export async function PUT(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const { id } = await context.params;
     const body = await request.json();
 
@@ -50,7 +49,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const before = await prisma.mission.findUnique({ where: { id } });
+    const before = await db.mission.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Mission non trouvée" }, { status: 404 });
     }
@@ -87,7 +86,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       updateData.daysCompleted = capped;
     }
 
-    const mission = await prisma.mission.update({
+    const mission = await db.mission.update({
       where: { id },
       data: updateData,
       include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
@@ -99,7 +98,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         ? "REJECT"
         : "UPDATE";
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action,
       entity: "Mission",
@@ -165,10 +164,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["HR", "ADMIN", "DG"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
 
-    const before = await prisma.mission.findUnique({ where: { id } });
+    const before = await db.mission.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Mission non trouvée" }, { status: 404 });
     }
@@ -177,7 +176,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Cette mission est déjà annulée." }, { status: 400 });
     }
 
-    const mission = await prisma.mission.update({
+    const mission = await db.mission.update({
       where: { id },
       data: {
         cancelledAt: new Date(),
@@ -186,7 +185,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "CANCEL",
       entity: "Mission",

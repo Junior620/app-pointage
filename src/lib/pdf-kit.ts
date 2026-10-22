@@ -129,7 +129,7 @@ export async function addPdfHeader(
     title,
     subtitle = [],
     structures,
-  }: { title: string; subtitle?: string | string[]; structures?: (string | null | undefined)[] }
+  }: { title: string; subtitle?: string | string[]; structures: (string | null | undefined)[] }
 ): Promise<number> {
   await addPdfLogos(doc, structures);
   doc.setFont("helvetica", "bold");

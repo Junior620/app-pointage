@@ -36,6 +36,7 @@ export const OVERTIME_STATUS: Record<string, StatusMeta> = {
 export const STRUCTURE_TONE: Record<string, BadgeTone> = {
   SCPB: "scpb",
   AFREXIA: "afrexia",
+  GOLDENBEANS: "goldenbeans",
 };
 
 export type StatusKind = "final" | "checkIn" | "checkOut" | "request" | "overtime";

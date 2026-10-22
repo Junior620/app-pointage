@@ -3,11 +3,14 @@
 import type { ReactNode } from "react";
 import { ToastProvider } from "./Toaster";
 import { ConfirmProvider } from "./ConfirmDialog";
+import { OrgProvider, type OrgClientInfo } from "@/components/org/OrgProvider";
 
-export default function Providers({ children }: { children: ReactNode }) {
+export default function Providers({ org, children }: { org: OrgClientInfo; children: ReactNode }) {
   return (
-    <ToastProvider>
-      <ConfirmProvider>{children}</ConfirmProvider>
-    </ToastProvider>
+    <OrgProvider org={org}>
+      <ToastProvider>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </ToastProvider>
+    </OrgProvider>
   );
 }

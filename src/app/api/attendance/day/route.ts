@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { isWorkingDay, utcCalendarDayBounds } from "@/lib/utils";
 
 function toDateInputValueUTC(d: Date): string {
@@ -20,7 +19,7 @@ function parseDateOnlyUTC(dateStr: string): Date {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
 
     const service = searchParams.get("service")?.trim() || undefined;
@@ -38,7 +37,7 @@ export async function GET(request: NextRequest) {
     const employeeWhere: Record<string, unknown> = { active: true };
     if (service) employeeWhere.service = service;
 
-    const employees = await prisma.employee.findMany({
+    const employees = await db.employee.findMany({
       where: employeeWhere,
       select: {
         id: true,
@@ -54,7 +53,7 @@ export async function GET(request: NextRequest) {
     const employeeIds = employees.map((e) => e.id);
 
     const [attendanceRecords, leaveRequests, missions] = await Promise.all([
-      prisma.attendanceRecord.findMany({
+      db.attendanceRecord.findMany({
         where: { date: day, employeeId: { in: employeeIds } },
         select: {
           employeeId: true,
@@ -63,7 +62,7 @@ export async function GET(request: NextRequest) {
           checkInTime: true,
         },
       }),
-      prisma.leaveRequest.findMany({
+      db.leaveRequest.findMany({
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",
@@ -73,7 +72,7 @@ export async function GET(request: NextRequest) {
         },
         select: { employeeId: true },
       }),
-      prisma.mission.findMany({
+      db.mission.findMany({
         where: {
           employeeId: { in: employeeIds },
           status: "APPROVED",

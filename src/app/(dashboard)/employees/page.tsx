@@ -30,6 +30,9 @@ import { downloadBlob } from "@/lib/documents/download";
 import { finishSheet } from "@/lib/excel-format";
 import { fileDateStamp, generatedAtLabel } from "@/lib/export-format";
 import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
+import { STRUCTURE_BRANDS, STRUCTURE_CODES, type StructureCode } from "@/lib/brand";
+import { useOrg } from "@/components/org/OrgProvider";
+import StructureOptions from "@/components/org/StructureOptions";
 import { useDebouncedCommit, useUrlFilters } from "@/lib/use-url-filters";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card } from "@/components/ui/Card";
@@ -59,7 +62,7 @@ interface Employee {
   firstName: string;
   lastName: string;
   service: string;
-  structure: "SCPB" | "AFREXIA";
+  structure: StructureCode;
   whatsappPhone: string | null;
   whatsappPhones?: { phone: string; sortOrder: number }[];
   active: boolean;
@@ -97,7 +100,7 @@ const employeeSchema = z.object({
   firstName: z.string().min(1, "Le prénom est requis"),
   lastName: z.string().min(1, "Le nom est requis"),
   service: z.string().min(1, "Le service est requis"),
-  structure: z.enum(["SCPB", "AFREXIA"]).default("SCPB"),
+  structure: z.enum(STRUCTURE_CODES),
   whatsappPhone: z.string().optional(),
   whatsappPhone2: z.string().optional(),
   siteId: z.string().optional(),
@@ -113,6 +116,7 @@ const EMPTY_FORM: EmployeeForm = {
   firstName: "",
   lastName: "",
   service: "",
+  // Remplacée à l'ouverture du formulaire par la première structure de l'entreprise.
   structure: "SCPB",
   whatsappPhone: "",
   whatsappPhone2: "",
@@ -131,6 +135,7 @@ export default function EmployeesPage() {
 function EmployeesContent() {
   const toast = useToast();
   const confirm = useConfirm();
+  const { structures: orgStructures } = useOrg();
   const [filters, setFilters] = useUrlFilters({ q: "", service: "", structure: "", status: "all", page: "1" });
   const search = filters.q;
   const serviceFilter = filters.service;
@@ -287,10 +292,12 @@ function EmployeesContent() {
     };
 
     addSheet("Tous", all);
-    const scpb = all.filter((e) => e.structure === "SCPB");
-    const afrexia = all.filter((e) => e.structure === "AFREXIA");
-    if (scpb.length > 0) addSheet("SCPB", scpb);
-    if (afrexia.length > 0) addSheet("AFREXIA", afrexia);
+    if (orgStructures.length > 1) {
+      for (const code of orgStructures) {
+        const rows = all.filter((e) => e.structure === code);
+        if (rows.length > 0) addSheet(STRUCTURE_BRANDS[code].name, rows);
+      }
+    }
 
     const buffer = await workbook.xlsx.writeBuffer();
     downloadBlob(
@@ -306,7 +313,7 @@ function EmployeesContent() {
 
     const doc = await createPdf({ orientation: "landscape", unit: "mm", format: "a4" });
 
-    const generatePage = async (title: string, data: Employee[], startNew: boolean, structures?: string[]) => {
+    const generatePage = async (title: string, data: Employee[], startNew: boolean, structures: string[] = orgStructures) => {
       if (startNew) doc.addPage("a4", "landscape");
       const active = data.filter((e) => e.active).length;
       const inactive = data.length - active;
@@ -341,10 +348,12 @@ function EmployeesContent() {
 
     await generatePage("Liste des employés", all, false);
 
-    const scpb = all.filter((e) => e.structure === "SCPB");
-    const afrexia = all.filter((e) => e.structure === "AFREXIA");
-    if (scpb.length > 0) await generatePage("Employés — SCPB", scpb, true, ["SCPB"]);
-    if (afrexia.length > 0) await generatePage("Employés — AFREXIA", afrexia, true, ["AFREXIA"]);
+    if (orgStructures.length > 1) {
+      for (const code of orgStructures) {
+        const rows = all.filter((e) => e.structure === code);
+        if (rows.length > 0) await generatePage(`Employés — ${STRUCTURE_BRANDS[code].name}`, rows, true, [code]);
+      }
+    }
 
     savePdf(doc, `employes_${fileDateStamp()}.pdf`);
     toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (PDF).`);
@@ -352,7 +361,7 @@ function EmployeesContent() {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, structure: orgStructures[0] ?? EMPTY_FORM.structure });
     setErrors({});
     setModalOpen(true);
   };
@@ -364,7 +373,7 @@ function EmployeesContent() {
       firstName: emp.firstName,
       lastName: emp.lastName,
       service: emp.service,
-      structure: emp.structure ?? "SCPB",
+      structure: emp.structure ?? orgStructures[0] ?? EMPTY_FORM.structure,
       whatsappPhone: emp.whatsappPhones?.[0]?.phone ?? emp.whatsappPhone ?? "",
       whatsappPhone2: emp.whatsappPhones?.[1]?.phone ?? "",
       siteId: emp.siteId ?? emp.site?.id ?? "",
@@ -623,13 +632,14 @@ function EmployeesContent() {
             ))}
           </Select>
         </FilterField>
-        <FilterField label="Structure">
-          <Select value={structureFilter} onChange={(e) => setFilters({ structure: e.target.value, page: "1" })}>
-            <option value="">Toutes les structures</option>
-            <option value="SCPB">SCPB</option>
-            <option value="AFREXIA">AFREXIA</option>
-          </Select>
-        </FilterField>
+        {orgStructures.length > 1 && (
+          <FilterField label="Structure">
+            <Select value={structureFilter} onChange={(e) => setFilters({ structure: e.target.value, page: "1" })}>
+              <option value="">Toutes les structures</option>
+              <StructureOptions />
+            </Select>
+          </FilterField>
+        )}
         <FilterField label="Statut">
           <Select value={statusFilter} onChange={(e) => setFilters({ status: e.target.value, page: "1" })}>
             <option value="all">Tous les statuts</option>
@@ -872,9 +882,8 @@ function EmployeesContent() {
             </Field>
             <Field label="Structure" required>
               {(id) => (
-                <Select id={id} value={form.structure} onChange={(e) => setForm({ ...form, structure: e.target.value as "SCPB" | "AFREXIA" })}>
-                  <option value="SCPB">SCPB</option>
-                  <option value="AFREXIA">AFREXIA</option>
+                <Select id={id} value={form.structure} onChange={(e) => setForm({ ...form, structure: e.target.value as StructureCode })}>
+                  <StructureOptions />
                 </Select>
               )}
             </Field>
@@ -895,14 +904,14 @@ function EmployeesContent() {
               {editingId ? (
                 <Field label="Matricule" error={errors.matricule}>
                   {(id) => (
-                    <Input id={id} value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} placeholder="SCPB-IT-4829" className="font-mono" />
+                    <Input id={id} value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} placeholder={`${orgStructures[0] ? STRUCTURE_BRANDS[orgStructures[0]].matriculePrefix : "MAT"}-IT-4829`} className="font-mono" />
                   )}
                 </Field>
               ) : (
                 <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
                   Matricule généré à l&apos;enregistrement :{" "}
                   <span className="font-mono text-slate-700">
-                    {form.structure}-{form.service || "SERVICE"}-XXXX
+                    {STRUCTURE_BRANDS[form.structure].matriculePrefix}-{form.service || "SERVICE"}-XXXX
                   </span>{" "}
                   (4 chiffres aléatoires et uniques).
                 </p>

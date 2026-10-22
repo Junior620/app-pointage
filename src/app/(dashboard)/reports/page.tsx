@@ -38,6 +38,8 @@ import { Table, THead, Th, Tr, Td, TableMessageRow } from "@/components/ui/Table
 import { EmptyState, Skeleton } from "@/components/ui/EmptyState";
 import { StatTile } from "@/components/ui/StatTile";
 import { useToast } from "@/components/ui/Toaster";
+import StructureOptions, { useHasSeveralStructures } from "@/components/org/StructureOptions";
+import { STRUCTURE_BRANDS, STRUCTURE_CODES } from "@/lib/brand";
 
 interface ReportRow {
   id: string;
@@ -151,6 +153,7 @@ function ReportsContent() {
   const toast = useToast();
   const presets = presetRanges();
   const monthPreset = presets[1];
+  const severalStructures = useHasSeveralStructures();
   const [filters, setFilters] = useUrlFilters({ from: monthPreset.from, to: monthPreset.to, service: "", structure: "" });
   const dateFrom = filters.from;
   const dateTo = filters.to;
@@ -390,13 +393,14 @@ function ReportsContent() {
               ))}
             </Select>
           </FilterField>
-          <FilterField label="Structure">
-            <Select value={structure} onChange={(e) => setFilters({ structure: e.target.value })}>
-              <option value="">Toutes</option>
-              <option value="SCPB">SCPB</option>
-              <option value="AFREXIA">AFREXIA</option>
-            </Select>
-          </FilterField>
+          {severalStructures && (
+            <FilterField label="Structure">
+              <Select value={structure} onChange={(e) => setFilters({ structure: e.target.value })}>
+                <option value="">Toutes</option>
+                <StructureOptions />
+              </Select>
+            </FilterField>
+          )}
           <FilterField label="Employé" className="sm:col-span-2 lg:min-w-[260px] lg:flex-1">
             <div className="relative" ref={employeeInputRef}>
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -855,9 +859,10 @@ async function exportExcel(rows: ReportRow[], summary: Summary | null, period: s
   };
 
   addSheet("Tous", rows);
-  for (const struct of ["SCPB", "AFREXIA"] as const) {
+  for (const struct of STRUCTURE_CODES) {
     const structRows = rows.filter((r) => r.structure === struct);
-    if (structRows.length > 0) addSheet(struct, structRows);
+    // Une feuille par structure seulement si le rapport en couvre plusieurs.
+    if (structRows.length > 0 && structRows.length < rows.length) addSheet(STRUCTURE_BRANDS[struct].name, structRows);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -907,16 +912,17 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, period: str
     columnStyles: centered(4, 11),
   });
 
-  for (const label of ["SCPB", "AFREXIA"] as const) {
+  for (const label of STRUCTURE_CODES) {
     const structRows = sorted.filter((r) => r.structure === label);
-    if (structRows.length === 0) continue;
+    // Une page par structure seulement si le rapport en couvre plusieurs.
+    if (structRows.length === 0 || structRows.length === rows.length) continue;
     doc.addPage("a4", "landscape");
     const totalH = structRows.reduce((s, r) => s + r.totalHours, 0);
     const totalOt = structRows.reduce((s, r) => s + r.overtimeHours, 0);
     const totalAbs = structRows.reduce((s, r) => s + r.absents, 0);
     const totalRet = structRows.reduce((s, r) => s + r.retards, 0);
     const y = await addPdfHeader(doc, {
-      title: `Récapitulatif — ${label}`,
+      title: `Récapitulatif — ${STRUCTURE_BRANDS[label].name}`,
       structures: [label],
       subtitle: [
         `Période ${period}`,

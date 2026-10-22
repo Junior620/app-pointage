@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { forEachOrg, sum } from "@/lib/tenant";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
@@ -22,13 +22,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, message: "Week-end — pas de rappel pause", count: 0 });
   }
 
-  const holiday = await prisma.holiday.findFirst({
-    where: { date: new Date(today.getFullYear(), today.getMonth(), today.getDate()) },
-  });
-  if (holiday) {
-    return NextResponse.json({ success: true, message: "Jour férié — pas de rappel pause", count: 0 });
-  }
-
   const now = new Date();
   const windowStart = parseTimeString(STANDARD_LUNCH_END, today, APP_TIMEZONE);
   const windowUntil = new Date(windowStart.getTime() + 45 * 60 * 1000);
@@ -40,38 +33,48 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const records = await prisma.attendanceRecord.findMany({
-    where: {
-      date: today,
-      checkInTime: { not: null },
-      checkOutTime: null,
-      breakStartTime: { not: null },
-      breakEndTime: null,
-    },
-    include: {
-      employee: { select: { firstName: true, whatsappPhone: true, active: true } },
-    },
-  });
+  const count = sum(
+    await forEachOrg(async ({ db }) => {
+      const holiday = await db.holiday.findFirst({
+        where: { date: new Date(today.getFullYear(), today.getMonth(), today.getDate()) },
+      });
+      if (holiday) return 0;
 
-  let count = 0;
-  for (const record of records) {
-    if (!record.employee.active || !record.employee.whatsappPhone) continue;
+      const records = await db.attendanceRecord.findMany({
+        where: {
+          date: today,
+          checkInTime: { not: null },
+          checkOutTime: null,
+          breakStartTime: { not: null },
+          breakEndTime: null,
+        },
+        include: {
+          employee: { select: { firstName: true, whatsappPhone: true, active: true } },
+        },
+      });
 
-    const lunchEnd = parseTimeString(STANDARD_LUNCH_END, today, APP_TIMEZONE);
-    const pauseEndFromStart = new Date(
-      record.breakStartTime!.getTime() + BREAK_EXPECTED_DURATION_MIN * 60 * 1000
-    );
-    const expectedReturn = new Date(
-      Math.max(lunchEnd.getTime(), pauseEndFromStart.getTime())
-    );
-    if (now < expectedReturn) continue;
+      let count = 0;
+      for (const record of records) {
+        if (!record.employee.active || !record.employee.whatsappPhone) continue;
 
-    await sendWhatsAppMessage(
-      record.employee.whatsappPhone,
-      `🔔 *Fin de pause (${BREAK_EXPECTED_DURATION_MIN} min)*\n\nBonjour ${record.employee.firstName}, votre pause est terminée.\n\nTapez *retour pause* ou *14* pour pointer votre reprise.`
-    );
-    count++;
-  }
+        const lunchEnd = parseTimeString(STANDARD_LUNCH_END, today, APP_TIMEZONE);
+        const pauseEndFromStart = new Date(
+          record.breakStartTime!.getTime() + BREAK_EXPECTED_DURATION_MIN * 60 * 1000
+        );
+        const expectedReturn = new Date(
+          Math.max(lunchEnd.getTime(), pauseEndFromStart.getTime())
+        );
+        if (now < expectedReturn) continue;
+
+        await sendWhatsAppMessage(
+          record.employee.whatsappPhone,
+          `🔔 *Fin de pause (${BREAK_EXPECTED_DURATION_MIN} min)*\n\nBonjour ${record.employee.firstName}, votre pause est terminée.\n\nTapez *retour pause* ou *14* pour pointer votre reprise.`
+        );
+        count++;
+      }
+      return count;
+    })
+  );
 
   return NextResponse.json({
     success: true,

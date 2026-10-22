@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type { DepartureReason, Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import {
   EmployeeWhatsappError,
@@ -12,6 +11,9 @@ import {
 } from "@/lib/employee-whatsapp";
 import { sendEmployeeWelcomeWhatsAppToPhones } from "@/lib/employee-welcome";
 import { parseDateInputForDbDate } from "@/lib/utils";
+import { STRUCTURE_CODES } from "@/lib/brand";
+import { orgBaseUrl } from "@/lib/tenant";
+import { assertOrgSites, assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
 
 const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT"] as const;
 
@@ -21,7 +23,7 @@ const updateEmployeeBodySchema = z
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     service: z.string().optional(),
-    structure: z.enum(["SCPB", "AFREXIA"]).optional(),
+    structure: z.enum(STRUCTURE_CODES).optional(),
     siteId: z.union([z.string(), z.null()]).optional(),
     checkoutSiteId: z.union([z.string(), z.null()]).optional(),
     whatsappPhone: z.union([z.string(), z.null()]).optional(),
@@ -37,13 +39,13 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const employee = await prisma.employee.findUnique({
+    const employee = await db.employee.findUnique({
       where: { id },
       include: {
         site: true,
@@ -73,7 +75,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 export async function PUT(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, org, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const { id } = await context.params;
     const rawBody = await request.json();
     const parsed = updateEmployeeBodySchema.safeParse(rawBody);
@@ -85,7 +87,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
     const body = parsed.data;
 
-    const before = await prisma.employee.findUnique({ where: { id } });
+    const before = await db.employee.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
@@ -98,6 +100,13 @@ export async function PUT(request: NextRequest, context: RouteContext) {
           ? body.checkoutSiteId.trim() || null
           : null
         : undefined;
+
+    if (body.structure !== undefined) assertOrgStructure(org, body.structure);
+    await assertOrgSites(db, [siteIdValue, checkoutSiteIdValue]);
+    if (body.matricule !== undefined && body.matricule !== before.matricule) {
+      const taken = await db.employee.findFirst({ where: { matricule: body.matricule, NOT: { id } } });
+      if (taken) return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
+    }
 
     const data: Prisma.EmployeeUpdateInput = {};
 
@@ -162,7 +171,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       }
     }
 
-    const employee = await prisma.employee.update({
+    const employee = await db.employee.update({
       where: { id },
       data,
       include: {
@@ -172,7 +181,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "UPDATE",
       entity: "Employee",
@@ -191,10 +200,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       const phone2 =
         body.whatsappPhone2 !== undefined ? body.whatsappPhone2 : beforePhones[1] ?? "";
       try {
-        const afterPhones = await syncEmployeeWhatsappPhones(id, [phone1, phone2]);
+        const afterPhones = await syncEmployeeWhatsappPhones(org.id, id, [phone1, phone2]);
         const newPhones = diffNewWhatsappPhones(beforePhones, afterPhones);
         employeeOut =
-          (await prisma.employee.findUnique({
+          (await db.employee.findUnique({
             where: { id },
             include: {
               site: true,
@@ -209,6 +218,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             matricule: employeeOut.matricule,
             service: employeeOut.service,
             structure: employeeOut.structure,
+            appUrl: orgBaseUrl(org),
           });
         }
       } catch (e) {
@@ -225,6 +235,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
+      if (error instanceof OrgValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
@@ -232,15 +243,15 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["ADMIN"]);
+    const { session, db, scope } = await requireTenant(["ADMIN"]);
     const { id } = await context.params;
 
-    const before = await prisma.employee.findUnique({ where: { id } });
+    const before = await db.employee.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
-    await prisma.$transaction(
+    await db.$transaction(
       async (tx) => {
         await tx.$executeRaw`SET LOCAL statement_timeout = '120s'`;
         await tx.hrRemark.deleteMany({ where: { employeeId: id } });
@@ -254,7 +265,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     );
 
     try {
-      await createAuditLog({
+      await createAuditLog(scope, {
         actorId: session.id,
         action: "DELETE",
         entity: "Employee",

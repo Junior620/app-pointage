@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { Structure } from "@prisma/client";
 import { parseDateInputForDbDate, utcCalendarDayBounds } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
 
     const startDate = searchParams.get("dateFrom") || searchParams.get("startDate");
@@ -43,7 +42,7 @@ export async function GET(request: NextRequest) {
         }),
     };
 
-    const employees = await prisma.employee.findMany({
+    const employees = await db.employee.findMany({
       where: employeeWhere,
       include: {
         attendances: { where: dateFilter },
@@ -211,7 +210,7 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.overtimeHours - a.overtimeHours)
       .slice(0, 5);
 
-    const overtimeIssuesRaw = await prisma.attendanceRecord.groupBy({
+    const overtimeIssuesRaw = await db.attendanceRecord.groupBy({
       by: ["employeeId"],
       where: {
         date: { gte: rangeFrom, lte: rangeTo },
@@ -227,7 +226,7 @@ export async function GET(request: NextRequest) {
     const overtimeIssueEmployeeIds = overtimeIssuesRaw.map((r) => r.employeeId);
     const overtimeIssueEmployees =
       overtimeIssueEmployeeIds.length > 0
-        ? await prisma.employee.findMany({
+        ? await db.employee.findMany({
             where: { id: { in: overtimeIssueEmployeeIds } },
             select: {
               id: true,
@@ -267,7 +266,7 @@ export async function GET(request: NextRequest) {
       overtimeHours: Math.round((minutes / 60) * 10) / 10,
     }));
 
-    const services = await prisma.employee.findMany({
+    const services = await db.employee.findMany({
       where: { active: true },
       select: { service: true },
       distinct: ["service"],

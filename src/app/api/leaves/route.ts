@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { LeaveAbsenceCategory } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
@@ -20,7 +19,7 @@ const createLeaveSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
 
     const status = searchParams.get("status");
@@ -44,19 +43,19 @@ export async function GET(request: NextRequest) {
     const activeWhere = { ...where, ...activeRequestFilter };
 
     const [leaves, total, pending, approved, rejected, cancelled, services] = await Promise.all([
-      prisma.leaveRequest.findMany({
+      db.leaveRequest.findMany({
         where,
         include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
       }),
-      prisma.leaveRequest.count({ where }),
-      prisma.leaveRequest.count({ where: { ...activeWhere, status: "PENDING" } }),
-      prisma.leaveRequest.count({ where: { ...activeWhere, status: "APPROVED" } }),
-      prisma.leaveRequest.count({ where: { ...activeWhere, status: "REJECTED" } }),
-      prisma.leaveRequest.count({ where: { ...where, cancelledAt: { not: null } } }),
-      prisma.employee.findMany({
+      db.leaveRequest.count({ where }),
+      db.leaveRequest.count({ where: { ...activeWhere, status: "PENDING" } }),
+      db.leaveRequest.count({ where: { ...activeWhere, status: "APPROVED" } }),
+      db.leaveRequest.count({ where: { ...activeWhere, status: "REJECTED" } }),
+      db.leaveRequest.count({ where: { ...where, cancelledAt: { not: null } } }),
+      db.employee.findMany({
         select: { service: true },
         distinct: ["service"],
         orderBy: { service: "asc" },
@@ -83,7 +82,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN", "DG"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN", "DG"]);
     const body = await request.json();
 
     const parsed = createLeaveSchema.safeParse(body);
@@ -91,7 +90,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const employee = await prisma.employee.findUnique({ where: { id: parsed.data.employeeId } });
+    const employee = await db.employee.findUnique({ where: { id: parsed.data.employeeId } });
     if (!employee) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
@@ -101,8 +100,9 @@ export async function POST(request: NextRequest) {
         ? undefined
         : parsed.data.notifyOrReplace.trim() || null;
 
-    const leave = await prisma.leaveRequest.create({
+    const leave = await db.leaveRequest.create({
       data: {
+        organizationId: session.organizationId,
         employeeId: parsed.data.employeeId,
         startDate: new Date(parsed.data.startDate),
         endDate: new Date(parsed.data.endDate),
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       include: { employee: { include: { whatsappPhones: { orderBy: { sortOrder: "asc" } } } } },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "CREATE",
       entity: "LeaveRequest",

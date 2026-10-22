@@ -1,7 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { prisma } from "./prisma";
-
-type Tx = Prisma.TransactionClient;
+import { tenantDb, type Db } from "./tenant";
 
 /** Format affiché : 3/06/2026 (séquence / mois de début de mission / année). */
 export function formatMissionOrderNumber(seq: number, referenceDate: Date): string {
@@ -17,11 +15,12 @@ export function missionOrderTitle(orderNumber: string | null | undefined, startD
   return `ORDRE DE MISSION N°${num}`;
 }
 
-async function nextSequenceForYear(tx: Tx, year: number): Promise<number> {
+/** Compteur annuel propre à chaque entreprise (SQL brut : l'entreprise est passée explicitement). */
+async function nextSequenceForYear(tx: Db, organizationId: string, year: number): Promise<number> {
   const rows = await tx.$queryRaw<{ last_seq: number }[]>`
-    INSERT INTO mission_order_sequences (year, last_seq)
-    VALUES (${year}, 1)
-    ON CONFLICT (year)
+    INSERT INTO mission_order_sequences (organization_id, year, last_seq)
+    VALUES (${organizationId}, ${year}, 1)
+    ON CONFLICT (organization_id, year)
     DO UPDATE SET last_seq = mission_order_sequences.last_seq + 1
     RETURNING last_seq
   `;
@@ -33,24 +32,26 @@ async function nextSequenceForYear(tx: Tx, year: number): Promise<number> {
 }
 
 export async function allocateMissionOrderNumber(
+  organizationId: string,
   referenceDate: Date,
-  tx: Tx = prisma
+  tx: Db = tenantDb(organizationId)
 ): Promise<string> {
   const year = referenceDate.getFullYear();
-  const seq = await nextSequenceForYear(tx, year);
+  const seq = await nextSequenceForYear(tx, organizationId, year);
   return formatMissionOrderNumber(seq, referenceDate);
 }
 
 export async function createMissionWithOrderNumber(
   data: Omit<Prisma.MissionUncheckedCreateInput, "orderNumber">
 ) {
+  const { organizationId } = data;
   const start =
     data.startDate instanceof Date
       ? data.startDate
       : new Date(data.startDate as string | number | Date);
 
-  return prisma.$transaction(async (tx) => {
-    const orderNumber = await allocateMissionOrderNumber(start, tx);
+  return tenantDb(organizationId).$transaction(async (tx) => {
+    const orderNumber = await allocateMissionOrderNumber(organizationId, start, tx);
     return tx.mission.create({
       data: { ...data, orderNumber },
       include: { employee: true },

@@ -1,4 +1,4 @@
-import { prisma } from "./prisma";
+import type { TenantScope } from "./tenant";
 import type { PublicSubmissionType } from "@prisma/client";
 
 export function clientIpFromRequest(request: Request): string | null {
@@ -12,17 +12,21 @@ export function clientIpFromRequest(request: Request): string | null {
   return null;
 }
 
-export async function logPublicSubmission(params: {
-  employeeId: string;
-  type: PublicSubmissionType;
-  entity: string;
-  entityId: string;
-  request: Request;
-  payload?: unknown;
-}) {
+export async function logPublicSubmission(
+  { db, organizationId }: TenantScope,
+  params: {
+    employeeId: string;
+    type: PublicSubmissionType;
+    entity: string;
+    entityId: string;
+    request: Request;
+    payload?: unknown;
+  }
+) {
   const userAgent = params.request.headers.get("user-agent");
-  await prisma.publicSubmissionLog.create({
+  await db.publicSubmissionLog.create({
     data: {
+      organizationId,
       employeeId: params.employeeId,
       type: params.type,
       entity: params.entity,

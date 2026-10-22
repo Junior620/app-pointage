@@ -27,6 +27,9 @@ import { downloadBlob, downloadMissionOrderDocx, downloadMissionOrderPdf } from 
 import { EXCEL_DATE_FORMAT, excelDay, finishSheet, setColumnFormats } from "@/lib/excel-format";
 import { fileDateStamp, fmtDayFr, generatedAtLabel } from "@/lib/export-format";
 import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
+import { STRUCTURE_BRANDS, STRUCTURE_CODES } from "@/lib/brand";
+import { useOrg } from "@/components/org/OrgProvider";
+import StructureOptions from "@/components/org/StructureOptions";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { refreshNavCounts } from "@/lib/use-nav-counts";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -83,7 +86,7 @@ const missionSchema = z
     endDate: z.string().min(1, "La date de fin est requise"),
     reason: z.string().min(1, "Le motif est requis"),
     location: z.string().optional(),
-    hostStructure: z.enum(["SCPB", "AFREXIA"]).optional(),
+    hostStructure: z.enum(STRUCTURE_CODES).optional(),
     transport: z.string().optional(),
     lodging: z.string().optional(),
     expenses: z.string().optional(),
@@ -126,6 +129,7 @@ export default function MissionsPage() {
 function MissionsContent() {
   const toast = useToast();
   const confirm = useConfirm();
+  const { structures: orgStructures } = useOrg();
   const [filters, setFilters] = useUrlFilters({ status: "", from: "", to: "", service: "", employee: "", page: "1" });
   const statusFilter = filters.status;
   const dateFrom = filters.from;
@@ -317,7 +321,7 @@ function MissionsContent() {
     try {
       const all = await fetchAllMissions();
       if (kind === "excel") await exportExcel(all);
-      else await exportPdf(all);
+      else await exportPdf(all, orgStructures);
       toast.success(`${all.length} mission${all.length > 1 ? "s" : ""} exportée${all.length > 1 ? "s" : ""}.`);
     } catch (e) {
       console.error(e);
@@ -340,7 +344,11 @@ function MissionsContent() {
     <div className="space-y-6">
       <PageHeader
         title="Missions"
-        description="Ordres de mission et déplacements professionnels, entre SCPB, AFREXIA ou à l'extérieur."
+        description={
+          orgStructures.length > 1
+            ? `Ordres de mission et déplacements professionnels, entre ${orgStructures.map((c) => STRUCTURE_BRANDS[c].name).join(", ")} ou à l'extérieur.`
+            : "Ordres de mission et déplacements professionnels."
+        }
         actions={
           <>
             <Button
@@ -644,8 +652,7 @@ function MissionsContent() {
               {(id) => (
                 <Select id={id} value={form.hostStructure} onChange={(e) => setForm({ ...form, hostStructure: e.target.value })}>
                   <option value="">Aucune (mission externe)</option>
-                  <option value="SCPB">SCPB</option>
-                  <option value="AFREXIA">AFREXIA</option>
+                  <StructureOptions />
                 </Select>
               )}
             </Field>
@@ -928,7 +935,7 @@ async function exportExcel(all: Mission[]) {
   );
 }
 
-async function exportPdf(all: Mission[]) {
+async function exportPdf(all: Mission[], structures: string[]) {
   const { autoTable } = await import("jspdf-autotable");
   const doc = await createPdf({ orientation: "landscape", unit: "mm", format: "a4" });
 
@@ -938,6 +945,7 @@ async function exportPdf(all: Mission[]) {
   const cancelled = all.filter((m) => m.cancelledAt).length;
   const startY = await addPdfHeader(doc, {
     title: "Rapport des missions",
+    structures,
     subtitle: [
       `${all.length} mission${all.length > 1 ? "s" : ""} · généré le ${generatedAtLabel()}`,
       `En attente : ${pending}   ·   Approuvées : ${approvedCount}   ·   Refusées : ${rejected}   ·   Annulées : ${cancelled}`,
@@ -968,6 +976,7 @@ async function exportPdf(all: Mission[]) {
     const y = await addPdfHeader(doc, {
       title: "Récapitulatif paie — missions approuvées",
       subtitle: `${approved.length} mission${approved.length > 1 ? "s" : ""} approuvée${approved.length > 1 ? "s" : ""}`,
+      structures,
     });
     autoTable(doc, {
       ...PDF_TABLE,

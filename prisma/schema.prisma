@@ -39,6 +39,7 @@ enum RequestStatus {
 enum Structure {
   SCPB
   AFREXIA
+  GOLDENBEANS
 }
 
 /** Type de demande (formulaire officiel RH). */
@@ -84,8 +85,42 @@ enum OvertimeStatus {
   REJECTED
 }
 
+/**
+ * Entreprise cliente. Chaque donnée métier lui appartient (organizationId) et l'application
+ * ne montre que les données de l'entreprise de l'adresse ouverte (sous-domaine, cf. src/lib/tenant.ts).
+ */
+model Organization {
+  id         String      @id @default(cuid())
+  /** Sous-domaine : « goldenbeans » → goldenbeans.<ROOT_DOMAIN>. L'entreprise par défaut répond aussi sur le domaine racine. */
+  slug       String      @unique
+  name       String
+  /** Structures (marques) de l'entreprise, dans l'ordre d'affichage des logos. */
+  structures Structure[]
+  active     Boolean     @default(true)
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+  users User[]
+  employees Employee[]
+  employeeWhatsappPhones EmployeeWhatsappPhone[]
+  sites Site[]
+  schedules Schedule[]
+  attendanceRecords AttendanceRecord[]
+  leaveRequests LeaveRequest[]
+  missionOrderSequences MissionOrderSequence[]
+  missions Mission[]
+  fraudAttempts FraudAttempt[]
+  holidays Holiday[]
+  hrRemarks HrRemark[]
+  auditLogs AuditLog[]
+  publicSubmissionLogs PublicSubmissionLog[]
+
+  @@map("organizations")
+}
+
 model User {
   id              String     @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   supabaseAuthId  String     @unique @map("supabase_auth_id")
   email           String     @unique
   name            String
@@ -98,12 +133,15 @@ model User {
   auditLogs       AuditLog[]
   hrRemarks       HrRemark[]
 
+  @@index([organizationId])
   @@map("users")
 }
 
 model Employee {
   id               String             @id @default(cuid())
-  matricule        String             @unique
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  matricule        String
   firstName        String             @map("first_name")
   lastName         String             @map("last_name")
   service          String
@@ -131,11 +169,14 @@ model Employee {
   publicSubmissions PublicSubmissionLog[]
   whatsappPhones     EmployeeWhatsappPhone[]
 
+  @@unique([organizationId, matricule])
   @@map("employees")
 }
 
 model EmployeeWhatsappPhone {
   id         String   @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId String   @map("employee_id")
   employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   phone      String   @unique @map("phone")
@@ -144,11 +185,14 @@ model EmployeeWhatsappPhone {
 
   @@unique([employeeId, phone])
   @@index([employeeId])
+  @@index([organizationId])
   @@map("employee_whatsapp_phones")
 }
 
 model Site {
   id        String     @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   name      String
   centerLat Float      @map("center_lat")
   centerLng Float      @map("center_lng")
@@ -160,11 +204,14 @@ model Site {
   checkoutEmployees Employee[] @relation("EmployeeCheckoutSite")
   schedules         Schedule[]
 
+  @@index([organizationId])
   @@map("sites")
 }
 
 model Schedule {
   id           String   @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   siteId       String   @map("site_id")
   site         Site     @relation(fields: [siteId], references: [id])
   startTime    String   @map("start_time")
@@ -174,11 +221,14 @@ model Schedule {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  @@index([organizationId])
   @@map("schedules")
 }
 
 model AttendanceRecord {
   id              String          @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId      String          @map("employee_id")
   employee        Employee        @relation(fields: [employeeId], references: [id])
   date            DateTime        @db.Date
@@ -213,11 +263,14 @@ model AttendanceRecord {
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
   @@unique([employeeId, date])
+  @@index([organizationId])
   @@map("attendance_records")
 }
 
 model LeaveRequest {
   id               String               @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId       String               @map("employee_id")
   employee         Employee             @relation(fields: [employeeId], references: [id])
   startDate        DateTime             @map("start_date") @db.Date
@@ -234,23 +287,29 @@ model LeaveRequest {
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
 
+  @@index([organizationId])
   @@map("leave_requests")
 }
 
 /** Compteur annuel pour les numéros d'ordre de mission (N/MM/AAAA). */
 model MissionOrderSequence {
-  year    Int @id
+  year    Int
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   lastSeq Int @default(0) @map("last_seq")
 
+  @@id([organizationId, year])
   @@map("mission_order_sequences")
 }
 
 model Mission {
   id               String        @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId       String        @map("employee_id")
   employee         Employee      @relation(fields: [employeeId], references: [id])
   /** Numéro officiel ex. 3/06/2026 */
-  orderNumber      String?       @unique @map("order_number")
+  orderNumber      String?       @map("order_number")
   startDate        DateTime      @map("start_date") @db.Date
   endDate          DateTime      @map("end_date") @db.Date
   reason           String
@@ -269,11 +328,14 @@ model Mission {
   createdAt        DateTime      @default(now()) @map("created_at")
   updatedAt        DateTime      @updatedAt @map("updated_at")
 
+  @@unique([organizationId, orderNumber])
   @@map("missions")
 }
 
 model FraudAttempt {
   id         String   @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId String   @map("employee_id")
   employee   Employee @relation(fields: [employeeId], references: [id])
   timestamp  DateTime @default(now())
@@ -283,21 +345,27 @@ model FraudAttempt {
   type       String
   rawMessage String?  @map("raw_message")
 
+  @@index([organizationId])
   @@map("fraud_attempts")
 }
 
 model Holiday {
   id        String   @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   name      String
   date      DateTime @db.Date
   recurring Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([organizationId])
   @@map("holidays")
 }
 
 model HrRemark {
   id         String   @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId String   @map("employee_id")
   employee   Employee @relation(fields: [employeeId], references: [id])
   category   String
@@ -307,11 +375,14 @@ model HrRemark {
   author     User     @relation(fields: [authorId], references: [id])
   createdAt  DateTime @default(now()) @map("created_at")
 
+  @@index([organizationId])
   @@map("hr_remarks")
 }
 
 model AuditLog {
   id         String   @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   actorId    String   @map("actor_id")
   actor      User     @relation(fields: [actorId], references: [id])
   action     String
@@ -321,12 +392,15 @@ model AuditLog {
   afterJson  String?  @map("after_json") @db.Text
   createdAt  DateTime @default(now()) @map("created_at")
 
+  @@index([organizationId])
   @@map("audit_logs")
 }
 
 /** Traçabilité des formulaires publics soumis par les employés (lien WhatsApp). */
 model PublicSubmissionLog {
   id         String              @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id])
   employeeId String              @map("employee_id")
   employee   Employee            @relation(fields: [employeeId], references: [id])
   type       PublicSubmissionType
@@ -339,5 +413,6 @@ model PublicSubmissionLog {
 
   @@index([employeeId, createdAt])
   @@index([type, entityId])
+  @@index([organizationId])
   @@map("public_submission_logs")
 }

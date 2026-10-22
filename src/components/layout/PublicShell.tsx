@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OrgStructureNames } from "@/components/org/StructureOptions";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { APP_NAME, structureBrand } from "@/lib/brand";
@@ -49,7 +50,7 @@ export default function PublicShell({
 
       {footer && (
         <footer className="px-4 pb-6 text-center text-xs text-slate-500">
-          {APP_NAME} · SCPB · AFREXIA ·{" "}
+          {APP_NAME} · <OrgStructureNames /> ·{" "}
           <Link href="/privacy" className="underline-offset-2 hover:text-slate-700 hover:underline">
             Confidentialité
           </Link>

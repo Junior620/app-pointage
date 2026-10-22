@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { forEachOrg, sum } from "@/lib/tenant";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
@@ -33,34 +33,39 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const records = await prisma.attendanceRecord.findMany({
-    where: {
-      date: today,
-      checkInTime: { not: null },
-      checkOutTime: null,
-      breakStartTime: { not: null },
-      breakEndTime: null,
-    },
-    include: {
-      employee: { select: { firstName: true, whatsappPhone: true, active: true } },
-    },
-  });
+  const count = sum(
+    await forEachOrg(async ({ db }) => {
+      const records = await db.attendanceRecord.findMany({
+        where: {
+          date: today,
+          checkInTime: { not: null },
+          checkOutTime: null,
+          breakStartTime: { not: null },
+          breakEndTime: null,
+        },
+        include: {
+          employee: { select: { firstName: true, whatsappPhone: true, active: true } },
+        },
+      });
 
-  let count = 0;
-  for (const record of records) {
-    if (!record.employee.active || !record.employee.whatsappPhone) continue;
+      let count = 0;
+      for (const record of records) {
+        if (!record.employee.active || !record.employee.whatsappPhone) continue;
 
-    const overdueAt = new Date(
-      record.breakStartTime!.getTime() + BREAK_EXPECTED_DURATION_MIN * 60 * 1000
-    );
-    if (now < overdueAt) continue;
+        const overdueAt = new Date(
+          record.breakStartTime!.getTime() + BREAK_EXPECTED_DURATION_MIN * 60 * 1000
+        );
+        if (now < overdueAt) continue;
 
-    await sendWhatsAppMessage(
-      record.employee.whatsappPhone,
-      `⚠️ *Retour de pause non pointé*\n\nBonjour ${record.employee.firstName}, vous avez marqué votre départ en pause mais pas le retour (pause de ${BREAK_EXPECTED_DURATION_MIN} min dépassée).\n\nMerci de taper *retour pause* ou *14* pour enregistrer votre reprise.`
-    );
-    count++;
-  }
+        await sendWhatsAppMessage(
+          record.employee.whatsappPhone,
+          `⚠️ *Retour de pause non pointé*\n\nBonjour ${record.employee.firstName}, vous avez marqué votre départ en pause mais pas le retour (pause de ${BREAK_EXPECTED_DURATION_MIN} min dépassée).\n\nMerci de taper *retour pause* ou *14* pour enregistrer votre reprise.`
+        );
+        count++;
+      }
+      return count;
+    })
+  );
 
   return NextResponse.json({
     success: true,

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const BUCKET = "attendance-corrections";
@@ -20,9 +19,9 @@ async function ensureBucket() {
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
-    const record = await prisma.attendanceRecord.findUnique({
+    const record = await db.attendanceRecord.findUnique({
       where: { id },
       select: { correctionDocument: true },
     });
@@ -50,9 +49,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN"]);
+    const { db } = await requireTenant(["HR", "ADMIN"]);
     const { id } = await context.params;
-    const record = await prisma.attendanceRecord.findUnique({ where: { id } });
+    const record = await db.attendanceRecord.findUnique({ where: { id } });
     if (!record) {
       return NextResponse.json({ error: "Enregistrement non trouvé" }, { status: 404 });
     }
@@ -84,7 +83,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Échec de l'envoi du fichier" }, { status: 500 });
     }
 
-    const updated = await prisma.attendanceRecord.update({
+    const updated = await db.attendanceRecord.update({
       where: { id },
       data: { correctionDocument: path },
       include: { employee: true },

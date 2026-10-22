@@ -1,7 +1,7 @@
 "use client";
 
 import type { jsPDF } from "jspdf";
-import { STRUCTURE_BRANDS, STRUCTURE_CODES, type StructureCode } from "@/lib/brand";
+import { STRUCTURE_BRANDS, STRUCTURE_CODES, isStructureCode, type StructureCode } from "@/lib/brand";
 
 const cache = new Map<string, Promise<string | null>>();
 
@@ -29,16 +29,16 @@ function loadDataUrl(path: string): Promise<string | null> {
 /**
  * Ajoute les logos des structures en haut à droite de la page courante d'un PDF jsPDF.
  * Sans fichier de logo (ou en cas d'échec de chargement), rien n'est ajouté : l'export reste valide.
- * `structures` : celle(s) concernée(s) par le document (par défaut les deux).
+ * `structures` : celle(s) concernée(s) par le document (celles de l'entreprise pour un document commun).
  */
 export async function addPdfLogos(
   doc: jsPDF,
-  structures: (StructureCode | string | null | undefined)[] = STRUCTURE_CODES,
+  structures: (StructureCode | string | null | undefined)[],
   { top = 8, height = 11, right = 14 }: { top?: number; height?: number; right?: number } = {}
 ): Promise<void> {
-  const requested = new Set(structures.filter((c): c is StructureCode => c === "SCPB" || c === "AFREXIA"));
+  const requested = new Set(structures.filter(isStructureCode));
   // Toujours dans l'ordre de STRUCTURE_CODES, quel que soit l'ordre des lignes du rapport.
-  const unique = requested.size ? STRUCTURE_CODES.filter((c) => requested.has(c)) : STRUCTURE_CODES;
+  const unique = STRUCTURE_CODES.filter((c) => requested.has(c));
   const images = await Promise.all(
     unique.map(async (code) => {
       const path = STRUCTURE_BRANDS[code].logo;

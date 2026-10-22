@@ -1,6 +1,5 @@
 import { Packer } from "docx";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { leaveRequestContent } from "@/lib/documents/leave-request";
 import { renderDocumentDocx } from "@/lib/documents/render-docx";
 import { loadDocxLogo } from "@/lib/documents/docx-logo-server";
@@ -9,10 +8,10 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
 
-    const leave = await prisma.leaveRequest.findUnique({
+    const leave = await db.leaveRequest.findUnique({
       where: { id },
       include: { employee: true },
     });

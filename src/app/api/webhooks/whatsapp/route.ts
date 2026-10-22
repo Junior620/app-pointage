@@ -1,5 +1,4 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { sendWhatsAppMessage, sendWhatsAppLocationRequest, sendWhatsAppButtons, normalizePhone } from "@/lib/whatsapp";
 import { parseIntent, getWelcomeMessage } from "@/lib/intent-parser";
 import { issueLeaveFormToken } from "@/lib/leave-form-token";
@@ -10,6 +9,7 @@ import {
 } from "@/lib/weekly-summary-text";
 import { formatTime, todayDate, utcCalendarDayBounds } from "@/lib/utils";
 import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
+import { findOrgById, orgBaseUrl, tenantDb, type Db } from "@/lib/tenant";
 import type { WhatsAppWebhookPayload, GeoPoint } from "@/types";
 
 // Stockage temporaire des intents en attente de localisation
@@ -98,13 +98,15 @@ export async function POST(request: NextRequest) {
 }
 
 async function sendCheckInLink(
+  db: Db,
+  appUrl: string | null,
   phone: string,
   employeeId: string,
   normalizedPhone: string,
   comment?: string
 ) {
   const today = todayDate();
-  const record = await prisma.attendanceRecord.findUnique({
+  const record = await db.attendanceRecord.findUnique({
     where: { employeeId_date: { employeeId, date: today } },
   });
   if (record?.checkInTime) {
@@ -119,17 +121,19 @@ async function sendCheckInLink(
     comment,
     timestamp: Date.now(),
   });
-  await sendWhatsAppLocationRequest(phone, "CHECK_IN");
+  await sendWhatsAppLocationRequest(phone, "CHECK_IN", appUrl);
 }
 
 async function sendCheckOutLink(
+  db: Db,
+  appUrl: string | null,
   phone: string,
   employeeId: string,
   normalizedPhone: string,
   comment?: string
 ) {
   const today = todayDate();
-  const record = await prisma.attendanceRecord.findUnique({
+  const record = await db.attendanceRecord.findUnique({
     where: { employeeId_date: { employeeId, date: today } },
   });
   if (record?.checkOutTime) {
@@ -151,7 +155,7 @@ async function sendCheckOutLink(
     comment,
     timestamp: Date.now(),
   });
-  await sendWhatsAppLocationRequest(phone, "CHECK_OUT");
+  await sendWhatsAppLocationRequest(phone, "CHECK_OUT", appUrl);
 }
 
 async function handleMessage(
@@ -183,6 +187,15 @@ async function handleMessage(
     return;
   }
 
+  // Tout le traitement se fait dans l'entreprise de l'employé (données, liens, alertes).
+  const org = await findOrgById(employee.organizationId);
+  if (!org) {
+    await sendWhatsAppMessage(phone, "Le pointage n'est pas disponible pour votre entreprise. Contactez les RH.");
+    return;
+  }
+  const db = tenantDb(org.id);
+  const appUrl = orgBaseUrl(org);
+
   // Localisation envoyée via WhatsApp : refusée (anti-fraude). On n'accepte que la position à l'instant via le lien.
   if (message.type === "location" && message.location) {
     const pending = pendingActions.get(normalizedPhone);
@@ -204,12 +217,12 @@ async function handleMessage(
   if (message.type === "interactive" && message.interactive?.button_reply) {
     const id = message.interactive.button_reply.id;
     if (id === "BTN_ARRIVE") {
-      await sendCheckInLink(phone, employee.id, normalizedPhone);
+      await sendCheckInLink(db, appUrl, phone, employee.id, normalizedPhone);
     } else if (id === "BTN_DEPART") {
-      await sendCheckOutLink(phone, employee.id, normalizedPhone);
+      await sendCheckOutLink(db, appUrl, phone, employee.id, normalizedPhone);
     } else if (id === "BTN_STATUT") {
       const today = todayDate();
-      const record = await prisma.attendanceRecord.findUnique({
+      const record = await db.attendanceRecord.findUnique({
         where: { employeeId_date: { employeeId: employee.id, date: today } },
       });
       if (!record) {
@@ -246,7 +259,7 @@ async function handleMessage(
   // Message texte
   if (message.type === "text" && message.text) {
     const today = todayDate();
-    const todayRecord = await prisma.attendanceRecord.findUnique({
+    const todayRecord = await db.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId: employee.id, date: today } },
     });
     const rawTrimmed = message.text.body.trim();
@@ -276,7 +289,7 @@ async function handleMessage(
         (record.overtimeMinutes ?? 0) > 0 &&
         !record.overtimeReason
       ) {
-        await prisma.attendanceRecord.update({
+        await db.attendanceRecord.update({
           where: { id: record.id },
           data: { overtimeReason: rawComment },
         });
@@ -286,7 +299,7 @@ async function handleMessage(
         );
         return;
       } else if (record.checkOutTime && !record.checkOutComment) {
-        await prisma.attendanceRecord.update({
+        await db.attendanceRecord.update({
           where: { id: record.id },
           data: { checkOutComment: rawComment },
         });
@@ -296,7 +309,7 @@ async function handleMessage(
         );
         return;
       } else if (record.checkInStatus === "LATE" && !record.checkInComment) {
-        await prisma.attendanceRecord.update({
+        await db.attendanceRecord.update({
           where: { id: record.id },
           data: { checkInComment: rawComment },
         });
@@ -310,11 +323,11 @@ async function handleMessage(
 
     switch (intent) {
       case "CHECK_IN":
-        await sendCheckInLink(phone, employee.id, normalizedPhone, comment);
+        await sendCheckInLink(db, appUrl, phone, employee.id, normalizedPhone, comment);
         break;
 
       case "CHECK_OUT":
-        await sendCheckOutLink(phone, employee.id, normalizedPhone, comment);
+        await sendCheckOutLink(db, appUrl, phone, employee.id, normalizedPhone, comment);
         break;
 
       case "BREAK_START":
@@ -322,7 +335,7 @@ async function handleMessage(
           intent: "BREAK_START",
           timestamp: Date.now(),
         });
-        await sendWhatsAppLocationRequest(phone, "BREAK_START");
+        await sendWhatsAppLocationRequest(phone, "BREAK_START", appUrl);
         break;
 
       case "BREAK_END":
@@ -330,12 +343,12 @@ async function handleMessage(
           intent: "BREAK_END",
           timestamp: Date.now(),
         });
-        await sendWhatsAppLocationRequest(phone, "BREAK_END");
+        await sendWhatsAppLocationRequest(phone, "BREAK_END", appUrl);
         break;
 
       case "STATUS": {
         const today = todayDate();
-        const record = await prisma.attendanceRecord.findUnique({
+        const record = await db.attendanceRecord.findUnique({
           where: {
             employeeId_date: { employeeId: employee.id, date: today },
           },
@@ -372,23 +385,24 @@ async function handleMessage(
       }
 
       case "MY_ATTENDANCE":
-        await handleMyAttendance(phone, employee.id, employee.firstName);
+        await handleMyAttendance(db, phone, employee.id, employee.firstName);
         break;
 
       case "MY_ABSENCES":
-        await handleMyAbsences(phone, employee.id, employee.firstName);
+        await handleMyAbsences(db, phone, employee.id, employee.firstName);
         break;
 
       case "MY_OVERTIME":
-        await handleMyOvertime(phone, employee.id, employee.firstName);
+        await handleMyOvertime(db, phone, employee.id, employee.firstName);
         break;
 
       case "MY_OVERTIME_PENDING":
-        await handleMyOvertimePending(phone, employee.id, employee.firstName);
+        await handleMyOvertimePending(db, phone, employee.id, employee.firstName);
         break;
 
       case "DAY_DETAIL":
         await handleDayDetail(
+          db,
           phone,
           employee.id,
           employee.firstName,
@@ -397,23 +411,23 @@ async function handleMessage(
         break;
 
       case "MY_MISSIONS":
-        await handleMyMissions(phone, employee.id, employee.firstName);
+        await handleMyMissions(db, phone, employee.id, employee.firstName);
         break;
 
       case "MY_PERMISSIONS":
-        await handleMyPermissions(phone, employee.id, employee.firstName);
+        await handleMyPermissions(db, phone, employee.id, employee.firstName);
         break;
 
       case "MY_WEEK_SUMMARY":
-        await handleMyWeekSummary(phone, employee.id, employee.firstName);
+        await handleMyWeekSummary(db, phone, employee.id, employee.firstName);
         break;
 
       case "DEMAND_LEAVE_FORM":
-        await handleDemandLeaveFormLink(phone, employee);
+        await handleDemandLeaveFormLink(phone, employee, appUrl);
         break;
 
       case "DEMAND_MISSION_FORM":
-        await handleDemandMissionFormLink(phone, employee);
+        await handleDemandMissionFormLink(phone, employee, appUrl);
         break;
 
       case "GREETING":
@@ -429,7 +443,8 @@ async function handleMessage(
 
 async function handleDemandLeaveFormLink(
   phone: string,
-  employee: { id: string; firstName: string; active: boolean }
+  employee: { id: string; firstName: string; active: boolean },
+  appUrl: string | null
 ) {
   if (!employee.active) {
     await sendWhatsAppMessage(
@@ -439,7 +454,7 @@ async function handleDemandLeaveFormLink(
     return;
   }
 
-  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")?.trim();
+  const base = appUrl;
   if (!base) {
     await sendWhatsAppMessage(
       phone,
@@ -469,7 +484,8 @@ async function handleDemandLeaveFormLink(
 
 async function handleDemandMissionFormLink(
   phone: string,
-  employee: { id: string; firstName: string; active: boolean }
+  employee: { id: string; firstName: string; active: boolean },
+  appUrl: string | null
 ) {
   if (!employee.active) {
     await sendWhatsAppMessage(
@@ -479,7 +495,7 @@ async function handleDemandMissionFormLink(
     return;
   }
 
-  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")?.trim();
+  const base = appUrl;
   if (!base) {
     await sendWhatsAppMessage(
       phone,
@@ -508,13 +524,14 @@ async function handleDemandMissionFormLink(
 }
 
 async function handleMyAttendance(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
 ) {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const records = await prisma.attendanceRecord.findMany({
+  const records = await db.attendanceRecord.findMany({
     where: { employeeId, date: { gte: startOfMonth } },
     orderBy: { date: "desc" },
   });
@@ -575,6 +592,7 @@ async function handleMyAttendance(
 }
 
 async function handleMyAbsences(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
@@ -582,7 +600,7 @@ async function handleMyAbsences(
   const now = new Date();
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
 
-  const absences = await prisma.attendanceRecord.findMany({
+  const absences = await db.attendanceRecord.findMany({
     where: {
       employeeId,
       finalStatus: "ABSENT",
@@ -619,6 +637,7 @@ async function handleMyAbsences(
 }
 
 async function handleMyOvertime(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
@@ -626,7 +645,7 @@ async function handleMyOvertime(
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const records = await prisma.attendanceRecord.findMany({
+  const records = await db.attendanceRecord.findMany({
     where: {
       employeeId,
       date: { gte: startOfMonth },
@@ -671,6 +690,7 @@ async function handleMyOvertime(
 }
 
 async function handleMyOvertimePending(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
@@ -678,7 +698,7 @@ async function handleMyOvertimePending(
   const now = new Date();
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
 
-  const records = await prisma.attendanceRecord.findMany({
+  const records = await db.attendanceRecord.findMany({
     where: {
       employeeId,
       date: { gte: threeMonthsAgo },
@@ -720,19 +740,20 @@ async function handleMyOvertimePending(
 }
 
 async function handleMyWeekSummary(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
 ) {
   const { monday, saturday } = getCurrentWeekRangeUtc();
   const [records, pendingLeaveRequests] = await Promise.all([
-    prisma.attendanceRecord.findMany({
+    db.attendanceRecord.findMany({
       where: {
         employeeId,
         date: { gte: monday, lte: saturday },
       },
     }),
-    prisma.leaveRequest.count({
+    db.leaveRequest.count({
       where: { employeeId, status: "PENDING", cancelledAt: null },
     }),
   ]);
@@ -747,6 +768,7 @@ async function handleMyWeekSummary(
 }
 
 async function handleMyPermissions(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
@@ -755,12 +777,12 @@ async function handleMyPermissions(
   const { dayStart, dayEnd } = utcCalendarDayBounds(now);
 
   const [pending, approvedActive] = await Promise.all([
-    prisma.leaveRequest.findMany({
+    db.leaveRequest.findMany({
       where: { employeeId, status: "PENDING", cancelledAt: null },
       orderBy: { createdAt: "desc" },
       take: 12,
     }),
-    prisma.leaveRequest.findMany({
+    db.leaveRequest.findMany({
       where: {
         employeeId,
         status: "APPROVED",
@@ -823,6 +845,7 @@ async function handleMyPermissions(
 }
 
 async function handleDayDetail(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string,
@@ -854,7 +877,7 @@ async function handleDayDetail(
   const target = new Date(year, month, day);
   target.setHours(0, 0, 0, 0);
 
-  const record = await prisma.attendanceRecord.findUnique({
+  const record = await db.attendanceRecord.findUnique({
     where: {
       employeeId_date: { employeeId, date: target },
     },
@@ -940,6 +963,7 @@ async function handleDayDetail(
 }
 
 async function handleMyMissions(
+  db: Db,
   phone: string,
   employeeId: string,
   firstName: string
@@ -947,7 +971,7 @@ async function handleMyMissions(
   const now = new Date();
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
 
-  const missions = await prisma.mission.findMany({
+  const missions = await db.mission.findMany({
     where: {
       employeeId,
       startDate: { gte: threeMonthsAgo },
@@ -955,7 +979,7 @@ async function handleMyMissions(
     orderBy: { startDate: "desc" },
   });
 
-  const leaves = await prisma.leaveRequest.findMany({
+  const leaves = await db.leaveRequest.findMany({
     where: {
       employeeId,
       startDate: { gte: threeMonthsAgo },

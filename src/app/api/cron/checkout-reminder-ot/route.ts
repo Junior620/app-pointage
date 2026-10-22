@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { forEachOrg, sum } from "@/lib/tenant";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { sendWhatsAppToEmployee, getEmployeeWhatsappPhones } from "@/lib/employee-whatsapp";
 import { todayDate, isWeekend } from "@/lib/utils";
@@ -24,51 +24,50 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const holiday = await prisma.holiday.findFirst({
-      where: {
-        date: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
-      },
-    });
-    if (holiday) {
-      return NextResponse.json({
-        success: true,
-        message: "Jour férié — pas de rappel départ 18h",
-        count: 0,
-      });
-    }
-
-    const records = await prisma.attendanceRecord.findMany({
-      where: {
-        date: today,
-        checkInTime: { not: null },
-        checkOutTime: null,
-      },
-      include: {
-        employee: {
-          select: {
-            firstName: true,
-            whatsappPhone: true,
-            active: true,
+    const count = sum(
+      await forEachOrg(async ({ db }) => {
+        const holiday = await db.holiday.findFirst({
+          where: {
+            date: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
           },
-        },
-      },
-    });
+        });
+        if (holiday) return 0;
 
-    let count = 0;
-    for (const record of records) {
-      const { employee } = record;
-      if (!employee.active) continue;
-      const phones = await getEmployeeWhatsappPhones(record.employeeId);
-      if (phones.length === 0) continue;
+        const records = await db.attendanceRecord.findMany({
+          where: {
+            date: today,
+            checkInTime: { not: null },
+            checkOutTime: null,
+          },
+          include: {
+            employee: {
+              select: {
+                firstName: true,
+                whatsappPhone: true,
+                active: true,
+              },
+            },
+          },
+        });
 
-      await sendWhatsAppToEmployee(record.employeeId,
-        `🕕 *Rappel important (18h00)*\n\n` +
-          `Bonjour ${employee.firstName}, pensez à pointer votre départ quand vous quittez le bureau.\n\n` +
-          `💡 Les heures supplémentaires se calculent à partir de 18h30 uniquement si vous pointez votre départ manuellement.\n` +
-          `⚠️ Si le départ automatique se déclenche à 21h, les heures sup seront à 0.`
-      );
-      count++;
-    }
+        let count = 0;
+        for (const record of records) {
+          const { employee } = record;
+          if (!employee.active) continue;
+          const phones = await getEmployeeWhatsappPhones(record.employeeId);
+          if (phones.length === 0) continue;
+
+          await sendWhatsAppToEmployee(record.employeeId,
+            `🕕 *Rappel important (18h00)*\n\n` +
+              `Bonjour ${employee.firstName}, pensez à pointer votre départ quand vous quittez le bureau.\n\n` +
+              `💡 Les heures supplémentaires se calculent à partir de 18h30 uniquement si vous pointez votre départ manuellement.\n` +
+              `⚠️ Si le départ automatique se déclenche à 21h, les heures sup seront à 0.`
+          );
+          count++;
+        }
+        return count;
+      })
+    );
 
     return NextResponse.json({
       success: true,

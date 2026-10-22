@@ -13,8 +13,7 @@ import {
   VerticalAlign,
   WidthType,
 } from "docx";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { missionOrderTitle } from "@/lib/mission-order-number";
 import {
   DOCX_COLORS,
@@ -194,9 +193,9 @@ function buildMissionOrderDoc(
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
-    const mission = await prisma.mission.findUnique({
+    const mission = await db.mission.findUnique({
       where: { id },
       include: { employee: true },
     });

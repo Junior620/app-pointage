@@ -10,7 +10,8 @@ export type BadgeTone =
   | "info"
   | "violet"
   | "scpb"
-  | "afrexia";
+  | "afrexia"
+  | "goldenbeans";
 
 export const BADGE_TONES: Record<BadgeTone, { badge: string; dot: string }> = {
   neutral: { badge: "bg-slate-100 text-slate-700 ring-slate-200", dot: "bg-slate-400" },
@@ -22,6 +23,7 @@ export const BADGE_TONES: Record<BadgeTone, { badge: string; dot: string }> = {
   violet: { badge: "bg-violet-50 text-violet-700 ring-violet-100", dot: "bg-violet-500" },
   scpb: { badge: "bg-scpb-50 text-scpb-700 ring-scpb-100", dot: "bg-scpb-500" },
   afrexia: { badge: "bg-afrexia-50 text-afrexia-700 ring-afrexia-100", dot: "bg-afrexia-500" },
+  goldenbeans: { badge: "bg-goldenbeans-50 text-goldenbeans-700 ring-goldenbeans-100", dot: "bg-goldenbeans-500" },
 };
 
 export function Badge({

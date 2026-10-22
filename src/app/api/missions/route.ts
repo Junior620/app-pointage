@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { phonesFromEmployee, sendWhatsAppToEmployeeEntity } from "@/lib/employee-whatsapp";
 import { activeRequestFilter } from "@/lib/request-active";
 import { prismaPeriodOverlapAnd } from "@/lib/utils";
 import { createMissionWithOrderNumber } from "@/lib/mission-order-number";
+import { STRUCTURE_CODES } from "@/lib/brand";
+import { assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
 
 const createMissionSchema = z.object({
   employeeId: z.string().min(1),
@@ -15,7 +16,7 @@ const createMissionSchema = z.object({
   endDate: z.string().min(1),
   reason: z.string().min(1, "Le motif est requis"),
   location: z.string().optional(),
-  hostStructure: z.enum(["SCPB", "AFREXIA"]).optional(),
+  hostStructure: z.enum(STRUCTURE_CODES).optional(),
   transport: z.string().optional(),
   lodging: z.string().optional(),
   expenses: z.string().optional(),
@@ -23,7 +24,7 @@ const createMissionSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
 
     const status = searchParams.get("status");
@@ -49,19 +50,19 @@ export async function GET(request: NextRequest) {
     const activeWhere = { ...where, ...activeRequestFilter };
 
     const [missions, total, pending, approved, rejected, cancelled, serviceRows] = await Promise.all([
-      prisma.mission.findMany({
+      db.mission.findMany({
         where,
         include: { employee: true },
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
       }),
-      prisma.mission.count({ where }),
-      prisma.mission.count({ where: { ...activeWhere, status: "PENDING" } }),
-      prisma.mission.count({ where: { ...activeWhere, status: "APPROVED" } }),
-      prisma.mission.count({ where: { ...activeWhere, status: "REJECTED" } }),
-      prisma.mission.count({ where: { ...where, cancelledAt: { not: null } } }),
-      prisma.employee.findMany({
+      db.mission.count({ where }),
+      db.mission.count({ where: { ...activeWhere, status: "PENDING" } }),
+      db.mission.count({ where: { ...activeWhere, status: "APPROVED" } }),
+      db.mission.count({ where: { ...activeWhere, status: "REJECTED" } }),
+      db.mission.count({ where: { ...where, cancelledAt: { not: null } } }),
+      db.employee.findMany({
         select: { service: true },
         distinct: ["service"],
         orderBy: { service: "asc" },
@@ -86,7 +87,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, org, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const body = await request.json();
 
     const parsed = createMissionSchema.safeParse(body);
@@ -94,12 +95,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const employee = await prisma.employee.findUnique({ where: { id: parsed.data.employeeId } });
+    const employee = await db.employee.findUnique({ where: { id: parsed.data.employeeId } });
     if (!employee) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
 
+    if (parsed.data.hostStructure) assertOrgStructure(org, parsed.data.hostStructure);
+
     const mission = await createMissionWithOrderNumber({
+      organizationId: org.id,
       employeeId: parsed.data.employeeId,
       startDate: new Date(parsed.data.startDate),
       endDate: new Date(parsed.data.endDate),
@@ -113,7 +117,7 @@ export async function POST(request: NextRequest) {
       submissionSource: "HR_DASHBOARD",
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "CREATE",
       entity: "Mission",
@@ -155,6 +159,7 @@ export async function POST(request: NextRequest) {
       if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
+      if (error instanceof OrgValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }

@@ -1,8 +1,10 @@
+"use client";
+
 import { cn } from "@/lib/utils";
-import { STRUCTURE_CODES } from "@/lib/brand";
+import { useOrg } from "@/components/org/OrgProvider";
 import StructureLogo from "./StructureLogo";
 
-/** Les deux structures du groupe côte à côte (écrans communs RH). */
+/** Les structures de l'entreprise côte à côte (écrans communs RH). */
 export default function CoBrand({
   size = "sm",
   onDark = false,
@@ -12,9 +14,10 @@ export default function CoBrand({
   onDark?: boolean;
   className?: string;
 }) {
+  const { structures } = useOrg();
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      {STRUCTURE_CODES.map((code, i) => (
+      {structures.map((code, i) => (
         <span key={code} className="flex items-center gap-2">
           {i > 0 && (
             <span
