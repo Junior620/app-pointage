@@ -70,8 +70,12 @@ RH ──► Navigateur ──► Supabase Auth ──► Dashboard Next.js ─�
 | `POST /api/cron/mark-absent` | Marquage absences. |
 | `POST /api/cron/overtime-reminder` | Rappel RH sur heures sup en attente. |
 | `POST /api/cron/weekly-summary` | Résumé hebdo (WhatsApp / logique métier associée). |
+| `GET /api/cron/menu-announcement` | **Envoi unique** du nouveau menu WhatsApp à chaque employé actif de chaque entreprise, le 2026-10-23 au matin (`vercel.json` : `30 6 23 10 *`, soit 7 h 30 à Douala ; rien en dehors de ce jour ni après 10 h, `src/lib/menu-announcement.ts`). Entrée à retirer de `vercel.json` ensuite. |
 
 *(Sécuriser ces routes par secret header / Vercel Cron selon configuration projet.)*
+
+- **Plan Vercel Hobby** : chaque cron part **dans l'heure** prévue (± 59 min), pas à la minute près. Exemple : `30 6 * * *` part entre 6 h 00 et 6 h 59 UTC, soit entre 7 h 00 et 7 h 59 à Douala.
+- **Messages WhatsApp envoyés par les crons** : sans modèle approuvé par Meta, un message n'arrive que si l'employé a écrit au bot dans les **24 h** précédentes. Sinon, l'envoi échoue (erreur Meta `131047`, visible dans les logs).
 
 ---
 
