@@ -1,6 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
+import { AUTH_UNAVAILABLE_MESSAGE, checkUser } from "@/lib/supabase/check-user";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
+
+/** Routes API : `if (error instanceof AuthUnavailableError) return authUnavailableResponse();` → 503. */
+export { authUnavailableResponse } from "@/lib/supabase/check-user";
+
+/** Supabase Auth injoignable : la session n'a pas pu être vérifiée, ce qui ne veut pas dire « non connecté ». */
+export class AuthUnavailableError extends Error {
+  constructor() {
+    super(AUTH_UNAVAILABLE_MESSAGE);
+    this.name = "AuthUnavailableError";
+  }
+}
 
 export type SessionUser = {
   id: string;
@@ -10,13 +22,14 @@ export type SessionUser = {
   role: Role;
 };
 
+/** `null` si aucune session valide ; lève `AuthUnavailableError` si Supabase Auth ne répond pas. */
 export async function getSession(): Promise<SessionUser | null> {
   const supabase = await createClient();
-  const {
-    data: { user: supabaseUser },
-  } = await supabase.auth.getUser();
+  const auth = await checkUser(supabase);
 
-  if (!supabaseUser) return null;
+  if (auth.status === "unavailable") throw new AuthUnavailableError();
+  if (auth.status === "anonymous") return null;
+  const supabaseUser = auth.user;
 
   const user = await prisma.user.findUnique({
     where: { supabaseAuthId: supabaseUser.id },

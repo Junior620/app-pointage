@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getSession, requireRole } from "@/lib/auth";
+import { getSession, requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { normalizeUserWhatsappPhone } from "@/lib/rh-whatsapp-notify";
 
 const patchSchema = z.object({
@@ -37,7 +37,8 @@ export async function GET() {
       role: user.role,
       whatsappPhone: user.whatsappPhone,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthUnavailableError) return authUnavailableResponse();
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -110,6 +111,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(user);
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

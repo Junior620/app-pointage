@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import {
   EmployeeWhatsappError,
@@ -118,6 +118,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }
@@ -204,6 +205,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data: refreshed, welcomeSent }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
       if (error.message === "Impossible de générer un matricule unique") {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 
 /** Liste d’employés pour l’autocomplete de la page Rapports (HR, ADMIN, DG). */
 export async function GET(request: NextRequest) {
@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }

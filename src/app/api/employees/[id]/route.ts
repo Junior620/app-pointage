@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type { DepartureReason, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import {
   EmployeeWhatsappError,
@@ -63,6 +63,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ data: employee });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }
@@ -221,6 +222,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ data: employeeOut, welcomeSent });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }
@@ -268,6 +270,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   } catch (error) {
     console.error("[DELETE employee]", error);
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }

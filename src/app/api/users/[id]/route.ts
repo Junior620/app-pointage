@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { normalizeUserWhatsappPhone } from "@/lib/rh-whatsapp-notify";
 
@@ -139,6 +139,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ data: user });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

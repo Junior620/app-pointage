@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { BREAK_EXPECTED_DURATION_MIN } from "@/lib/attendance-engine";
 import {
@@ -120,6 +120,7 @@ export async function PATCH(
   } catch (error) {
     console.error("[API breaks PATCH]", error);
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

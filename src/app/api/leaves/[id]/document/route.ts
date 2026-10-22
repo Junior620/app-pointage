@@ -1,6 +1,6 @@
 import { Packer } from "docx";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { leaveRequestContent } from "@/lib/documents/leave-request";
 import { renderDocumentDocx } from "@/lib/documents/render-docx";
 import { loadDocxLogo } from "@/lib/documents/docx-logo-server";
@@ -36,6 +36,7 @@ export async function GET(_request: Request, context: RouteContext) {
     });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié")
         return new Response(JSON.stringify({ error: error.message }), {
           status: 401,

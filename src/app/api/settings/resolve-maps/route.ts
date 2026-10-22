@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 
 function extractCoords(url: string): { lat: number; lng: number } | null {
   const atMatch = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data: coords });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
     }
