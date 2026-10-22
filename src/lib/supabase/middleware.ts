@@ -1,5 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { AUTH_UNAVAILABLE_MESSAGE, checkUser } from "./check-user";
+
+/** Cookie de session posé par @supabase/ssr : `sb-<ref>-auth-token`, éventuellement découpé en `.0`, `.1`… */
+function hasSessionCookie(request: NextRequest) {
+  return request.cookies.getAll().some(({ name }) => /^sb-.+-auth-token(\.\d+)?$/.test(name));
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -25,9 +31,8 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const auth = await checkUser(supabase);
+  const user = auth.status === "authenticated" ? auth.user : null;
 
   const { pathname } = request.nextUrl;
 
@@ -45,6 +50,19 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/mission-request");
 
   if (isPublic) {
+    return supabaseResponse;
+  }
+
+  // Supabase injoignable alors qu'une session est présente : ce n'est pas une déconnexion.
+  // Les pages continuent (le layout revérifie via getSession()), les API répondent 503.
+  // Rien n'est accordé ici : requireRole() / getSession() restent l'autorité.
+  if (auth.status === "unavailable" && hasSessionCookie(request)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: AUTH_UNAVAILABLE_MESSAGE },
+        { status: 503, headers: { "Retry-After": "5" } }
+      );
+    }
     return supabaseResponse;
   }
 
