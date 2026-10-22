@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireTenant } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { activeRequestFilter } from "@/lib/request-active";
 import type { NavCountKey } from "@/lib/navigation";
 
@@ -20,6 +20,7 @@ export async function GET() {
     return NextResponse.json(counts, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié")
         return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit")

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTenant } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { normalizeUserWhatsappPhone, userWhatsappPhoneConflict } from "@/lib/rh-whatsapp-notify";
 
@@ -108,6 +108,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ data: user });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

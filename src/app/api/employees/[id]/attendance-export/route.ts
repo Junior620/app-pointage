@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTenant } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { toInputDateLocal } from "@/lib/period-range";
 import {
   resolveAttendanceExportRange,
@@ -44,6 +44,7 @@ export async function GET(
   } catch (error) {
     console.error("[API employee attendance-export]", error);
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

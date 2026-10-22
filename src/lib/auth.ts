@@ -1,8 +1,20 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { AUTH_UNAVAILABLE_MESSAGE, checkUser } from "@/lib/supabase/check-user";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOrg, tenantDb, type OrgInfo, type TenantDb, type TenantScope } from "@/lib/tenant";
 import type { Role } from "@prisma/client";
+
+/** Routes API : `if (error instanceof AuthUnavailableError) return authUnavailableResponse();` → 503. */
+export { authUnavailableResponse } from "@/lib/supabase/check-user";
+
+/** Supabase Auth injoignable : la session n'a pas pu être vérifiée, ce qui ne veut pas dire « non connecté ». */
+export class AuthUnavailableError extends Error {
+  constructor() {
+    super(AUTH_UNAVAILABLE_MESSAGE);
+    this.name = "AuthUnavailableError";
+  }
+}
 
 export type SessionUser = {
   id: string;
@@ -19,6 +31,7 @@ export type SessionUser = {
  * - "anonymous" : pas de session Supabase ;
  * - "unknown" : session sans compte actif dans l'application ;
  * - "wrong-org" : compte d'une autre entreprise que celle de l'adresse (sous-domaine).
+ * Lève `AuthUnavailableError` si Supabase Auth ne répond pas : aucun de ces états n'est alors établi.
  */
 export type SessionState =
   | { status: "ok"; session: SessionUser }
@@ -26,11 +39,11 @@ export type SessionState =
 
 export const getSessionState = cache(async (): Promise<SessionState> => {
   const supabase = await createClient();
-  const {
-    data: { user: supabaseUser },
-  } = await supabase.auth.getUser();
+  const auth = await checkUser(supabase);
 
-  if (!supabaseUser) return { status: "anonymous" };
+  if (auth.status === "unavailable") throw new AuthUnavailableError();
+  if (auth.status === "anonymous") return { status: "anonymous" };
+  const supabaseUser = auth.user;
 
   const user = await prisma.user.findUnique({
     where: { supabaseAuthId: supabaseUser.id },
@@ -55,7 +68,7 @@ export const getSessionState = cache(async (): Promise<SessionState> => {
   };
 });
 
-/** Session valide pour l'entreprise de l'adresse ouverte, sinon null. */
+/** Session valide pour l'entreprise de l'adresse ouverte, sinon null ; lève `AuthUnavailableError` si Supabase Auth ne répond pas. */
 export async function getSession(): Promise<SessionUser | null> {
   const state = await getSessionState();
   return state.status === "ok" ? state.session : null;

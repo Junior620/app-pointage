@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTenant } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { isWorkingDay, utcCalendarDayBounds } from "@/lib/utils";
 
 function toDateInputValueUTC(d: Date): string {
@@ -167,6 +167,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(payload);
   } catch (error) {
     console.error("[API attendance day]", error);
+    if (error instanceof AuthUnavailableError) return authUnavailableResponse();
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }

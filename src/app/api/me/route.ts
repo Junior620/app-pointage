@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getSessionState, requireTenant } from "@/lib/auth";
+import { getSessionState, requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { normalizeUserWhatsappPhone, userWhatsappPhoneConflict } from "@/lib/rh-whatsapp-notify";
 import { tenantDb } from "@/lib/tenant";
 
@@ -46,7 +46,8 @@ export async function GET() {
       whatsappPhone: user.whatsappPhone,
       organization: session.organization,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof AuthUnavailableError) return authUnavailableResponse();
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -92,6 +93,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(user);
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

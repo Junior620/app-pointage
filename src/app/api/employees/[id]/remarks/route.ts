@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireTenant } from "@/lib/auth";
+import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -32,6 +32,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ data: remarks });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié")
         return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit")
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ data: remark }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié")
         return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit")
@@ -115,6 +117,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ deleted: true });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié")
         return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit")

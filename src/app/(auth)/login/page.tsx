@@ -43,7 +43,13 @@ export default function LoginPage() {
 
     // Le compte doit appartenir à l'entreprise de cette adresse (sous-domaine) et être actif.
     const me = await fetch("/api/me", { cache: "no-store" }).catch(() => null);
-    if (!me?.ok) {
+    // Vérification impossible (réseau ou Supabase injoignable) : ce n'est pas un refus, on garde la session.
+    if (!me || me.status === 503) {
+      setError("Connexion au serveur interrompue. Réessayez dans quelques secondes.");
+      setLoading(false);
+      return;
+    }
+    if (!me.ok) {
       const body = me ? await me.json().catch(() => null) : null;
       await supabase.auth.signOut();
       setError(
