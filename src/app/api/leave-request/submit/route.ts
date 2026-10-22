@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { LeaveAbsenceCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { orgForEmployeeRequest, tenantScope, WRONG_ORG_LINK_MESSAGE } from "@/lib/tenant";
 import { verifyLeaveFormToken } from "@/lib/leave-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
@@ -53,6 +54,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const org = await orgForEmployeeRequest(employee.organizationId, request);
+    if (!org) {
+      return NextResponse.json({ error: WRONG_ORG_LINK_MESSAGE }, { status: 400 });
+    }
+    const scope = tenantScope(org.id);
+
     const start = parseDateInputForDbDate(parsed.data.startDate);
     const end = parseDateInputForDbDate(parsed.data.endDate);
     if (end < start) {
@@ -67,8 +74,9 @@ export async function POST(request: NextRequest) {
         ? null
         : parsed.data.notifyOrReplace.trim() || null;
 
-    const leave = await prisma.leaveRequest.create({
+    const leave = await scope.db.leaveRequest.create({
       data: {
+        organizationId: org.id,
         employeeId: employee.id,
         startDate: start,
         endDate: end,
@@ -80,7 +88,7 @@ export async function POST(request: NextRequest) {
       include: { employee: true },
     });
 
-    await logPublicSubmission({
+    await logPublicSubmission(scope, {
       employeeId: employee.id,
       type: "LEAVE_REQUEST",
       entity: "leave_request",
@@ -109,6 +117,7 @@ export async function POST(request: NextRequest) {
       year: "numeric",
     });
     await notifyRhAdminsWhatsApp(
+      org,
       `🆕 *Nouvelle autorisation d'absence (employé)*\n\n` +
         `Employé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\n` +
         `Service : ${employee.service}\n` +

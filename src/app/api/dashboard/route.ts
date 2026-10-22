@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { Structure } from "@prisma/client";
 import { isWorkingDay, utcCalendarDayBounds, prismaOngoingMissionWhere, prismaOngoingLeaveWhere } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { org, db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
     const structureParam = searchParams.get("structure")?.trim() || undefined;
 
@@ -30,13 +29,13 @@ export async function GET(request: NextRequest) {
       ...(structureParam && { structure: structureParam as Structure }),
     };
 
-    const allEmployees = await prisma.employee.findMany({
+    const allEmployees = await db.employee.findMany({
       where: employeeWhere,
       select: { id: true, structure: true },
     });
     const employeeIds = allEmployees.map((e) => e.id);
 
-    const todayRecords = await prisma.attendanceRecord.findMany({
+    const todayRecords = await db.attendanceRecord.findMany({
       where: {
         date: today,
         employeeId: { in: employeeIds },
@@ -76,13 +75,13 @@ export async function GET(request: NextRequest) {
     // Missions : approuvées, non terminées, début dans les 7 prochains jours (inclut « demain »).
     // Autorisations : période incluant aujourd'hui.
     const [missionOngoingCount, permissionOngoingCount] = await Promise.all([
-      prisma.mission.count({
+      db.mission.count({
         where: {
           employeeId: { in: employeeIds },
           ...prismaOngoingMissionWhere(todayStart, todayEnd),
         },
       }),
-      prisma.leaveRequest.count({
+      db.leaveRequest.count({
         where: {
           employeeId: { in: employeeIds },
           ...prismaOngoingLeaveWhere(todayStart, todayEnd),
@@ -91,7 +90,8 @@ export async function GET(request: NextRequest) {
     ]);
 
     const byStructure: Record<string, { total: number; present: number; absent: number; late: number }> = {};
-    for (const struct of ["SCPB", "AFREXIA"] as const) {
+    // Répartition par structure : seulement pour une entreprise qui en a plusieurs.
+    for (const struct of org.structures.length > 1 ? org.structures : []) {
       const structEmployees = allEmployees.filter((e) => e.structure === struct);
       const structIds = new Set(structEmployees.map((e) => e.id));
       const structRecords = todayRecords.filter((r) => structIds.has(r.employeeId));
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    const last30Records = await prisma.attendanceRecord.findMany({
+    const last30Records = await db.attendanceRecord.findMany({
       where: {
         date: { gte: thirtyDaysAgo },
         employeeId: { in: employeeIds },
@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
 
     const last7 = trend30.filter((d) => parseDateOnlyUTC(d.date) >= sevenDaysAgo);
 
-    const topLate = await prisma.attendanceRecord.groupBy({
+    const topLate = await db.attendanceRecord.groupBy({
       by: ["employeeId"],
       where: {
         date: { gte: thirtyDaysAgo },
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
       take: 5,
     });
 
-    const topAbsent = await prisma.attendanceRecord.groupBy({
+    const topAbsent = await db.attendanceRecord.groupBy({
       by: ["employeeId"],
       where: {
         date: { gte: thirtyDaysAgo },
@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
 
     const alertEmployeeIds = [...new Set([...topLate.map((t) => t.employeeId), ...topAbsent.map((t) => t.employeeId)])];
     const alertEmployees = alertEmployeeIds.length > 0
-      ? await prisma.employee.findMany({
+      ? await db.employee.findMany({
           where: { id: { in: alertEmployeeIds } },
           select: { id: true, firstName: true, lastName: true, matricule: true, service: true, structure: true },
         })

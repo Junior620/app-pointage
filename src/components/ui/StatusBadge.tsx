@@ -1,4 +1,5 @@
 import { statusMeta, STRUCTURE_TONE, type StatusKind } from "@/lib/status-labels";
+import { structureBrand } from "@/lib/brand";
 import { Badge } from "./Badge";
 
 export function StatusBadge({
@@ -25,7 +26,7 @@ export function StructureBadge({ value, className }: { value: string | null | un
   if (!value) return <span className="text-sm text-slate-400">—</span>;
   return (
     <Badge tone={STRUCTURE_TONE[value] ?? "neutral"} className={className}>
-      {value}
+      {structureBrand(value)?.name ?? value}
     </Badge>
   );
 }

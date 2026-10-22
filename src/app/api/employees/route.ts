@@ -1,8 +1,7 @@
 import { randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import {
   EmployeeWhatsappError,
@@ -10,23 +9,24 @@ import {
   syncEmployeeWhatsappPhones,
 } from "@/lib/employee-whatsapp";
 import { sendEmployeeWelcomeWhatsAppToPhones } from "@/lib/employee-welcome";
-
-const STRUCTURES = ["SCPB", "AFREXIA"] as const;
+import { STRUCTURE_CODES, structureBrand } from "@/lib/brand";
+import { orgBaseUrl, type Db } from "@/lib/tenant";
+import { assertOrgSites, assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
 
 const createEmployeeSchema = z.object({
   matricule: z.string().optional(),
   firstName: z.string().min(1, "Le prénom est requis"),
   lastName: z.string().min(1, "Le nom est requis"),
   service: z.string().min(1, "Le service est requis"),
-  structure: z.enum(STRUCTURES).default("SCPB"),
+  structure: z.enum(STRUCTURE_CODES).optional(),
   siteId: z.string().optional(),
   checkoutSiteId: z.string().optional(),
   whatsappPhone: z.string().optional(),
   whatsappPhone2: z.string().optional(),
 });
 
-/** Préfixe : STRUCTURE-SERVICE- (SCPB / AFREXIA). Suffixe numérique aléatoire, vérifié unique en base. */
-async function generateUniqueMatricule(service: string, structure: string): Promise<string> {
+/** Préfixe : STRUCTURE-SERVICE-. Suffixe numérique aléatoire, vérifié unique dans l'entreprise. */
+async function generateUniqueMatricule(db: Db, service: string, structure: string): Promise<string> {
   const raw = service.trim().toUpperCase();
   const DEPT_MAP: Record<string, string> = {
     IT: "IT",
@@ -38,21 +38,21 @@ async function generateUniqueMatricule(service: string, structure: string): Prom
   };
   const derived = raw.replace(/[^A-Z]/g, "").slice(0, 4);
   const dept = DEPT_MAP[raw] || derived || "GEN";
-  const struct = structure.trim().toUpperCase() || "SCPB";
+  const struct = structureBrand(structure)?.matriculePrefix ?? structure.trim().toUpperCase();
   const prefix = `${struct}-${dept}-`;
 
   const maxAttempts = 80;
   for (let i = 0; i < maxAttempts; i++) {
     const suffix = String(randomInt(0, 10_000)).padStart(4, "0");
     const candidate = `${prefix}${suffix}`;
-    const taken = await prisma.employee.findUnique({ where: { matricule: candidate }, select: { id: true } });
+    const taken = await db.employee.findFirst({ where: { matricule: candidate }, select: { id: true } });
     if (!taken) return candidate;
   }
 
   for (let i = 0; i < 40; i++) {
     const suffix = String(randomInt(0, 1_000_000)).padStart(6, "0");
     const candidate = `${prefix}${suffix}`;
-    const taken = await prisma.employee.findUnique({ where: { matricule: candidate }, select: { id: true } });
+    const taken = await db.employee.findFirst({ where: { matricule: candidate }, select: { id: true } });
     if (!taken) return candidate;
   }
 
@@ -61,7 +61,7 @@ async function generateUniqueMatricule(service: string, structure: string): Prom
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN"]);
+    const { db } = await requireTenant(["HR", "ADMIN"]);
     const { searchParams } = request.nextUrl;
 
     const q = searchParams.get("q") || "";
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     const hasWhatsapp = { OR: [{ whatsappPhone: { not: null } }, { whatsappPhones: { some: {} } }] };
 
     const [employees, total, activeCount, inactiveCount, whatsappCount] = await Promise.all([
-      prisma.employee.findMany({
+      db.employee.findMany({
         where,
         include: {
           site: true,
@@ -105,10 +105,10 @@ export async function GET(request: NextRequest) {
         take: limit,
         orderBy: { lastName: "asc" },
       }),
-      prisma.employee.count({ where }),
-      prisma.employee.count({ where: { ...statsWhere, active: true } }),
-      prisma.employee.count({ where: { ...statsWhere, active: false } }),
-      prisma.employee.count({ where: { AND: [statsWhere, { active: true }, hasWhatsapp] } }),
+      db.employee.count({ where }),
+      db.employee.count({ where: { ...statsWhere, active: true } }),
+      db.employee.count({ where: { ...statsWhere, active: false } }),
+      db.employee.count({ where: { AND: [statsWhere, { active: true }, hasWhatsapp] } }),
     ]);
 
     return NextResponse.json({
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, org, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const body = await request.json();
 
     const parsed = createEmployeeSchema.safeParse(body);
@@ -135,20 +135,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { matricule, whatsappPhone, whatsappPhone2, ...rest } = parsed.data;
+    const { matricule, whatsappPhone, whatsappPhone2, structure: requestedStructure, ...rest } = parsed.data;
+    const structure = assertOrgStructure(org, requestedStructure);
+    await assertOrgSites(db, [rest.siteId, rest.checkoutSiteId]);
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
-      finalMatricule = await generateUniqueMatricule(rest.service, rest.structure);
+      finalMatricule = await generateUniqueMatricule(db, rest.service, structure);
     }
 
-    const existing = await prisma.employee.findUnique({ where: { matricule: finalMatricule } });
+    const existing = await db.employee.findFirst({ where: { matricule: finalMatricule } });
     if (existing) {
       return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
     }
 
-    const employee = await prisma.employee.create({
+    const employee = await db.employee.create({
       data: {
         ...rest,
+        organizationId: org.id,
+        structure,
         matricule: finalMatricule,
         siteId: rest.siteId?.trim() || undefined,
         checkoutSiteId: rest.checkoutSiteId?.trim() || undefined,
@@ -161,16 +165,16 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      await syncEmployeeWhatsappPhones(employee.id, [whatsappPhone, whatsappPhone2]);
+      await syncEmployeeWhatsappPhones(org.id, employee.id, [whatsappPhone, whatsappPhone2]);
     } catch (e) {
-      await prisma.employee.delete({ where: { id: employee.id } });
+      await db.employee.delete({ where: { id: employee.id } });
       if (e instanceof EmployeeWhatsappError) {
         return NextResponse.json({ error: e.message }, { status: 409 });
       }
       throw e;
     }
 
-    const refreshed = await prisma.employee.findUnique({
+    const refreshed = await db.employee.findUnique({
       where: { id: employee.id },
       include: {
         site: true,
@@ -179,7 +183,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "CREATE",
       entity: "Employee",
@@ -197,6 +201,7 @@ export async function POST(request: NextRequest) {
           matricule: refreshed.matricule,
           service: refreshed.service,
           structure: refreshed.structure,
+          appUrl: orgBaseUrl(org),
         });
       }
     }
@@ -206,6 +211,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
+      if (error instanceof OrgValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
       if (error.message === "Impossible de générer un matricule unique") {
         return NextResponse.json({ error: error.message }, { status: 503 });
       }

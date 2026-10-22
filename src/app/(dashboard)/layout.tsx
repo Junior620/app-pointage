@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { getSessionState } from "@/lib/auth";
 import DashboardShell from "@/components/layout/DashboardShell";
 
 export default async function DashboardLayout({
@@ -7,11 +7,12 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
+  const state = await getSessionState();
 
-  if (!session) {
-    redirect("/login");
+  if (state.status !== "ok") {
+    redirect(state.status === "wrong-org" ? "/login?erreur=entreprise" : "/login");
   }
+  const { session } = state;
 
   return (
     <DashboardShell userName={session.name} userEmail={session.email} userRole={session.role}>

@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 
 export async function GET() {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
-    const rows = await prisma.employee.findMany({
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
+    const rows = await db.employee.findMany({
       where: { active: true },
       select: { service: true },
       distinct: ["service"],

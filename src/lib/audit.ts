@@ -1,15 +1,19 @@
-import { prisma } from "./prisma";
+import type { TenantScope } from "./tenant";
 
-export async function createAuditLog(params: {
-  actorId: string;
-  action: string;
-  entity: string;
-  entityId: string;
-  before?: unknown;
-  after?: unknown;
-}) {
-  await prisma.auditLog.create({
+export async function createAuditLog(
+  { db, organizationId }: TenantScope,
+  params: {
+    actorId: string;
+    action: string;
+    entity: string;
+    entityId: string;
+    before?: unknown;
+    after?: unknown;
+  }
+) {
+  await db.auditLog.create({
     data: {
+      organizationId,
       actorId: params.actorId,
       action: params.action,
       entity: params.entity,

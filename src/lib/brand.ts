@@ -1,6 +1,7 @@
-export type StructureCode = "SCPB" | "AFREXIA";
+/** Structures (marques) connues. Chaque entreprise n'en affiche que les siennes (Organization.structures). */
+export const STRUCTURE_CODES = ["SCPB", "AFREXIA", "GOLDENBEANS"] as const;
 
-export const STRUCTURE_CODES: StructureCode[] = ["SCPB", "AFREXIA"];
+export type StructureCode = (typeof STRUCTURE_CODES)[number];
 
 export type StructureBrand = {
   code: StructureCode;
@@ -17,6 +18,8 @@ export type StructureBrand = {
   wordmark: boolean;
   /** Couleur principale (hexadécimal) pour les exports PDF / Excel. */
   hex: string;
+  /** Début des matricules générés (STRUCTURE-SERVICE-0000). */
+  matriculePrefix: string;
   /** Classes Tailwind (couleurs définies dans globals.css) */
   badgeClass: string;
   monogramClass: string;
@@ -39,6 +42,7 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     logoOnDark: null,
     wordmark: true,
     hex: "#7a8a2c",
+    matriculePrefix: "SCPB",
     badgeClass: "bg-scpb-50 text-scpb-700 ring-scpb-100",
     monogramClass: "bg-scpb-600 text-white",
     accentClass: "bg-scpb-500",
@@ -50,14 +54,28 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     logoOnDark: "/brand/afrexia.png",
     wordmark: false,
     hex: "#24683c",
+    matriculePrefix: "AFREXIA",
     badgeClass: "bg-afrexia-50 text-afrexia-700 ring-afrexia-100",
     monogramClass: "bg-afrexia-600 text-white",
     accentClass: "bg-afrexia-500",
   },
+  GOLDENBEANS: {
+    code: "GOLDENBEANS",
+    name: "GoldenBeans",
+    // Fichier attendu : public/brand/goldenbeans.png (monogramme en attendant).
+    logo: null,
+    logoOnDark: null,
+    wordmark: true,
+    hex: "#96691f",
+    matriculePrefix: "GB",
+    badgeClass: "bg-goldenbeans-50 text-goldenbeans-700 ring-goldenbeans-100",
+    monogramClass: "bg-goldenbeans-600 text-white",
+    accentClass: "bg-goldenbeans-500",
+  },
 };
 
 export function isStructureCode(value: unknown): value is StructureCode {
-  return value === "SCPB" || value === "AFREXIA";
+  return typeof value === "string" && (STRUCTURE_CODES as readonly string[]).includes(value);
 }
 
 export function structureBrand(code: string | null | undefined): StructureBrand | null {

@@ -1,5 +1,5 @@
 import type { AttendanceRecord, Prisma } from "@prisma/client";
-import { prisma } from "./prisma";
+import type { Db } from "./tenant";
 import {
   combineDateAndTime,
   deriveCheckInStatus,
@@ -34,6 +34,7 @@ export type AttendanceCorrectionInput = {
 };
 
 export async function buildAttendanceCorrectionData(
+  db: Db,
   before: AttendanceRecord,
   updates: AttendanceCorrectionInput,
   actorId?: string
@@ -115,6 +116,7 @@ export async function buildAttendanceCorrectionData(
     data.checkInStatus = updates.checkInStatus;
   } else if (shouldDerive && checkInTime) {
     data.checkInStatus = await deriveCheckInStatus(
+      db,
       before.employeeId,
       before.date,
       checkInTime
@@ -129,6 +131,7 @@ export async function buildAttendanceCorrectionData(
     data.finalStatus = updates.finalStatus;
     if (updates.finalStatus === "PRESENT" && checkInTime && !updates.checkInStatus) {
       data.checkInStatus = await deriveCheckInStatus(
+        db,
         before.employeeId,
         before.date,
         checkInTime
@@ -212,16 +215,18 @@ export async function buildAttendanceCorrectionData(
 }
 
 export async function applyAttendanceCorrection(params: {
+  db: Db;
   record: AttendanceRecord;
   updates: AttendanceCorrectionInput;
   actorId: string;
 }) {
   const data = await buildAttendanceCorrectionData(
+    params.db,
     params.record,
     params.updates,
     params.actorId
   );
-  return prisma.attendanceRecord.update({
+  return params.db.attendanceRecord.update({
     where: { id: params.record.id },
     data,
     include: { employee: true },

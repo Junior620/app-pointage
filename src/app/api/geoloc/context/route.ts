@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findEmployeeByWhatsappPhone } from "@/lib/employee-whatsapp";
 import { verifyGeolocLink } from "@/lib/geoloc-link";
+import { orgForEmployeeRequest, WRONG_ORG_LINK_MESSAGE } from "@/lib/tenant";
 
 /**
  * Contexte de la page /geoloc, lu avant de demander la position :
@@ -25,6 +26,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: "Ce numéro n'est rattaché à aucun employé actif. Contactez les RH." },
       { status: 404, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  const org = await orgForEmployeeRequest(employee.organizationId, request);
+  if (!org) {
+    return NextResponse.json(
+      { error: WRONG_ORG_LINK_MESSAGE },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
     );
   }
 

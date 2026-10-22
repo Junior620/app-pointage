@@ -1,8 +1,7 @@
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import type { LeaveRequest } from "@prisma/client";
 import type { Employee } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import {
   leaveAbsenceCategoryLabel,
   leaveSubmissionSourceLabel,
@@ -85,10 +84,10 @@ function buildLeaveDocument(leave: LeaveRequest & { employee: Employee }) {
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
 
-    const leave = await prisma.leaveRequest.findUnique({
+    const leave = await db.leaveRequest.findUnique({
       where: { id },
       include: { employee: true },
     });

@@ -38,7 +38,7 @@ import {
 } from "recharts";
 import { cn, formatTime } from "@/lib/utils";
 import { CHART_COLORS, CHART_TOOLTIP_STYLE } from "@/lib/chart-colors";
-import { STRUCTURE_BRANDS, isStructureCode } from "@/lib/brand";
+import { STRUCTURE_BRANDS, isStructureCode, structureBrand } from "@/lib/brand";
 import { useNavCounts } from "@/lib/use-nav-counts";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -50,6 +50,7 @@ import { StatusBadge, StructureBadge } from "@/components/ui/StatusBadge";
 import { Table, THead, Th, Tr, Td } from "@/components/ui/Table";
 import { StatTile } from "@/components/ui/StatTile";
 import StructureLogo from "@/components/brand/StructureLogo";
+import StructureOptions, { useHasSeveralStructures } from "@/components/org/StructureOptions";
 
 interface DashboardData {
   today: {
@@ -124,6 +125,7 @@ function pct(part: number, whole: number) {
 }
 
 export default function DashboardClient({ userName }: { userName: string }) {
+  const severalStructures = useHasSeveralStructures();
   const [structureFilter, setStructureFilter] = useState("");
   const [tick, setTick] = useState(0);
   const requestKey = `${structureFilter}|${tick}`;
@@ -245,16 +247,17 @@ export default function DashboardClient({ userName }: { userName: string }) {
         }
         actions={
           <>
-            <Select
-              value={structureFilter}
-              onChange={(e) => setStructureFilter(e.target.value)}
-              className="w-auto min-w-[170px]"
-              aria-label="Filtrer par structure"
-            >
-              <option value="">Toutes structures</option>
-              <option value="SCPB">SCPB</option>
-              <option value="AFREXIA">AFREXIA</option>
-            </Select>
+            {severalStructures && (
+              <Select
+                value={structureFilter}
+                onChange={(e) => setStructureFilter(e.target.value)}
+                className="w-auto min-w-[170px]"
+                aria-label="Filtrer par structure"
+              >
+                <option value="">Toutes structures</option>
+                <StructureOptions />
+              </Select>
+            )}
             <Button variant="secondary" size="icon" onClick={refresh} aria-label="Actualiser" title="Actualiser">
               <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
             </Button>
@@ -666,7 +669,7 @@ function TopList({
                     {e.firstName ?? ""} {e.lastName ?? ""}
                   </p>
                   <p className="truncate text-xs text-slate-500">
-                    {[e.service, e.structure].filter(Boolean).join(" · ")}
+                    {[e.service, structureBrand(e.structure)?.name ?? e.structure].filter(Boolean).join(" · ")}
                   </p>
                 </div>
               </div>

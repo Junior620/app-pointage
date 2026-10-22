@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { orgForEmployeeRequest, tenantScope, WRONG_ORG_LINK_MESSAGE } from "@/lib/tenant";
+import { STRUCTURE_CODES } from "@/lib/brand";
 import { verifyMissionFormToken } from "@/lib/mission-form-token";
 import { parseDateInputForDbDate } from "@/lib/utils";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
@@ -18,7 +20,7 @@ const submitSchema = z.object({
     .min(5, "Merci de détailler l'objet de la mission (au moins 5 caractères).")
     .max(4000),
   location: z.string().max(255).optional().nullable(),
-  hostStructure: z.enum(["SCPB", "AFREXIA"]).optional().nullable(),
+  hostStructure: z.enum(STRUCTURE_CODES).optional().nullable(),
   transport: z.string().max(500).optional().nullable(),
   certify: z.boolean().refine((v) => v === true, {
     message: "Vous devez certifier l'exactitude des informations.",
@@ -52,6 +54,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const org = await orgForEmployeeRequest(employee.organizationId, request);
+    if (!org) {
+      return NextResponse.json({ error: WRONG_ORG_LINK_MESSAGE }, { status: 400 });
+    }
+    const scope = tenantScope(org.id);
+    if (parsed.data.hostStructure && !org.structures.includes(parsed.data.hostStructure)) {
+      return NextResponse.json({ error: "Structure d'accueil inconnue." }, { status: 400 });
+    }
+
     const start = parseDateInputForDbDate(parsed.data.startDate);
     const end = parseDateInputForDbDate(parsed.data.endDate);
     if (end < start) {
@@ -62,6 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     const mission = await createMissionWithOrderNumber({
+      organizationId: org.id,
       employeeId: employee.id,
       startDate: start,
       endDate: end,
@@ -87,6 +99,7 @@ export async function POST(request: NextRequest) {
     });
     const orderLine = mission.orderNumber ? `N° ordre : *${mission.orderNumber}*\n` : "";
     await notifyRhAdminsWhatsApp(
+      org,
       `🆕 *Nouvelle demande de mission (employé)*\n\n` +
         `Employé : ${employee.lastName} ${employee.firstName} (${employee.matricule})\n` +
         `Service : ${employee.service}\n` +
@@ -97,7 +110,7 @@ export async function POST(request: NextRequest) {
         `➡️ À traiter dans le module *Missions* du dashboard.`
     );
 
-    await logPublicSubmission({
+    await logPublicSubmission(scope, {
       employeeId: employee.id,
       type: "MISSION_REQUEST",
       entity: "mission",

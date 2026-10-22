@@ -62,7 +62,7 @@ export default function StructureLogo({
       role="img"
       aria-label={brand.name}
     >
-      {brand.code}
+      {brand.name}
     </span>
   );
 }

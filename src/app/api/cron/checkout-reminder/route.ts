@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { forEachOrg, sum } from "@/lib/tenant";
 import { sendWhatsAppMessage } from "@/lib/whatsapp";
 import { formatTime, todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 import { APP_TIMEZONE } from "@/lib/timezone";
@@ -31,54 +31,57 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, message: "Week-end — pas de rappel", count: 0 });
     }
 
-    const holiday = await prisma.holiday.findFirst({
-      where: {
-        date: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
-      },
-    });
-    if (holiday) {
-      return NextResponse.json({ success: true, message: "Jour férié — pas de rappel", count: 0 });
-    }
-
-    const records = await prisma.attendanceRecord.findMany({
-      where: {
-        date: today,
-        checkInTime: { not: null },
-        checkOutTime: null,
-      },
-      include: {
-        employee: {
-          include: {
-            site: { include: { schedules: true } },
+    const count = sum(
+      await forEachOrg(async ({ db }) => {
+        const holiday = await db.holiday.findFirst({
+          where: {
+            date: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
           },
-        },
-      },
-    });
+        });
+        if (holiday) return 0;
 
-    let count = 0;
-    for (const record of records) {
-      const { employee } = record;
-      if (!employee.active || !employee.whatsappPhone) continue;
+        const records = await db.attendanceRecord.findMany({
+          where: {
+            date: today,
+            checkInTime: { not: null },
+            checkOutTime: null,
+          },
+          include: {
+            employee: {
+              include: {
+                site: { include: { schedules: true } },
+              },
+            },
+          },
+        });
 
-      const endAt = getScheduleEndForRecord(record);
-      const remindAt = new Date(
-        endAt.getTime() + CHECKOUT_REMIND_AFTER_MIN * 60 * 1000
-      );
-      const remindUntil = new Date(remindAt.getTime() + 30 * 60 * 1000);
-      if (now < remindAt || now >= remindUntil) continue;
+        let count = 0;
+        for (const record of records) {
+          const { employee } = record;
+          if (!employee.active || !employee.whatsappPhone) continue;
 
-      const endLabel = formatTime(endAt);
-      const inTime = formatTime(record.checkInTime);
+          const endAt = getScheduleEndForRecord(record);
+          const remindAt = new Date(
+            endAt.getTime() + CHECKOUT_REMIND_AFTER_MIN * 60 * 1000
+          );
+          const remindUntil = new Date(remindAt.getTime() + 30 * 60 * 1000);
+          if (now < remindAt || now >= remindUntil) continue;
 
-      await sendWhatsAppMessage(
-        employee.whatsappPhone,
-        `⚠️ *Rappel de pointage*\n\n` +
-          `Bonjour ${employee.firstName}, vous avez pointé votre arrivée à ${inTime} mais votre départ (prévu vers ${endLabel}) n'a pas encore été enregistré.\n\n` +
-          `Tapez *DÉPART* ou *2* pour pointer votre sortie maintenant.\n\n` +
-          `Si vous ne pointez pas, un départ automatique sera enregistré à la clôture.`
-      );
-      count++;
-    }
+          const endLabel = formatTime(endAt);
+          const inTime = formatTime(record.checkInTime);
+
+          await sendWhatsAppMessage(
+            employee.whatsappPhone,
+            `⚠️ *Rappel de pointage*\n\n` +
+              `Bonjour ${employee.firstName}, vous avez pointé votre arrivée à ${inTime} mais votre départ (prévu vers ${endLabel}) n'a pas encore été enregistré.\n\n` +
+              `Tapez *DÉPART* ou *2* pour pointer votre sortie maintenant.\n\n` +
+              `Si vous ne pointez pas, un départ automatique sera enregistré à la clôture.`
+          );
+          count++;
+        }
+        return count;
+      })
+    );
 
     return NextResponse.json({
       success: true,

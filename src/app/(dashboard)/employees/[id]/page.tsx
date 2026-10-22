@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { tenantDb } from "@/lib/tenant";
 import { redirect } from "next/navigation";
 import { cn, formatTime, isWorkingDay } from "@/lib/utils";
 import { Phone, MapPin, Hash, Building2, CalendarClock, Clock, UserX, Timer, CalendarDays, Gauge } from "lucide-react";
@@ -63,10 +63,13 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const employee = await prisma.employee.findUnique({
-    where: { id },
-    select: { firstName: true, lastName: true },
-  });
+  const session = await getSession();
+  const employee = session
+    ? await tenantDb(session.organizationId).employee.findUnique({
+        where: { id },
+        select: { firstName: true, lastName: true },
+      })
+    : null;
   // Titre complet : le modèle « %s · Pointage RH » n'est pas transmis à travers le layout Employés.
   return { title: { absolute: `${employee ? `${employee.firstName} ${employee.lastName}` : "Employé"} · Pointage RH` } };
 }
@@ -80,6 +83,7 @@ export default async function EmployeeDetailPage({
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
+  const db = tenantDb(session.organizationId);
 
   const { id } = await params;
   const sp = await searchParams;
@@ -87,7 +91,7 @@ export default async function EmployeeDetailPage({
   const { rangeFrom, rangeTo } = periodRes;
   const dbRange = { gte: toDbDate(rangeFrom), lte: toDbDate(rangeTo) };
 
-  const employee = await prisma.employee.findUnique({
+  const employee = await db.employee.findUnique({
     where: { id },
     include: {
       site: true,
@@ -102,7 +106,7 @@ export default async function EmployeeDetailPage({
 
   if (!employee) notFound();
 
-  const holidays = await prisma.holiday.findMany({
+  const holidays = await db.holiday.findMany({
     where: { date: dbRange },
   });
   const holidaySet = new Set(holidays.map((h) => dateKeyFromDbDate(h.date)));

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { utcCalendarDayBounds } from "@/lib/utils";
 
@@ -14,7 +13,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const { id } = await context.params;
     const body = await request.json();
 
@@ -37,7 +36,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       }
     }
 
-    const record = await prisma.attendanceRecord.findUnique({
+    const record = await db.attendanceRecord.findUnique({
       where: { id },
       include: { employee: true },
     });
@@ -64,7 +63,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // Par défaut désactivé — activer avec REQUIRE_MISSION_FOR_OVERTIME_APPROVAL=true
     if (process.env.REQUIRE_MISSION_FOR_OVERTIME_APPROVAL === "true") {
       const { dayStart, dayEnd } = utcCalendarDayBounds(record.date);
-      const hasApprovedMission = await prisma.mission.findFirst({
+      const hasApprovedMission = await db.mission.findFirst({
         where: {
           employeeId: record.employeeId,
           status: "APPROVED",
@@ -85,7 +84,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       }
     }
 
-    const updated = await prisma.attendanceRecord.update({
+    const updated = await db.attendanceRecord.update({
       where: { id },
       data: {
         overtimeStatus: parsed.data.status,
@@ -96,7 +95,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       include: { employee: true },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: parsed.data.status === "APPROVED" ? "OVERTIME_APPROVE" : "OVERTIME_REJECT",
       entity: "AttendanceRecord",

@@ -12,8 +12,7 @@ import {
   UnderlineType,
   WidthType,
 } from "docx";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { missionOrderTitle } from "@/lib/mission-order-number";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -225,9 +224,9 @@ function buildMissionOrderDoc(mission: {
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
-    const mission = await prisma.mission.findUnique({
+    const mission = await db.mission.findUnique({
       where: { id },
       include: { employee: true },
     });

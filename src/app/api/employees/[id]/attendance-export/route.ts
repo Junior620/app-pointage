@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import {
   resolveAttendanceExportRange,
   fetchAttendanceExportLines,
@@ -13,11 +12,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await params;
     const { searchParams } = request.nextUrl;
 
-    const employee = await prisma.employee.findUnique({
+    const employee = await db.employee.findUnique({
       where: { id },
       select: { id: true, matricule: true },
     });
@@ -30,7 +29,7 @@ export async function GET(
     const toStr = searchParams.get("to") ?? undefined;
     const { from, to } = resolveAttendanceExportRange(preset, fromStr, toStr);
 
-    const lines = await fetchAttendanceExportLines([id], from, to);
+    const lines = await fetchAttendanceExportLines(db, [id], from, to);
     const buffer = await buildAttendanceExportBuffer(lines, "Pointages");
     const filename = `pointages_${employee.matricule}_${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}.xlsx`;
 

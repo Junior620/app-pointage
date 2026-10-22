@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { createDashboardUser, DashboardUserError } from "@/lib/create-dashboard-user";
 import { normalizeUserWhatsappPhone } from "@/lib/rh-whatsapp-notify";
@@ -17,9 +16,9 @@ const createUserSchema = z.object({
 /** Liste des comptes dashboard (ADMIN). */
 export async function GET() {
   try {
-    await requireRole(["ADMIN"]);
+    const { db } = await requireTenant(["ADMIN"]);
 
-    const users = await prisma.user.findMany({
+    const users = await db.user.findMany({
       orderBy: [{ role: "asc" }, { name: "asc" }],
       select: {
         id: true,
@@ -49,7 +48,7 @@ export async function GET() {
 /** Créer un compte RH / Admin / DG (ADMIN). */
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["ADMIN"]);
+    const { session, scope } = await requireTenant(["ADMIN"]);
     const body = await request.json();
     const parsed = createUserSchema.safeParse(body);
     if (!parsed.success) {
@@ -60,6 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     const user = await createDashboardUser({
+      organizationId: session.organizationId,
       email: parsed.data.email,
       password: parsed.data.password,
       name: parsed.data.name,
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       whatsappPhone: parsed.data.whatsappPhone,
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "CREATE",
       entity: "User",

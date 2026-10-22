@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
-import { normalizeUserWhatsappPhone } from "@/lib/rh-whatsapp-notify";
+import { normalizeUserWhatsappPhone, userWhatsappPhoneConflict } from "@/lib/rh-whatsapp-notify";
 
 const patchSchema = z.object({
   whatsappPhone: z.union([z.string(), z.null()]).optional(),
@@ -14,39 +13,9 @@ const patchSchema = z.object({
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-async function validateWhatsappUnique(
-  whatsappPhone: string | null,
-  userId: string
-): Promise<string | null> {
-  if (!whatsappPhone) return null;
-
-  const conflictEmployee = await prisma.employee.findFirst({
-    where: {
-      OR: [
-        { whatsappPhone },
-        { whatsappPhone: whatsappPhone.replace(/\D/g, "") },
-      ],
-    },
-    select: { matricule: true },
-  });
-  if (conflictEmployee) {
-    return "Ce numéro est déjà lié à un employé (fiche pointage).";
-  }
-
-  const conflictUser = await prisma.user.findFirst({
-    where: { whatsappPhone, NOT: { id: userId } },
-    select: { email: true },
-  });
-  if (conflictUser) {
-    return `Ce numéro est déjà utilisé par ${conflictUser.email}.`;
-  }
-
-  return null;
-}
-
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["ADMIN"]);
+    const { session, db, scope } = await requireTenant(["ADMIN"]);
     const { id } = await context.params;
     const body = await request.json();
     const parsed = patchSchema.safeParse(body);
@@ -57,7 +26,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const before = await prisma.user.findUnique({ where: { id } });
+    const before = await db.user.findUnique({ where: { id } });
     if (!before) {
       return NextResponse.json({ error: "Utilisateur non trouvé" }, { status: 404 });
     }
@@ -78,7 +47,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     if (parsed.data.active === false && before.role === "ADMIN") {
-      const otherAdmins = await prisma.user.count({
+      const otherAdmins = await db.user.count({
         where: { role: "ADMIN", active: true, NOT: { id } },
       });
       if (otherAdmins === 0) {
@@ -102,7 +71,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     if (parsed.data.whatsappPhone !== undefined) {
       const whatsappPhone = normalizeUserWhatsappPhone(parsed.data.whatsappPhone);
-      const conflict = await validateWhatsappUnique(whatsappPhone, id);
+      const conflict = await userWhatsappPhoneConflict(whatsappPhone, { userId: id, organizationId: session.organizationId });
       if (conflict) {
         return NextResponse.json({ error: conflict }, { status: 409 });
       }
@@ -113,7 +82,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Aucune modification" }, { status: 400 });
     }
 
-    const user = await prisma.user.update({
+    const user = await db.user.update({
       where: { id },
       data,
       select: {
@@ -127,7 +96,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
     });
 
-    await createAuditLog({
+    await createAuditLog(scope, {
       actorId: session.id,
       action: "UPDATE",
       entity: "User",

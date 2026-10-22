@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { isWorkingDay, parseDateInputForDbDate } from "@/lib/utils";
 import {
@@ -23,7 +22,7 @@ function eachDateInclusive(fromStr: string, toStr: string): string[] {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db, scope } = await requireTenant(["HR", "ADMIN"]);
     const body = await request.json();
     const parsed = correctionBulkSchema.safeParse(body);
     if (!parsed.success) {
@@ -35,7 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "La date de début doit précéder la date de fin" }, { status: 400 });
     }
 
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const employee = await db.employee.findUnique({ where: { id: employeeId } });
     if (!employee) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
@@ -57,17 +56,18 @@ export async function POST(request: NextRequest) {
     const results: { date: string; id: string }[] = [];
     for (const dateStr of days) {
       const date = parseDateInputForDbDate(dateStr);
-      const existing = await prisma.attendanceRecord.findUnique({
+      const existing = await db.attendanceRecord.findUnique({
         where: { employeeId_date: { employeeId, date } },
       });
 
       if (existing) {
         const record = await applyAttendanceCorrection({
+          db,
           record: existing,
           updates,
           actorId: session.id,
         });
-        await createAuditLog({
+        await createAuditLog(scope, {
           actorId: session.id,
           action: "CORRECTION",
           entity: "AttendanceRecord",
@@ -79,21 +79,22 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const stub = await prisma.attendanceRecord.create({
+      const stub = await db.attendanceRecord.create({
         data: {
+          organizationId: session.organizationId,
           employeeId,
           date,
           finalStatus: updates.finalStatus ?? "PRESENT",
         },
       });
       try {
-        const data = await buildAttendanceCorrectionData(stub, updates, session.id);
-        const record = await prisma.attendanceRecord.update({
+        const data = await buildAttendanceCorrectionData(db, stub, updates, session.id);
+        const record = await db.attendanceRecord.update({
           where: { id: stub.id },
           data,
           include: { employee: true },
         });
-        await createAuditLog({
+        await createAuditLog(scope, {
           actorId: session.id,
           action: "CORRECTION",
           entity: "AttendanceRecord",
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
         });
         results.push({ date: dateStr, id: record.id });
       } catch (e) {
-        await prisma.attendanceRecord.delete({ where: { id: stub.id } }).catch(() => {});
+        await db.attendanceRecord.delete({ where: { id: stub.id } }).catch(() => {});
         throw e;
       }
     }

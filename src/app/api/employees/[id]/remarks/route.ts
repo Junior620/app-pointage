@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -21,10 +20,10 @@ const remarkSchema = z.object({
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { id } = await context.params;
 
-    const remarks = await prisma.hrRemark.findMany({
+    const remarks = await db.hrRemark.findMany({
       where: { employeeId: id },
       include: { author: { select: { id: true, name: true, role: true } } },
       orderBy: { createdAt: "desc" },
@@ -44,7 +43,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireRole(["HR", "ADMIN"]);
+    const { session, db } = await requireTenant(["HR", "ADMIN"]);
     const { id } = await context.params;
     const body = await request.json();
 
@@ -56,7 +55,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const employee = await prisma.employee.findUnique({ where: { id } });
+    const employee = await db.employee.findUnique({ where: { id } });
     if (!employee) {
       return NextResponse.json(
         { error: "Employé non trouvé" },
@@ -64,8 +63,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const remark = await prisma.hrRemark.create({
+    const remark = await db.hrRemark.create({
       data: {
+        organizationId: session.organizationId,
         employeeId: id,
         category: parsed.data.category,
         level: parsed.data.level ?? null,
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
-    await requireRole(["ADMIN"]);
+    const { db } = await requireTenant(["ADMIN"]);
     const { id } = await context.params;
 
     const { searchParams } = request.nextUrl;
@@ -101,7 +101,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const remark = await prisma.hrRemark.findFirst({
+    const remark = await db.hrRemark.findFirst({
       where: { id: remarkId, employeeId: id },
     });
     if (!remark) {
@@ -111,7 +111,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       );
     }
 
-    await prisma.hrRemark.delete({ where: { id: remarkId } });
+    await db.hrRemark.delete({ where: { id: remarkId } });
     return NextResponse.json({ deleted: true });
   } catch (error) {
     if (error instanceof Error) {

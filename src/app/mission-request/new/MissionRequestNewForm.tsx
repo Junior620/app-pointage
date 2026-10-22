@@ -8,6 +8,7 @@ import { EmployeeRecap, PublicFormDone, PublicFormLoading, PublicFormUnavailable
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { MissionPrefill } from "./mission-types";
+import StructureOptions from "@/components/org/StructureOptions";
 
 function dayCount(start: string, end: string): number {
   const a = new Date(`${start}T12:00:00`);
@@ -162,8 +163,7 @@ export default function MissionRequestNewForm() {
               {(id) => (
                 <Select id={id} value={hostStructure} onChange={(e) => setHostStructure(e.target.value)}>
                   <option value="">Aucune (mission externe)</option>
-                  <option value="SCPB">SCPB</option>
-                  <option value="AFREXIA">AFREXIA</option>
+                  <StructureOptions />
                 </Select>
               )}
             </Field>

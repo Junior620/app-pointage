@@ -1,5 +1,5 @@
-import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { tenantDb } from "./tenant";
 import { normalizePhone, sendWhatsAppMessage } from "./whatsapp";
 
 export const MAX_EMPLOYEE_WHATSAPP_PHONES = 2;
@@ -56,6 +56,10 @@ export function parseEmployeeWhatsappInputs(
   return out;
 }
 
+/**
+ * Recherche sur toutes les entreprises : un numéro désigne une seule personne (unicité en base).
+ * L'appelant poursuit ensuite avec tenantDb(employee.organizationId).
+ */
 export async function findEmployeeByWhatsappPhone(phone: string) {
   const variants = whatsappPhoneLookupVariants(phone);
   if (variants.length === 0) return null;
@@ -84,6 +88,7 @@ export async function findEmployeeByWhatsappPhone(phone: string) {
   });
 }
 
+/** Numéros d'un employé déjà identifié (id issu d'une requête cloisonnée ou d'un lien signé). */
 export async function getEmployeeWhatsappPhones(employeeId: string): Promise<string[]> {
   const rows = await prisma.employeeWhatsappPhone.findMany({
     where: { employeeId },
@@ -138,13 +143,10 @@ export async function sendWhatsAppToEmployeeEntity(
   }
 }
 
-async function assertPhonesAvailable(
-  phones: string[],
-  employeeId: string,
-  tx: Prisma.TransactionClient
-) {
+/** Vérification sur toutes les entreprises : le numéro est unique en base. */
+async function assertPhonesAvailable(phones: string[], employeeId: string) {
   for (const phone of phones) {
-    const taken = await tx.employeeWhatsappPhone.findFirst({
+    const taken = await prisma.employeeWhatsappPhone.findFirst({
       where: { phone, NOT: { employeeId } },
     });
     if (taken) {
@@ -153,7 +155,7 @@ async function assertPhonesAvailable(
         "TAKEN"
       );
     }
-    const legacy = await tx.employee.findFirst({
+    const legacy = await prisma.employee.findFirst({
       where: {
         whatsappPhone: phone,
         NOT: { id: employeeId },
@@ -169,17 +171,18 @@ async function assertPhonesAvailable(
 }
 
 export async function syncEmployeeWhatsappPhones(
+  organizationId: string,
   employeeId: string,
   inputs: (string | null | undefined)[]
 ): Promise<string[]> {
   const phones = parseEmployeeWhatsappInputs(inputs);
 
-  return prisma.$transaction(async (tx) => {
-    await assertPhonesAvailable(phones, employeeId, tx);
+  await assertPhonesAvailable(phones, employeeId);
+  return tenantDb(organizationId).$transaction(async (tx) => {
     await tx.employeeWhatsappPhone.deleteMany({ where: { employeeId } });
     for (let i = 0; i < phones.length; i++) {
       await tx.employeeWhatsappPhone.create({
-        data: { employeeId, phone: phones[i], sortOrder: i },
+        data: { organizationId, employeeId, phone: phones[i], sortOrder: i },
       });
     }
     const primary = phones[0] ?? null;

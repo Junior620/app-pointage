@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 
 /** Liste d’employés pour l’autocomplete de la page Rapports (HR, ADMIN, DG). */
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
     const q = searchParams.get("q")?.trim() || "";
     const service = searchParams.get("service")?.trim() || undefined;
@@ -23,7 +22,7 @@ export async function GET(request: NextRequest) {
       }),
     };
 
-    const employees = await prisma.employee.findMany({
+    const employees = await db.employee.findMany({
       where,
       select: { id: true, firstName: true, lastName: true, matricule: true, service: true },
       take: limit,

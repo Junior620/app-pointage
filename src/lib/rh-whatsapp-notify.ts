@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { DEFAULT_ORG_SLUG, tenantDb, type OrgInfo } from "./tenant";
 import { sendWhatsAppMessage, normalizePhone } from "./whatsapp";
 
 const NOTIFY_ROLES = ["HR", "ADMIN", "DG"] as const;
@@ -23,7 +24,7 @@ function mergePhoneLists(...lists: string[][]): string[] {
   return out;
 }
 
-/** Numéros issus des variables d'environnement (rétrocompatibilité). */
+/** Numéros issus des variables d'environnement (rétrocompatibilité, entreprise par défaut uniquement). */
 export function getRhAdminNotifyPhonesFromEnv(): string[] {
   const merged = [
     process.env.WHATSAPP_RH_NOTIFY_PHONES,
@@ -40,9 +41,9 @@ export function getRhAdminNotifyPhonesFromEnv(): string[] {
     .filter(Boolean);
 }
 
-/** Numéros des comptes RH / Admin / DG actifs renseignés en base. */
-export async function getRhAdminNotifyPhonesFromDb(): Promise<string[]> {
-  const users = await prisma.user.findMany({
+/** Numéros des comptes RH / Admin / DG actifs de l'entreprise, renseignés en base. */
+export async function getRhAdminNotifyPhonesFromDb(organizationId: string): Promise<string[]> {
+  const users = await tenantDb(organizationId).user.findMany({
     where: {
       active: true,
       role: { in: [...NOTIFY_ROLES] },
@@ -56,16 +57,17 @@ export async function getRhAdminNotifyPhonesFromDb(): Promise<string[]> {
 }
 
 /** Fusion env + comptes utilisateurs (sans doublon). */
-export async function getRhAdminNotifyPhones(): Promise<string[]> {
+export async function getRhAdminNotifyPhones(org: Pick<OrgInfo, "id" | "slug">): Promise<string[]> {
   const [fromEnv, fromDb] = await Promise.all([
-    Promise.resolve(getRhAdminNotifyPhonesFromEnv()),
-    getRhAdminNotifyPhonesFromDb(),
+    Promise.resolve(org.slug === DEFAULT_ORG_SLUG ? getRhAdminNotifyPhonesFromEnv() : []),
+    getRhAdminNotifyPhonesFromDb(org.id),
   ]);
   return mergePhoneLists(fromEnv, fromDb);
 }
 
-export async function notifyRhAdminsWhatsApp(text: string): Promise<number> {
-  const phones = await getRhAdminNotifyPhones();
+/** Alerte les RH / Admin / DG de l'entreprise concernée (jamais ceux d'une autre entreprise). */
+export async function notifyRhAdminsWhatsApp(org: Pick<OrgInfo, "id" | "slug">, text: string): Promise<number> {
+  const phones = await getRhAdminNotifyPhones(org);
   if (phones.length === 0) {
     console.warn(
       "[rh-whatsapp-notify] Aucun destinataire (renseignez whatsapp_phone sur les comptes RH/Admin ou WHATSAPP_RH_NOTIFY_PHONES)."
@@ -74,6 +76,39 @@ export async function notifyRhAdminsWhatsApp(text: string): Promise<number> {
   }
   await Promise.allSettled(phones.map((p) => sendWhatsAppMessage(p, text)));
   return phones.length;
+}
+
+/**
+ * Numéro WhatsApp déjà pris par un employé ou un autre compte. Vérifié sur toutes les entreprises
+ * (unicité en base, routage du webhook), sans rien dévoiler d'une autre entreprise.
+ */
+export async function userWhatsappPhoneConflict(
+  whatsappPhone: string | null,
+  { userId, organizationId }: { userId?: string; organizationId: string }
+): Promise<string | null> {
+  if (!whatsappPhone) return null;
+
+  const conflictEmployee = await prisma.employee.findFirst({
+    where: {
+      OR: [{ whatsappPhone }, { whatsappPhone: whatsappPhone.replace(/\D/g, "") }],
+    },
+    select: { id: true },
+  });
+  if (conflictEmployee) {
+    return "Ce numéro WhatsApp est déjà lié à un employé (fiche pointage).";
+  }
+
+  const conflictUser = await prisma.user.findFirst({
+    where: { whatsappPhone, ...(userId ? { NOT: { id: userId } } : {}) },
+    select: { email: true, organizationId: true },
+  });
+  if (conflictUser) {
+    return conflictUser.organizationId === organizationId
+      ? `Ce numéro WhatsApp est déjà utilisé par ${conflictUser.email}.`
+      : "Ce numéro WhatsApp est déjà utilisé par un autre compte.";
+  }
+
+  return null;
 }
 
 export function normalizeUserWhatsappPhone(

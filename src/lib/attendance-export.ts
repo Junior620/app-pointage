@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { prisma } from "./prisma";
+import type { Db } from "./tenant";
 import { startOfLocalDay, toInputDateLocal } from "./period-range";
 import { formatTime, isWorkingDay, parseDateInputForDbDate } from "./utils";
 
@@ -100,6 +100,7 @@ function fmtDuration(min: number | null): string {
 }
 
 export async function fetchAttendanceExportLines(
+  db: Db,
   employeeIds: string[],
   from: Date,
   to: Date
@@ -109,7 +110,7 @@ export async function fetchAttendanceExportLines(
   const rangeFromDb = parseDateInputForDbDate(toInputDateLocal(from));
   const rangeToDb = parseDateInputForDbDate(toInputDateLocal(to));
 
-  const employees = await prisma.employee.findMany({
+  const employees = await db.employee.findMany({
     where: { id: { in: employeeIds } },
     select: {
       id: true,
@@ -122,7 +123,7 @@ export async function fetchAttendanceExportLines(
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
 
-  const records = await prisma.attendanceRecord.findMany({
+  const records = await db.attendanceRecord.findMany({
     where: {
       employeeId: { in: employeeIds },
       date: { gte: rangeFromDb, lte: rangeToDb },
@@ -134,7 +135,7 @@ export async function fetchAttendanceExportLines(
     records.map((r) => [`${r.employeeId}:${dateKeyFromDbDate(r.date)}`, r])
   );
 
-  const holidays = await prisma.holiday.findMany({
+  const holidays = await db.holiday.findMany({
     where: { date: { gte: rangeFromDb, lte: rangeToDb } },
     select: { date: true },
   });

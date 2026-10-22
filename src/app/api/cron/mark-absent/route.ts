@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runMarkAbsent } from "@/lib/attendance-engine";
+import { forEachOrg, sum } from "@/lib/tenant";
 
 function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const count = await runMarkAbsent();
+    const count = sum(await forEachOrg((scope) => runMarkAbsent(scope)));
     return NextResponse.json({
       success: true,
       message: `${count} employé(s) marqué(s) absent / avec autorisation d'absence / mission`,

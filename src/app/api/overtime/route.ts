@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireTenant } from "@/lib/auth";
 import { parseDateInputForDbDate } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireRole(["HR", "ADMIN", "DG"]);
+    const { db } = await requireTenant(["HR", "ADMIN", "DG"]);
     const { searchParams } = request.nextUrl;
 
     const status = searchParams.get("status"); // PENDING | APPROVED | REJECTED
@@ -31,7 +30,7 @@ export async function GET(request: NextRequest) {
     if (structure) where.employee = { structure };
 
     const [records, total, pendingCount, approvedCount, rejectedCount] = await Promise.all([
-      prisma.attendanceRecord.findMany({
+      db.attendanceRecord.findMany({
         where,
         include: {
           employee: {
@@ -49,14 +48,14 @@ export async function GET(request: NextRequest) {
         skip,
         take: limit,
       }),
-      prisma.attendanceRecord.count({ where }),
-      prisma.attendanceRecord.count({
+      db.attendanceRecord.count({ where }),
+      db.attendanceRecord.count({
         where: { ...where, overtimeStatus: "PENDING" },
       }),
-      prisma.attendanceRecord.count({
+      db.attendanceRecord.count({
         where: { ...where, overtimeStatus: "APPROVED" },
       }),
-      prisma.attendanceRecord.count({
+      db.attendanceRecord.count({
         where: { ...where, overtimeStatus: "REJECTED" },
       }),
     ]);
