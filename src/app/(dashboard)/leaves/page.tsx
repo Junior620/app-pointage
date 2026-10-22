@@ -28,7 +28,10 @@ import {
 import { cn } from "@/lib/utils";
 import { statusLabel } from "@/lib/status-labels";
 import { fetchAllEmployees } from "@/lib/fetch-all-employees";
-import { addPdfLogos } from "@/lib/pdf-branding";
+import { downloadBlob, downloadLeaveRequestPdf } from "@/lib/documents/download";
+import { calendarDays } from "@/lib/documents/leave-request";
+import { EXCEL_DATE_FORMAT, excelDay, finishSheet, setColumnFormats } from "@/lib/excel-format";
+import { fileDateStamp } from "@/lib/export-format";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { refreshNavCounts } from "@/lib/use-nav-counts";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -316,44 +319,36 @@ function LeavesContent() {
         { header: "Service", key: "service", width: 14 },
         { header: "Début", key: "start", width: 12 },
         { header: "Fin", key: "end", width: 12 },
-        { header: "Durée", key: "duration", width: 10 },
+        { header: "Durée (j)", key: "duration", width: 10 },
         { header: "Motif", key: "reason", width: 36 },
         { header: "Catégorie", key: "category", width: 22 },
         { header: "Origine", key: "source", width: 18 },
         { header: "Statut", key: "status", width: 22 },
         { header: "Créée le", key: "created", width: 14 },
       ];
-      ws.getRow(1).eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: "FFFFFF" } };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
-        cell.alignment = { horizontal: "center" };
-      });
       all.forEach((leave) => {
         const cancelled = Boolean(leave.cancelledAt);
         ws.addRow({
           employee: `${leave.employee.lastName} ${leave.employee.firstName}`,
           matricule: leave.employee.matricule,
           service: leave.employee.service ?? "—",
-          start: new Date(leave.startDate).toLocaleDateString("fr-FR"),
-          end: new Date(leave.endDate).toLocaleDateString("fr-FR"),
-          duration: formatDuration(leave.startDate, leave.endDate),
+          start: excelDay(leave.startDate),
+          end: excelDay(leave.endDate),
+          duration: calendarDays(leave.startDate, leave.endDate),
           reason: leave.reason,
           category: leaveAbsenceCategoryLabel(leave.absenceCategory ?? undefined),
           source: leaveSubmissionSourceLabel(leave.submissionSource),
           status: `${statusLabel("request", leave.status)}${cancelled ? " — annulée" : ""}`,
-          created: new Date(leave.createdAt).toLocaleDateString("fr-FR"),
+          created: excelDay(leave.createdAt, { local: true }),
         });
       });
+      setColumnFormats(ws, { start: EXCEL_DATE_FORMAT, end: EXCEL_DATE_FORMAT, created: EXCEL_DATE_FORMAT });
+      finishSheet(ws);
       const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `autorisations_absence_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(
+        new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        `autorisations_absence_${fileDateStamp()}.xlsx`
+      );
       toast.success(`${all.length} demande${all.length > 1 ? "s" : ""} exportée${all.length > 1 ? "s" : ""}.`);
     } catch (e) {
       console.error(e);
@@ -818,7 +813,7 @@ function LeavesContent() {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="secondary" onClick={() => void downloadLeaveRequestPdf(detailLeave)} icon={<Download className="h-4 w-4" />}>
+              <Button variant="secondary" onClick={() => void downloadLeaveRequestPdf(detailLeave).catch(() => toast.error("Le PDF n'a pas pu être généré."))} icon={<Download className="h-4 w-4" />}>
                 PDF
               </Button>
               <Button variant="secondary" onClick={() => void downloadWord(detailLeave.id)} icon={<FileText className="h-4 w-4" />}>
@@ -865,70 +860,6 @@ function DetailLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-async function downloadLeaveRequestPdf(leave: LeaveRequest): Promise<void> {
-  const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  await addPdfLogos(doc, [leave.employee.structure], { top: 6, height: 10 });
-  let y = 18;
-  doc.setFontSize(15);
-  doc.setFont("helvetica", "bold");
-  doc.text("Demande d'autorisation d'absence / congés", 14, y);
-  y += 10;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-
-  const rows: [string, string][] = [
-    ["Structure", leave.employee.structure ?? "—"],
-    ["Nom", `${leave.employee.lastName} ${leave.employee.firstName}`],
-    ["Matricule", leave.employee.matricule],
-    ["Service", leave.employee.service ?? "—"],
-    ["Origine", leaveSubmissionSourceLabel(leave.submissionSource)],
-    ["Catégorie", leaveAbsenceCategoryLabel(leave.absenceCategory ?? undefined)],
-    [
-      "Du",
-      new Date(leave.startDate).toLocaleDateString("fr-FR", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }),
-    ],
-    [
-      "Au",
-      new Date(leave.endDate).toLocaleDateString("fr-FR", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }),
-    ],
-    ["Motif", leave.reason],
-    ["Personne/service à prévenir", leave.notifyOrReplace?.trim() || "—"],
-    ["Statut RH", `${statusLabel("request", leave.status)}${leave.approvedBy ? ` (${leave.approvedBy})` : ""}`],
-    ["Créée le", new Date(leave.createdAt).toLocaleDateString("fr-FR")],
-  ];
-
-  for (const [label, val] of rows) {
-    doc.setFont("helvetica", "bold");
-    doc.text(`${label} :`, 14, y);
-    doc.setFont("helvetica", "normal");
-    const lines = doc.splitTextToSize(val, 120);
-    doc.text(lines, 70, y);
-    y += 5 + Math.max(1, lines.length) * 5;
-    if (y > 278) {
-      doc.addPage();
-      y = 16;
-    }
-  }
-  y += 4;
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "italic");
-  doc.text("Document généré depuis Pointage RH — signature papier si besoin.", 14, Math.min(y + 6, 288), {
-    maxWidth: 180,
-  });
-  doc.save(`demande_autorisation_${leave.employee.matricule}_${leave.id.slice(0, 8)}.pdf`);
-}
-
 /** Télécharge le .docx ; renvoie un message d'erreur, ou null si tout s'est bien passé. */
 async function downloadLeaveRequestWord(id: string): Promise<string | null> {
   const res = await fetch(`/api/leaves/${id}/document`, { credentials: "include" });
@@ -945,12 +876,6 @@ async function downloadLeaveRequestWord(id: string): Promise<string | null> {
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition");
   const match = cd?.match(/filename="([^"]+)"/);
-  const fn = match?.[1] ?? `demande_autorisation_${id.slice(0, 8)}.docx`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fn;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, match?.[1] ?? `demande_autorisation_${id.slice(0, 8)}.docx`);
   return null;
 }

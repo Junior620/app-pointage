@@ -1,5 +1,13 @@
 import ExcelJS from "exceljs";
 import type { Db } from "./tenant";
+import {
+  EXCEL_DURATION_FORMAT,
+  EXCEL_WEEKDAY_DATE_FORMAT,
+  excelDay,
+  excelDuration,
+  finishSheet,
+  setColumnFormats,
+} from "./excel-format";
 import { startOfLocalDay, toInputDateLocal } from "./period-range";
 import { formatTime, isWorkingDay, parseDateInputForDbDate } from "./utils";
 
@@ -92,11 +100,6 @@ function statusFinalLabel(s: string): string {
     MISSION: "Mission",
   };
   return map[s] ?? s;
-}
-
-function fmtDuration(min: number | null): string {
-  if (min == null) return "—";
-  return `${Math.floor(min / 60)}h${(min % 60).toString().padStart(2, "0")}`;
 }
 
 export async function fetchAttendanceExportLines(
@@ -198,7 +201,7 @@ export async function buildAttendanceExportBuffer(
           { header: "Service", key: "service", width: 14 },
         ]
       : []),
-    { header: "Date", key: "date", width: 14 },
+    { header: "Date", key: "date", width: 16 },
     { header: "Arrivée", key: "checkIn", width: 10 },
     { header: "Statut arrivée", key: "checkInStatus", width: 14 },
     { header: "Départ", key: "checkOut", width: 10 },
@@ -210,16 +213,9 @@ export async function buildAttendanceExportBuffer(
     { header: "Statut final", key: "finalStatus", width: 16 },
   ];
 
-  ws.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF2563EB" },
-    };
-  });
-
   for (const line of lines) {
+    // Jour sans pointage (absent) : durées vides plutôt que « 0h00 ».
+    const worked = line.checkInTime != null;
     ws.addRow({
       ...(multi
         ? {
@@ -229,23 +225,26 @@ export async function buildAttendanceExportBuffer(
             service: line.service,
           }
         : {}),
-      date: line.date.toLocaleDateString("fr-FR", {
-        weekday: "short",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      }),
+      date: excelDay(line.date, { local: true }),
       checkIn: formatTime(line.checkInTime),
       checkInStatus: statusArrivalLabel(line.checkInStatus),
       checkOut: formatTime(line.checkOutTime),
       breakStart: formatTime(line.breakStartTime),
       breakEnd: formatTime(line.breakEndTime),
-      breakMin: fmtDuration(line.breakMinutes),
-      total: fmtDuration(line.totalMinutes),
-      overtime: fmtDuration(line.overtimeMinutes),
+      breakMin: worked ? excelDuration(line.breakMinutes) : null,
+      total: worked ? excelDuration(line.totalMinutes) : null,
+      overtime: worked ? excelDuration(line.overtimeMinutes) : null,
       finalStatus: statusFinalLabel(line.finalStatus),
     });
   }
+
+  setColumnFormats(ws, {
+    date: EXCEL_WEEKDAY_DATE_FORMAT,
+    breakMin: EXCEL_DURATION_FORMAT,
+    total: EXCEL_DURATION_FORMAT,
+    overtime: EXCEL_DURATION_FORMAT,
+  });
+  finishSheet(ws);
 
   return workbook.xlsx.writeBuffer();
 }

@@ -180,8 +180,9 @@ export default async function EmployeeDetailPage({
     (sum, r) => sum + (["APPROVED", null].includes(r.overtimeStatus ?? null) ? r.overtimeMinutes ?? 0 : 0),
     0
   );
+  // Sans arrivée pointée sur la période, le taux est sans objet (et non 100 %).
   const punctualityRate =
-    onTimeDays + lateDays > 0 ? Math.round((onTimeDays / (onTimeDays + lateDays)) * 100) : 100;
+    onTimeDays + lateDays > 0 ? Math.round((onTimeDays / (onTimeDays + lateDays)) * 100) : null;
 
   const phones = employee.whatsappPhones.length > 0
     ? employee.whatsappPhones.map((p) => p.phone)
@@ -287,7 +288,7 @@ export default async function EmployeeDetailPage({
       </Card>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
-        <StatTile icon={Gauge} label="Ponctualité" value={`${punctualityRate} %`} tone="brand" />
+        <StatTile icon={Gauge} label="Ponctualité" value={punctualityRate == null ? "—" : `${punctualityRate} %`} tone="brand" />
         <StatTile icon={Clock} label="À l'heure" value={onTimeDays} tone="success" />
         <StatTile icon={Clock} label="Retards" value={lateDays} tone="warning" />
         <StatTile icon={UserX} label="Absences" value={absentDays} tone="danger" />

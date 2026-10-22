@@ -1,15 +1,7 @@
 "use client";
 
 import type { jsPDF } from "jspdf";
-import { STRUCTURE_BRANDS, isStructureCode, type StructureCode } from "@/lib/brand";
-
-/** Proportions largeur / hauteur des fichiers de public/brand/ */
-const LOGO_RATIO: Record<StructureCode, number> = {
-  SCPB: 411 / 240,
-  AFREXIA: 255 / 240,
-  // À ajuster quand public/brand/goldenbeans.png sera fourni.
-  GOLDENBEANS: 1,
-};
+import { STRUCTURE_BRANDS, STRUCTURE_CODES, isStructureCode, type StructureCode } from "@/lib/brand";
 
 const cache = new Map<string, Promise<string | null>>();
 
@@ -44,7 +36,9 @@ export async function addPdfLogos(
   structures: (StructureCode | string | null | undefined)[],
   { top = 8, height = 11, right = 14 }: { top?: number; height?: number; right?: number } = {}
 ): Promise<void> {
-  const unique = [...new Set(structures.filter(isStructureCode))];
+  const requested = new Set(structures.filter(isStructureCode));
+  // Toujours dans l'ordre de STRUCTURE_CODES, quel que soit l'ordre des lignes du rapport.
+  const unique = STRUCTURE_CODES.filter((c) => requested.has(c));
   const images = await Promise.all(
     unique.map(async (code) => {
       const path = STRUCTURE_BRANDS[code].logo;
@@ -59,7 +53,7 @@ export async function addPdfLogos(
   for (const { code, data } of [...images].reverse()) {
     if (!data) continue;
     const brand = STRUCTURE_BRANDS[code];
-    const w = height * LOGO_RATIO[code];
+    const w = height * brand.logoAspect;
     if (!brand.wordmark) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);

@@ -26,7 +26,10 @@ import { cn } from "@/lib/utils";
 import { z } from "zod";
 import { departureReasonLabel } from "@/lib/departure-labels";
 import { fetchAllEmployees as fetchAllEmployeePages } from "@/lib/fetch-all-employees";
-import { addPdfLogos } from "@/lib/pdf-branding";
+import { downloadBlob } from "@/lib/documents/download";
+import { finishSheet } from "@/lib/excel-format";
+import { fileDateStamp, generatedAtLabel } from "@/lib/export-format";
+import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
 import { STRUCTURE_BRANDS, STRUCTURE_CODES, type StructureCode } from "@/lib/brand";
 import { useOrg } from "@/components/org/OrgProvider";
 import StructureOptions from "@/components/org/StructureOptions";
@@ -90,15 +93,6 @@ function formatDepartureDate(iso: string | null | undefined): string {
 
 function phonesOf(emp: Employee): string[] {
   return emp.whatsappPhones?.map((p) => p.phone) ?? (emp.whatsappPhone ? [emp.whatsappPhone] : []);
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 const employeeSchema = z.object({
@@ -280,12 +274,6 @@ function EmployeesContent() {
         { header: "Motif départ", key: "departureReason", width: 22 },
       ];
 
-      ws.getRow(1).eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: "FFFFFF" } };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
-        cell.alignment = { horizontal: "center" };
-      });
-
       data.forEach((emp) => {
         ws.addRow({
           matricule: emp.matricule,
@@ -300,6 +288,7 @@ function EmployeesContent() {
           departureReason: emp.departureReason ? departureReasonLabel(emp.departureReason) : "—",
         });
       });
+      finishSheet(ws);
     };
 
     addSheet("Tous", all);
@@ -313,39 +302,34 @@ function EmployeesContent() {
     const buffer = await workbook.xlsx.writeBuffer();
     downloadBlob(
       new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-      `employes_${new Date().toISOString().slice(0, 10)}.xlsx`
+      `employes_${fileDateStamp()}.xlsx`
     );
     toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (Excel).`);
   };
 
   const exportPdf = async () => {
-    const { jsPDF } = await import("jspdf");
     const { autoTable } = await import("jspdf-autotable");
     const all = await fetchAllEmployees();
 
-    const doc = new jsPDF({ orientation: "landscape" });
-    const now = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const doc = await createPdf({ orientation: "landscape", unit: "mm", format: "a4" });
 
-    const sectionPages: { page: number; structures: string[] }[] = [];
-    const generatePage = (title: string, data: Employee[], startNew: boolean, structures: string[] = orgStructures) => {
+    const generatePage = async (title: string, data: Employee[], startNew: boolean, structures: string[] = orgStructures) => {
       if (startNew) doc.addPage("a4", "landscape");
-      sectionPages.push({ page: doc.getNumberOfPages(), structures });
-
-      doc.setFontSize(16);
-      doc.text(title, 14, 18);
-      doc.setFontSize(9);
-      doc.setTextColor(120);
-      doc.text(`Généré le ${now} — ${data.length} employé(s)`, 14, 25);
-      doc.setTextColor(0);
-
       const active = data.filter((e) => e.active).length;
       const inactive = data.length - active;
       const whatsapp = data.filter((e) => phonesOf(e).length > 0).length;
-      doc.setFontSize(8);
-      doc.text(`Actifs : ${active}  |  Partis/inactifs : ${inactive}  |  WhatsApp : ${whatsapp}`, 14, 31);
+      const startY = await addPdfHeader(doc, {
+        title,
+        structures,
+        subtitle: [
+          `${data.length} employé${data.length > 1 ? "s" : ""} · généré le ${generatedAtLabel()}`,
+          `Actifs : ${active}   ·   Partis / inactifs : ${inactive}   ·   Joignables sur WhatsApp : ${whatsapp}`,
+        ],
+      });
 
       autoTable(doc, {
-        startY: 35,
+        ...PDF_TABLE,
+        startY,
         head: [["Matricule", "Nom", "Prénom", "Service", "Structure", "Site", "WhatsApp", "Statut", "Date départ", "Motif"]],
         body: data.map((emp) => [
           emp.matricule,
@@ -359,26 +343,19 @@ function EmployeesContent() {
           emp.departureDate ? formatDepartureDate(emp.departureDate) : "—",
           emp.departureReason ? departureReasonLabel(emp.departureReason) : "—",
         ]),
-        styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
       });
     };
 
-    generatePage("Liste des employés", all, false);
+    await generatePage("Liste des employés", all, false);
 
     if (orgStructures.length > 1) {
       for (const code of orgStructures) {
         const rows = all.filter((e) => e.structure === code);
-        if (rows.length > 0) generatePage(`Employés — ${STRUCTURE_BRANDS[code].name}`, rows, true, [code]);
+        if (rows.length > 0) await generatePage(`Employés — ${STRUCTURE_BRANDS[code].name}`, rows, true, [code]);
       }
     }
 
-    for (const section of sectionPages) {
-      doc.setPage(section.page);
-      await addPdfLogos(doc, section.structures);
-    }
-    doc.save(`employes_${new Date().toISOString().slice(0, 10)}.pdf`);
+    savePdf(doc, `employes_${fileDateStamp()}.pdf`);
     toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (PDF).`);
   };
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTenant } from "@/lib/auth";
+import { toInputDateLocal } from "@/lib/period-range";
 import {
   resolveAttendanceExportRange,
   fetchAttendanceExportLines,
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     const lines = await fetchAttendanceExportLines(db, employeeIds, from, to);
     const buffer = await buildAttendanceExportBuffer(lines, "Pointages");
-    const filename = `pointages_${employeeIds.length}employes_${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}.xlsx`;
+    const filename = `pointages_${employeeIds.length}employes_${toInputDateLocal(from)}_${toInputDateLocal(to)}.xlsx`;
 
     return new NextResponse(buffer, {
       headers: {

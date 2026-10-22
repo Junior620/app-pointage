@@ -23,7 +23,10 @@ import { cn } from "@/lib/utils";
 import { getMissionDurationDays } from "@/lib/mission-days";
 import { statusLabel } from "@/lib/status-labels";
 import { fetchAllEmployees } from "@/lib/fetch-all-employees";
-import { addPdfLogos } from "@/lib/pdf-branding";
+import { downloadBlob, downloadMissionOrderDocx, downloadMissionOrderPdf } from "@/lib/documents/download";
+import { EXCEL_DATE_FORMAT, excelDay, finishSheet, setColumnFormats } from "@/lib/excel-format";
+import { fileDateStamp, fmtDayFr, generatedAtLabel } from "@/lib/export-format";
+import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
 import { STRUCTURE_BRANDS, STRUCTURE_CODES } from "@/lib/brand";
 import { useOrg } from "@/components/org/OrgProvider";
 import StructureOptions from "@/components/org/StructureOptions";
@@ -114,15 +117,6 @@ const EMPTY_FORM = {
   lodging: "",
   expenses: "",
 };
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
 
 export default function MissionsPage() {
   return (
@@ -794,13 +788,13 @@ function MissionsContent() {
                   Modèle officiel (Word)
                 </Button>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="secondary" icon={<FileText className="h-4 w-4" />} onClick={() => void downloadMissionPdf(detailMission)}>
+                  <Button variant="secondary" icon={<FileText className="h-4 w-4" />} onClick={() => void downloadMissionOrderPdf(detailMission).catch(() => toast.error("Le PDF n'a pas pu être généré."))}>
                     PDF
                   </Button>
                   <Button
                     variant="secondary"
                     icon={<Download className="h-4 w-4" />}
-                    onClick={() => void downloadMissionWord(detailMission).catch(() => toast.error("Le document Word n'a pas pu être généré."))}
+                    onClick={() => void downloadMissionOrderDocx(detailMission).catch(() => toast.error("Le document Word n'a pas pu être généré."))}
                   >
                     Word simple
                   </Button>
@@ -891,11 +885,6 @@ async function exportExcel(all: Mission[]) {
     { header: "Motif", key: "reason", width: 30 },
     { header: "Statut", key: "status", width: 14 },
   ];
-  ws.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: "FFFFFF" } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
-    cell.alignment = { horizontal: "center" };
-  });
   all.forEach((m) => {
     ws.addRow({
       order: m.orderNumber ?? "—",
@@ -904,14 +893,16 @@ async function exportExcel(all: Mission[]) {
       service: m.employee.service ?? "—",
       origin: m.originStructure ?? "—",
       host: m.hostStructure ?? "—",
-      start: new Date(m.startDate).toLocaleDateString("fr-FR"),
-      end: new Date(m.endDate).toLocaleDateString("fr-FR"),
+      start: excelDay(m.startDate),
+      end: excelDay(m.endDate),
       duration: getMissionDurationDays(m.startDate, m.endDate),
       location: m.location ?? "—",
       reason: m.reason,
       status: `${statusLabel("request", m.status)}${m.cancelledAt ? " — annulée" : ""}`,
     });
   });
+  setColumnFormats(ws, { start: EXCEL_DATE_FORMAT, end: EXCEL_DATE_FORMAT });
+  finishSheet(ws);
 
   const approved = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt);
   if (approved.length > 0) {
@@ -924,11 +915,6 @@ async function exportExcel(all: Mission[]) {
       { header: "Durée totale (j)", key: "duration", width: 14 },
       { header: "Nb missions", key: "count", width: 12 },
     ];
-    wsPaie.getRow(1).eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: "FFFFFF" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "059669" } };
-      cell.alignment = { horizontal: "center" };
-    });
     payrollSummary(approved).forEach((v) => {
       wsPaie.addRow({
         employee: `${v.emp.lastName} ${v.emp.firstName}`,
@@ -939,215 +925,74 @@ async function exportExcel(all: Mission[]) {
         count: v.count,
       });
     });
+    finishSheet(wsPaie);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
   downloadBlob(
     new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-    `missions_${new Date().toISOString().slice(0, 10)}.xlsx`
+    `missions_${fileDateStamp()}.xlsx`
   );
 }
 
 async function exportPdf(all: Mission[], structures: string[]) {
-  const { jsPDF } = await import("jspdf");
-  const autoTable = (await import("jspdf-autotable")).default;
-  const doc = new jsPDF({ orientation: "landscape" });
-  const now = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
-
-  await addPdfLogos(doc, structures);
-  doc.setFontSize(16);
-  doc.text("Rapport des missions", 14, 18);
-  doc.setFontSize(9);
-  doc.setTextColor(120);
-  doc.text(`Généré le ${now} — ${all.length} mission(s)`, 14, 25);
-  doc.setTextColor(0);
+  const { autoTable } = await import("jspdf-autotable");
+  const doc = await createPdf({ orientation: "landscape", unit: "mm", format: "a4" });
 
   const pending = all.filter((m) => m.status === "PENDING" && !m.cancelledAt).length;
   const approvedCount = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt).length;
   const rejected = all.filter((m) => m.status === "REJECTED" && !m.cancelledAt).length;
-  doc.setFontSize(8);
-  doc.text(`En attente : ${pending}  |  Approuvées : ${approvedCount}  |  Refusées : ${rejected}`, 14, 31);
+  const cancelled = all.filter((m) => m.cancelledAt).length;
+  const startY = await addPdfHeader(doc, {
+    title: "Rapport des missions",
+    structures,
+    subtitle: [
+      `${all.length} mission${all.length > 1 ? "s" : ""} · généré le ${generatedAtLabel()}`,
+      `En attente : ${pending}   ·   Approuvées : ${approvedCount}   ·   Refusées : ${rejected}   ·   Annulées : ${cancelled}`,
+    ],
+  });
 
   autoTable(doc, {
-    startY: 35,
+    ...PDF_TABLE,
+    startY,
     head: [["N° ordre", "Employé", "Origine", "Accueil", "Début", "Fin", "Durée", "Lieu", "Statut"]],
     body: all.map((m) => [
       m.orderNumber ?? "—",
       `${m.employee.lastName} ${m.employee.firstName}`,
       m.originStructure ?? "—",
       m.hostStructure ?? "—",
-      new Date(m.startDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
-      new Date(m.endDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
-      `${getMissionDurationDays(m.startDate, m.endDate)}j`,
+      fmtDayFr(m.startDate),
+      fmtDayFr(m.endDate),
+      formatDuration(m.startDate, m.endDate),
       m.location ?? "—",
       `${statusLabel("request", m.status)}${m.cancelledAt ? " (annulée)" : ""}`,
     ]),
-    styles: { fontSize: 7, cellPadding: 2 },
-    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: { 6: { halign: "center" } },
   });
 
   const approved = all.filter((m) => m.status === "APPROVED" && !m.cancelledAt);
   if (approved.length > 0) {
     doc.addPage("a4", "landscape");
-    await addPdfLogos(doc, structures);
-    doc.setFontSize(14);
-    doc.text("Récapitulatif paie — Missions approuvées", 14, 18);
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(`${approved.length} mission(s) approuvée(s)`, 14, 25);
-    doc.setTextColor(0);
+    const y = await addPdfHeader(doc, {
+      title: "Récapitulatif paie — missions approuvées",
+      subtitle: `${approved.length} mission${approved.length > 1 ? "s" : ""} approuvée${approved.length > 1 ? "s" : ""}`,
+      structures,
+    });
     autoTable(doc, {
-      startY: 30,
+      ...PDF_TABLE,
+      startY: y,
       head: [["Employé", "Matricule", "Origine", "Accueil", "Durée totale", "Nb missions"]],
       body: payrollSummary(approved).map((v) => [
         `${v.emp.lastName} ${v.emp.firstName}`,
         v.emp.matricule,
         v.origin,
         v.host,
-        `${v.duration}j`,
+        `${v.duration} j`,
         v.count,
       ]),
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: { 4: { halign: "center" }, 5: { halign: "center" } },
     });
   }
 
-  doc.save(`missions_${new Date().toISOString().slice(0, 10)}.pdf`);
-}
-
-const fmtLong = (d: string) => new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
-
-async function downloadMissionWord(m: Mission) {
-  const docx = await import("docx");
-  const { Document, Packer, Paragraph, TextRun, AlignmentType, Table, TableRow, TableCell, WidthType, HeadingLevel } = docx;
-  const todayStr = new Date().toLocaleDateString("fr-FR");
-
-  const clampText = (text: string | null | undefined, maxLines = 5) => {
-    const safe = (text ?? "-").toString();
-    const charsPerLine = 92; // approximation pour 10pt en A4
-    const maxChars = maxLines * charsPerLine;
-    if (safe.length <= maxChars) return safe;
-    return safe.slice(0, Math.max(0, maxChars - 3)).trimEnd() + "...";
-  };
-
-  const cell = (label: string, value: string) =>
-    new TableCell({
-      width: { size: 50, type: WidthType.PERCENTAGE },
-      children: [new Paragraph({ children: [new TextRun({ bold: true, text: label }), new TextRun({ text: value })] })],
-    });
-
-  const missionnaireTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        children: [cell("Nom et prénom : ", `${m.employee.lastName} ${m.employee.firstName}`), cell("Matricule : ", m.employee.matricule)],
-      }),
-      new TableRow({
-        children: [cell("Service : ", m.employee.service ?? "-"), cell("Structure d'origine : ", m.originStructure ?? "-")],
-      }),
-    ],
-  });
-
-  const doc = new Document({
-    sections: [
-      {
-        properties: { page: { margin: { top: 720, bottom: 720, left: 720, right: 720 } } },
-        children: [
-          new Paragraph({ alignment: AlignmentType.CENTER, text: "ORDRE DE MISSION", heading: HeadingLevel.HEADING_1 }),
-          ...(m.orderNumber ? [new Paragraph({ alignment: AlignmentType.CENTER, text: `N° ${m.orderNumber}` })] : []),
-          new Paragraph({ text: `Date d'émission : ${todayStr}`, alignment: AlignmentType.LEFT }),
-          new Paragraph({ text: "MISSIONNAIRE", heading: HeadingLevel.HEADING_2 }),
-          missionnaireTable,
-          new Paragraph({ text: "MISSION", heading: HeadingLevel.HEADING_2 }),
-          new Paragraph({ children: [new TextRun({ bold: true, text: "Objet : " }), new TextRun({ text: clampText(m.reason, 5) })] }),
-          new Paragraph({ text: `Lieu : ${m.location ?? "-"}` }),
-          new Paragraph({ text: `Structure d'accueil : ${m.hostStructure ?? "-"}` }),
-          new Paragraph({ text: `Période : du ${fmtLong(m.startDate)} au ${fmtLong(m.endDate)}` }),
-          new Paragraph({ text: `Durée prévue : ${formatDuration(m.startDate, m.endDate)}` }),
-          new Paragraph({}),
-          new Paragraph({ text: "MOYENS", heading: HeadingLevel.HEADING_2 }),
-          new Paragraph({ text: `Transport : ${m.transport ?? "-"}` }),
-          new Paragraph({ text: `Hébergement : ${clampText(m.lodging, 5)}` }),
-          new Paragraph({ text: `Frais : ${clampText(m.expenses, 5)}` }),
-          new Paragraph({ text: "VALIDATION", heading: HeadingLevel.HEADING_2 }),
-          new Paragraph({ text: "Le présent ordre de mission est délivré pour servir et valoir ce que de droit." }),
-          new Paragraph({ text: `Fait à ____________________, le ${todayStr}`, spacing: { before: 240 } }),
-          new Paragraph({ text: "Signature et cachet", alignment: AlignmentType.RIGHT }),
-        ],
-      },
-    ],
-  });
-
-  const blob = await Packer.toBlob(doc);
-  downloadBlob(blob, `ordre_mission_${m.employee.matricule}_${m.id.slice(0, 8)}.docx`);
-}
-
-async function downloadMissionPdf(m: Mission) {
-  const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF();
-  const today = new Date();
-
-  await addPdfLogos(doc, [m.originStructure ?? m.employee.structure], { top: 6, height: 10 });
-  doc.setFontSize(14);
-  doc.text("ORDRE DE MISSION", 105, 15, { align: "center" });
-  doc.setFontSize(10);
-  doc.text(`Date d'émission : ${today.toLocaleDateString("fr-FR")}${m.orderNumber ? `   ·   N° ${m.orderNumber}` : ""}`, 14, 25);
-
-  doc.setFontSize(11);
-  doc.text("MISSIONNAIRE", 14, 35);
-  doc.setFontSize(10);
-  doc.text(`Nom et prénom : ${m.employee.lastName} ${m.employee.firstName}`, 14, 42);
-  doc.text(`Matricule : ${m.employee.matricule}`, 14, 48);
-  doc.text(`Service : ${m.employee.service ?? "-"}`, 14, 54);
-  doc.text(`Structure d'origine : ${m.originStructure ?? "-"}`, 14, 60);
-
-  const maxWidth = 180;
-  const maxLines = 5;
-  const lineHeight = 4;
-  const splitClamped = (text: string) => {
-    const lines = doc.splitTextToSize(text, maxWidth) as string[];
-    if (lines.length <= maxLines) return lines;
-    const sliced = lines.slice(0, maxLines);
-    sliced[maxLines - 1] = (sliced[maxLines - 1] || "").replace(/\.\.\.$/, "") + "...";
-    return sliced;
-  };
-
-  let y = 72;
-  doc.text("MISSION", 14, y);
-  y += 7;
-  doc.text(splitClamped(`Objet : ${m.reason}`), 14, y);
-  y += maxLines * lineHeight;
-  doc.text(`Lieu : ${m.location ?? "-"}`, 14, y);
-  y += lineHeight;
-  doc.text(`Structure d'accueil : ${m.hostStructure ?? "-"}`, 14, y);
-  y += lineHeight;
-  doc.text(`Période : du ${fmtLong(m.startDate)} au ${fmtLong(m.endDate)}`, 14, y);
-  y += lineHeight;
-  doc.text(`Durée prévue : ${formatDuration(m.startDate, m.endDate)}`, 14, y);
-  y += lineHeight + 2;
-
-  doc.setFontSize(11);
-  doc.text("MOYENS", 14, y);
-  y += 7;
-  doc.setFontSize(10);
-  doc.text(`Transport : ${m.transport ?? "-"}`, 14, y);
-  y += lineHeight;
-  doc.text(splitClamped(`Hébergement : ${m.lodging ?? "-"}`), 14, y);
-  y += maxLines * lineHeight;
-  doc.text(splitClamped(`Frais : ${m.expenses ?? "-"}`), 14, y);
-  y += maxLines * lineHeight;
-
-  doc.setFontSize(11);
-  doc.text("VALIDATION", 14, y);
-  y += 7;
-  doc.setFontSize(10);
-  doc.text("Le présent ordre de mission est délivré pour servir et valoir ce que de droit.", 14, y, { maxWidth: 180 });
-  y += 12;
-  doc.text(`Fait à ____________________, le ${today.toLocaleDateString("fr-FR")}`, 14, y);
-  y += 20;
-  doc.text("Signature et cachet", 150, y);
-
-  doc.save(`ordre_mission_${m.employee.matricule}_${m.id.slice(0, 8)}.pdf`);
+  savePdf(doc, `missions_${fileDateStamp()}.pdf`);
 }

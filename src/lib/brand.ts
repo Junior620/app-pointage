@@ -16,6 +16,8 @@ export type StructureBrand = {
   logoOnDark: string | null;
   /** Le logo contient déjà le nom écrit (sinon le nom est affiché à côté du pictogramme). */
   wordmark: boolean;
+  /** Proportion largeur / hauteur du fichier `logo` (pour les PDF et documents Word). */
+  logoAspect: number;
   /** Couleur principale (hexadécimal) pour les exports PDF / Excel. */
   hex: string;
   /** Début des matricules générés (STRUCTURE-SERVICE-0000). */
@@ -30,6 +32,12 @@ export const APP_NAME = "Pointage RH";
 export const APP_TAGLINE = "Gestion des présences";
 
 /**
+ * Couleur des en-têtes de tableaux dans les exports PDF / Excel / Word.
+ * Alignée sur `--color-brand-600` (globals.css) : à changer en même temps que la couleur principale.
+ */
+export const EXPORT_ACCENT_HEX = "#2563eb";
+
+/**
  * Logos : fichiers recadrés et allégés dans public/brand/ (scpb.png, afrexia.png),
  * générés à partir des originaux fournis (logo.png, logo-dark.png).
  */
@@ -41,6 +49,7 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     // Lettres noires : sur fond sombre, le logo est posé sur une pastille blanche.
     logoOnDark: null,
     wordmark: true,
+    logoAspect: 411 / 240,
     hex: "#7a8a2c",
     matriculePrefix: "SCPB",
     badgeClass: "bg-scpb-50 text-scpb-700 ring-scpb-100",
@@ -53,6 +62,7 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     logo: "/brand/afrexia.png",
     logoOnDark: "/brand/afrexia.png",
     wordmark: false,
+    logoAspect: 255 / 240,
     hex: "#24683c",
     matriculePrefix: "AFREXIA",
     badgeClass: "bg-afrexia-50 text-afrexia-700 ring-afrexia-100",
@@ -66,6 +76,8 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
     logo: null,
     logoOnDark: null,
     wordmark: true,
+    // À ajuster (largeur / hauteur) quand public/brand/goldenbeans.png sera fourni.
+    logoAspect: 1,
     hex: "#96691f",
     matriculePrefix: "GB",
     badgeClass: "bg-goldenbeans-50 text-goldenbeans-700 ring-goldenbeans-100",

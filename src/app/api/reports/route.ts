@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       totalHours: number;
       overtimeHours: number;
       totalDays: number;
-      punctualityRate: number;
+      punctualityRate: number | null;
     }> = [];
 
     // Pour analytics heures sup
@@ -124,9 +124,10 @@ export async function GET(request: NextRequest) {
       totalOvertime += empOvertime;
 
       const empTotal = empPresent + empAbsent + empPermission + empMission;
+      // Sans aucune arrivée pointée, le taux n'a pas de sens (et non 100 %).
       const empPunctuality = empOnTime + empLate > 0
         ? Math.round((empOnTime / (empOnTime + empLate)) * 100)
-        : 100;
+        : null;
 
       byEmployee.push({
         id: emp.id,

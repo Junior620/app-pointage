@@ -240,6 +240,20 @@ await prisma.attendanceRecord.update({ data: { checkOutTime: now, overtimeMinute
 
 > **Règle** : toutes les API de liste plafonnent `limit` à **100**. Un export ou une liste déroulante qui demande `limit=1000` ou `10000` ne reçoit que 100 lignes : toujours paginer (voir `fetchAllEmployees`).
 
+**Documents individuels** : demande d'autorisation d'absence (PDF navigateur + Word serveur `GET /api/leaves/[id]/document`) et ordre de mission (PDF et « Word simple » navigateur + modèle officiel Word serveur `GET /api/missions/[id]/document`). Le contenu est écrit une seule fois (`src/lib/documents/leave-request.ts`, `mission-order.ts`) puis rendu en PDF (`download.ts`) ou en Word (`render-docx.ts`, briques `docx-kit.ts`). Logo de la structure, bandeau si la demande est annulée, cadres de signature, pied de page avec date de génération et numéro de page.
+
+**Mise en forme commune** :
+
+| Format | Module | À utiliser pour |
+|--------|--------|-----------------|
+| PDF | `src/lib/pdf-kit.ts` | `createPdf()` (jamais `new jsPDF()` directement), `addPdfHeader()`, `PDF_TABLE` pour autoTable, `savePdf()` (ajoute le pied de page). |
+| Excel | `src/lib/excel-format.ts` | `finishSheet(ws)` après l'ajout des lignes (en-tête coloré, ligne figée, filtre), `excelDay()` pour les dates, `excelDuration()` + `EXCEL_DURATION_FORMAT` pour les durées. |
+| Textes | `src/lib/export-format.ts` | `fmtHoursFr()` (« 468,7 h »), `fmtPercentFr()` (« — » si sans objet), `fmtDayFr()` / `fmtDayLongFr()` pour les dates `@db.Date`, `fileDateStamp()` pour les noms de fichiers (jour de Douala). |
+
+> **Règle PDF** : la police Helvetica de jsPDF ne connaît que le jeu WinAnsi. Un caractère hors de ce jeu (« → », espace fine de `toLocaleString`, émoji) fait sortir toute la ligne lettres espacées. `createPdf()` filtre ces caractères ; écrire « du … au … » plutôt qu'une flèche.
+>
+> **Règle Word serveur** : les logos sont lus dans `public/brand/` ; `outputFileTracingIncludes` (`next.config.ts`) les embarque dans les fonctions Vercel. Une nouvelle route qui lit ces fichiers doit y être ajoutée.
+
 ---
 
 ## 8. UX / UI et marque
@@ -268,7 +282,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | Pictogramme de l'application | `src/components/brand/BrandMark.tsx`, favicon `src/app/icon.svg`, icône iOS `src/app/apple-icon.tsx`. |
 | Couleurs des graphiques | `src/lib/chart-colors.ts`. |
 
-**Remplacer un logo** : déposer le nouveau fichier dans `public/brand/` (PNG transparent recadré ou SVG), mettre à jour son chemin dans `STRUCTURE_BRANDS` et, s'il change de proportions, `LOGO_RATIO` dans `src/lib/pdf-branding.ts`. Écrans RH : les logos des structures de l'entreprise côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
+**Remplacer un logo** : déposer le nouveau fichier dans `public/brand/` (PNG transparent recadré), mettre à jour son chemin dans `STRUCTURE_BRANDS` et, s'il change de proportions, `logoAspect` (largeur / hauteur, utilisé par les PDF et les documents Word). La couleur des en-têtes de tableaux des exports est `EXPORT_ACCENT_HEX` (même fichier). Écrans RH : les logos des structures de l'entreprise côte à côte (`CoBrand`). Pages employé : logo de la structure de l'employé (`PublicShell structure=…`).
 
 ### 8.3 Composants partagés (`src/components/ui/`)
 
@@ -329,6 +343,11 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-21 | Titre « Heures sup » absent de l'en-tête ; police Geist jamais appliquée ; date d'en-tête décalée entre 23 h et minuit | Navigation centralisée, `font-family` corrigée, date calculée au fuseau Douala côté navigateur. |
 | 2026-10-21 | Pauses : jour par défaut en UTC (la veille entre minuit et 1 h) | Jour au fuseau Douala (`todayDate()`). |
 | 2026-10-21 | Pagination limitée aux pages 1 à 5 (Employés) | Composant `Pagination` avec fenêtre autour de la page courante. |
+| 2026-10-22 | Rapport PDF : période illisible (« Période : 1 oct. !' 21 oct. »), logos dans un ordre aléatoire, décimales à point (« 468.7h ») | Caractères filtrés par `createPdf()`, « du … au … », logos toujours SCPB puis AFREXIA, nombres au format français. |
+| 2026-10-22 | Ponctualité à 100 % pour un employé sans aucune arrivée (rapport, fiche employé) | Taux `null` affiché « — » et classé en fin de tri. |
+| 2026-10-22 | Ordre de mission (modèle officiel Word) : « Heure de départ / retour » écrasés dans une colonne d'un mot, lignes à remplir invisibles, signatures décalées | Grille de tableau fixe, lignes à remplir en bordure basse, case du transport cochée d'après la saisie, cadres de signature alignés, logo. |
+| 2026-10-22 | Demande d'absence Word : police par défaut, titre sur deux lignes, statut « Approuvé » (≠ interface), demande annulée non signalée, date de création au jour UTC | Document commun PDF / Word (`src/lib/documents/`), libellés de `status-labels.ts`, bandeau « annulée », date au fuseau Douala. |
+| 2026-10-22 | Exports Excel : dates et durées en texte, pas de ligne d'en-tête figée ni de filtre, « 0h00 » les jours d'absence ; noms de fichiers datés du jour UTC | `finishSheet()`, vraies dates et durées `[h]:mm`, cellules vides les jours non travaillés, `fileDateStamp()` / dates locales. |
 
 ---
 
@@ -344,6 +363,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-04-11 | §6, annexes env | Défaut heures sup semaine : début fenêtre **18h30** (au lieu de 18h00). Planning type seed : arrivée 8h, marge 30 min, fin 17h30. |
 | 2026-10-22 | §9, §10, §13, annexe A | Multi-entreprise : table `organizations`, `organization_id` partout, `tenantDb`, sous-domaines (`goldenbeans.staf-track.com`), crons par entreprise, marque par entreprise, `pnpm org:create`, `pnpm tenant:check`. |
 | 2026-10-21 | §7, §8, §9, §11 | Refonte UI/UX et marque : composants partagés, navigation groupée avec compteurs, filtres dans l'adresse, pages publiques `PublicShell`, `GET /api/nav-counts`, `GET /api/geoloc/context`, corrections listées au §11. |
+| 2026-10-22 | §7, §8, §11 | Vérification du rendu de tous les documents générés : modules `pdf-kit`, `excel-format`, `export-format`, `src/lib/documents/` ; documents individuels refaits (logo, sections, signatures, pied de page) ; corrections listées au §11. |
 
 ## 13. Multi-entreprise
 
@@ -369,7 +389,7 @@ Plusieurs entreprises partagent la même application et la même base, chacune d
 
 ### 13.2 Ajouter une entreprise
 
-1. Ajouter sa structure à l'enum `Structure` (migration `ALTER TYPE "Structure" ADD VALUE …`), à `STRUCTURE_BRANDS` (`src/lib/brand.ts`), aux couleurs `@theme` (`globals.css`), à `Badge` / `STRUCTURE_TONE` et à `LOGO_RATIO` (`src/lib/pdf-branding.ts`).
+1. Ajouter sa structure à l'enum `Structure` (migration `ALTER TYPE "Structure" ADD VALUE …`), à `STRUCTURE_BRANDS` (`src/lib/brand.ts`), aux couleurs `@theme` (`globals.css`), à `Badge` / `STRUCTURE_TONE` (proportion du logo : `logoAspect`).
 2. Déposer son logo dans `public/brand/<structure>.png` (PNG transparent recadré, ≥ 512 px de large ; variante `-dark` pour le menu si besoin).
 3. Vercel : ajouter le domaine `<slug>.staf-track.com` ; DNS : `CNAME <slug> → cname.vercel-dns.com` ; Supabase Auth : ajouter `https://<slug>.staf-track.com/**` aux URL de redirection.
 4. `pnpm org:create --slug <slug> --name "<Nom>" --structures <STRUCTURE> --admin-email … --admin-name "…"` : crée l'entreprise, recopie les jours fériés du groupe et le premier compte ADMIN (mot de passe saisi, masqué, dans le terminal).

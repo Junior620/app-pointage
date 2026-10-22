@@ -23,7 +23,10 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { cn } from "@/lib/utils";
 import { CHART_COLORS, CHART_SERIES, CHART_TOOLTIP_STYLE } from "@/lib/chart-colors";
 import { useUrlFilters } from "@/lib/use-url-filters";
-import { addPdfLogos } from "@/lib/pdf-branding";
+import { downloadBlob } from "@/lib/documents/download";
+import { EXCEL_DECIMAL_FORMAT, finishSheet, setColumnFormats } from "@/lib/excel-format";
+import { fmtHoursFr, fmtPercentFr, generatedAtLabel } from "@/lib/export-format";
+import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
@@ -52,7 +55,8 @@ interface ReportRow {
   permissions: number;
   totalHours: number;
   overtimeHours: number;
-  punctualityRate: number;
+  /** null : aucune arrivée pointée sur la période (taux sans objet). */
+  punctualityRate: number | null;
 }
 
 interface DayData {
@@ -271,11 +275,15 @@ function ReportsContent() {
     const va = a[sortField];
     const vb = b[sortField];
     if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb as string) : (vb as string).localeCompare(va);
+    // Taux sans objet (aucune arrivée) toujours en fin de liste.
+    if (va == null || vb == null) return va == null ? (vb == null ? 0 : 1) : -1;
     return sortDir === "asc" ? (va as number) - (vb as number) : (vb as number) - (va as number);
   });
 
   const exportFileSuffix = selectedEmployeeId ? "_employe" : "";
   const periodLabel = datesValid ? `${frDate(dateFrom, false)} → ${frDate(dateTo)}` : "";
+  // Les exports n'utilisent pas la flèche, absente de la police des PDF.
+  const exportPeriod = datesValid ? `du ${frDate(dateFrom)} au ${frDate(dateTo)}` : "";
 
   const runExport = async (kind: "excel" | "pdf") => {
     if (rows.length === 0) {
@@ -284,8 +292,8 @@ function ReportsContent() {
     }
     setExporting(kind);
     try {
-      if (kind === "excel") await exportExcel(rows, summary, `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.xlsx`);
-      else await exportPdf(rows, summary, periodLabel, `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.pdf`);
+      if (kind === "excel") await exportExcel(rows, summary, exportPeriod, `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.xlsx`);
+      else await exportPdf(rows, summary, exportPeriod, `rapport_${dateFrom}_${dateTo}${exportFileSuffix}.pdf`);
     } catch (e) {
       console.error(e);
       toast.error(kind === "excel" ? "Erreur lors de l'export Excel." : "Erreur lors de l'export PDF.");
@@ -554,7 +562,7 @@ function ReportsContent() {
                     name: e.name,
                     sub: e.service,
                     value: `${e.retards} retard${e.retards > 1 ? "s" : ""}`,
-                    extra: `Ponctualité ${e.punctualityRate} %`,
+                    extra: `Ponctualité ${fmtPercentFr(e.punctualityRate)}`,
                   }))}
                 />
               )}
@@ -639,7 +647,11 @@ function ReportsContent() {
                         {r.overtimeHours > 0 ? fmtH(r.overtimeHours) : <span className="text-slate-300">0</span>}
                       </Td>
                       <Td align="center">
-                        <Badge tone={r.punctualityRate >= 90 ? "success" : r.punctualityRate >= 70 ? "warning" : "danger"}>{r.punctualityRate} %</Badge>
+                        {r.punctualityRate == null ? (
+                          <span className="text-slate-300" title="Aucune arrivée pointée sur la période">—</span>
+                        ) : (
+                          <Badge tone={r.punctualityRate >= 90 ? "success" : r.punctualityRate >= 70 ? "warning" : "danger"}>{r.punctualityRate} %</Badge>
+                        )}
                       </Td>
                     </Tr>
                   ))
@@ -811,93 +823,79 @@ const REPORT_COLUMNS = [
   { header: "Ponctualité (%)", key: "punctualityRate", width: 16 },
 ];
 
-async function exportExcel(rows: ReportRow[], summary: Summary | null, filename: string) {
+async function exportExcel(rows: ReportRow[], summary: Summary | null, period: string, filename: string) {
   const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
 
-  const styleHeader = (sheet: import("exceljs").Worksheet) => {
-    const headerRow = sheet.getRow(1);
-    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-    headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-  };
-
-  const toRow = (row: ReportRow) => ({
-    matricule: row.matricule,
-    name: row.name,
-    structure: row.structure,
-    service: row.service,
-    totalDays: row.totalDays,
-    presents: row.presents,
-    absents: row.absents,
-    retards: row.retards,
-    missions: row.missions,
-    permissions: row.permissions,
-    totalHours: row.totalHours,
-    overtimeHours: row.overtimeHours,
-    punctualityRate: row.punctualityRate,
-  });
-
-  const allSheet = workbook.addWorksheet("Tous");
-  allSheet.columns = REPORT_COLUMNS;
-  styleHeader(allSheet);
-  rows.forEach((row) => allSheet.addRow(toRow(row)));
   if (summary) {
-    allSheet.addRow({});
-    allSheet.addRow({ matricule: "RÉSUMÉ" });
-    allSheet.addRow({ matricule: "Taux présence", name: `${summary.presenceRate}%` });
-    allSheet.addRow({ matricule: "Retards totaux", name: String(summary.totalRetards) });
-    allSheet.addRow({ matricule: "Absences totales", name: String(summary.totalAbsences) });
-    allSheet.addRow({ matricule: "Heures totales", name: `${summary.totalHours}h` });
-    allSheet.addRow({ matricule: "Heures sup totales", name: `${summary.totalOvertimeHours}h` });
+    const resume = workbook.addWorksheet("Résumé");
+    resume.columns = [
+      { header: "Indicateur", key: "label", width: 30 },
+      { header: "Valeur", key: "value", width: 22 },
+    ];
+    resume.addRows([
+      { label: "Période", value: period },
+      { label: "Généré le", value: generatedAtLabel() },
+      { label: "Employés", value: summary.totalEmployees },
+      { label: "Taux de présence (%)", value: summary.presenceRate },
+      { label: "Ponctualité moyenne (%)", value: summary.avgPunctuality },
+      { label: "Retards", value: summary.totalRetards },
+      { label: "Absences", value: summary.totalAbsences },
+      { label: "Heures travaillées", value: summary.totalHours },
+      { label: "Heures sup validées", value: summary.totalOvertimeHours },
+    ]);
+    resume.getColumn("value").alignment = { horizontal: "left" };
+    resume.getCell("B9").numFmt = EXCEL_DECIMAL_FORMAT;
+    resume.getCell("B10").numFmt = EXCEL_DECIMAL_FORMAT;
+    finishSheet(resume, { filter: false });
   }
 
+  const addSheet = (name: string, data: ReportRow[]) => {
+    const sheet = workbook.addWorksheet(name);
+    sheet.columns = REPORT_COLUMNS;
+    data.forEach((row) => sheet.addRow({ ...row }));
+    setColumnFormats(sheet, { totalHours: EXCEL_DECIMAL_FORMAT, overtimeHours: EXCEL_DECIMAL_FORMAT });
+    finishSheet(sheet);
+  };
+
+  addSheet("Tous", rows);
   for (const struct of STRUCTURE_CODES) {
     const structRows = rows.filter((r) => r.structure === struct);
     // Une feuille par structure seulement si le rapport en couvre plusieurs.
-    if (structRows.length === 0 || structRows.length === rows.length) continue;
-    const sheet = workbook.addWorksheet(STRUCTURE_BRANDS[struct].name);
-    sheet.columns = REPORT_COLUMNS;
-    styleHeader(sheet);
-    structRows.forEach((row) => sheet.addRow(toRow(row)));
+    if (structRows.length > 0 && structRows.length < rows.length) addSheet(STRUCTURE_BRANDS[struct].name, structRows);
   }
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
 }
 
-async function exportPdf(rows: ReportRow[], summary: Summary | null, periodLabel: string, filename: string) {
-  const { jsPDF } = await import("jspdf");
+/** Colonnes chiffrées centrées dans les tableaux PDF du rapport. */
+const centered = (from: number, to: number) =>
+  Object.fromEntries(Array.from({ length: to - from + 1 }, (_, i) => [from + i, { halign: "center" as const }]));
+
+async function exportPdf(rows: ReportRow[], summary: Summary | null, period: string, filename: string) {
   const { autoTable } = await import("jspdf-autotable");
+  const doc = await createPdf({ orientation: "landscape", unit: "mm", format: "a4" });
+  const sorted = [...rows].sort((a, b) => a.name.localeCompare(b.name, "fr"));
 
-  const doc = new jsPDF({ orientation: "landscape" });
-  const structuresInReport = [...new Set(rows.map((r) => r.structure))];
-  await addPdfLogos(doc, structuresInReport);
-  doc.setFontSize(16);
-  doc.text("Rapport de pointage", 14, 18);
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Période : ${periodLabel}`, 14, 26);
-
-  if (summary) {
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    doc.text(
-      `Présence : ${summary.presenceRate}%  |  Retards : ${summary.totalRetards}  |  Absences : ${summary.totalAbsences}  |  Heures : ${summary.totalHours}h  |  H. sup : ${summary.totalOvertimeHours}h`,
-      14,
-      34
-    );
-  }
+  const startY = await addPdfHeader(doc, {
+    title: "Rapport de pointage",
+    structures: rows.map((r) => r.structure),
+    subtitle: [
+      `Période ${period}`,
+      ...(summary
+        ? [
+            `Présence : ${summary.presenceRate} %   ·   Ponctualité : ${summary.avgPunctuality} %   ·   Retards : ${summary.totalRetards}   ·   Absences : ${summary.totalAbsences}   ·   Heures : ${fmtHoursFr(summary.totalHours)}   ·   H. sup : ${fmtHoursFr(summary.totalOvertimeHours)}`,
+          ]
+        : []),
+    ],
+  });
 
   autoTable(doc, {
-    startY: 42,
+    ...PDF_TABLE,
+    startY,
     head: [["Matricule", "Nom", "Structure", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Heures", "H. sup", "Ponctualité"]],
-    body: rows.map((r) => [
+    body: sorted.map((r) => [
       r.matricule,
       r.name,
       r.structure,
@@ -907,39 +905,48 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, periodLabel
       r.absents,
       r.retards,
       r.missions,
-      `${r.totalHours}h`,
-      `${r.overtimeHours}h`,
-      `${r.punctualityRate}%`,
+      fmtHoursFr(r.totalHours),
+      fmtHoursFr(r.overtimeHours),
+      fmtPercentFr(r.punctualityRate),
     ]),
-    theme: "striped",
-    headStyles: { fillColor: [37, 99, 235] },
-    styles: { fontSize: 8 },
+    columnStyles: centered(4, 11),
   });
 
   for (const label of STRUCTURE_CODES) {
-    const structRows = rows.filter((r) => r.structure === label);
+    const structRows = sorted.filter((r) => r.structure === label);
     // Une page par structure seulement si le rapport en couvre plusieurs.
     if (structRows.length === 0 || structRows.length === rows.length) continue;
-    doc.addPage();
-    await addPdfLogos(doc, [label]);
-    doc.setFontSize(14);
-    doc.setTextColor(0);
-    doc.text(`Récapitulatif — ${STRUCTURE_BRANDS[label].name}`, 14, 18);
-    doc.setFontSize(10);
+    doc.addPage("a4", "landscape");
     const totalH = structRows.reduce((s, r) => s + r.totalHours, 0);
     const totalOt = structRows.reduce((s, r) => s + r.overtimeHours, 0);
     const totalAbs = structRows.reduce((s, r) => s + r.absents, 0);
     const totalRet = structRows.reduce((s, r) => s + r.retards, 0);
-    doc.text(`Employés : ${structRows.length} | Heures : ${totalH}h | H. sup : ${totalOt}h | Absences : ${totalAbs} | Retards : ${totalRet}`, 14, 26);
+    const y = await addPdfHeader(doc, {
+      title: `Récapitulatif — ${STRUCTURE_BRANDS[label].name}`,
+      structures: [label],
+      subtitle: [
+        `Période ${period}`,
+        `Employés : ${structRows.length}   ·   Heures : ${fmtHoursFr(totalH)}   ·   H. sup : ${fmtHoursFr(totalOt)}   ·   Absences : ${totalAbs}   ·   Retards : ${totalRet}`,
+      ],
+    });
     autoTable(doc, {
-      startY: 34,
+      ...PDF_TABLE,
+      startY: y,
       head: [["Matricule", "Nom", "Service", "Présents", "Absents", "Retards", "Heures", "H. sup", "Ponctualité"]],
-      body: structRows.map((r) => [r.matricule, r.name, r.service, r.presents, r.absents, r.retards, `${r.totalHours}h`, `${r.overtimeHours}h`, `${r.punctualityRate}%`]),
-      theme: "striped",
-      headStyles: { fillColor: [37, 99, 235] },
-      styles: { fontSize: 8 },
+      body: structRows.map((r) => [
+        r.matricule,
+        r.name,
+        r.service,
+        r.presents,
+        r.absents,
+        r.retards,
+        fmtHoursFr(r.totalHours),
+        fmtHoursFr(r.overtimeHours),
+        fmtPercentFr(r.punctualityRate),
+      ]),
+      columnStyles: centered(3, 8),
     });
   }
 
-  doc.save(filename);
+  savePdf(doc, filename);
 }
