@@ -31,6 +31,7 @@ import { finishSheet } from "@/lib/excel-format";
 import { fileDateStamp, generatedAtLabel } from "@/lib/export-format";
 import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
 import { STRUCTURE_BRANDS, STRUCTURE_CODES, type StructureCode } from "@/lib/brand";
+import { DEFAULT_SERVICES, matriculeServiceCode, normalizeService } from "@/lib/services";
 import { useOrg } from "@/components/org/OrgProvider";
 import StructureOptions from "@/components/org/StructureOptions";
 import { useDebouncedCommit, useUrlFilters } from "@/lib/use-url-filters";
@@ -77,7 +78,8 @@ interface Employee {
 
 type EmployeeStats = { active: number; inactive: number; whatsapp: number };
 
-const SERVICES = ["IT", "QHSE", "RH", "DAF", "RAF", "ST"];
+/** Valeur de l'option « Ajouter un service… » du formulaire (jamais enregistrée). */
+const NEW_SERVICE_OPTION = "__nouveau_service__";
 
 function todayInputDate(): string {
   const d = new Date();
@@ -156,7 +158,10 @@ function EmployeesContent() {
   const [form, setForm] = useState<EmployeeForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [services, setServices] = useState<string[]>([]);
+  // Services par défaut + ceux déjà utilisés dans l'entreprise (renvoyés par GET /api/employees).
+  const [services, setServices] = useState<string[]>(DEFAULT_SERVICES);
+  const [addingService, setAddingService] = useState(false);
+  const [newService, setNewService] = useState("");
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
   const [userRole, setUserRole] = useState<string>("");
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
@@ -363,7 +368,23 @@ function EmployeesContent() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, structure: orgStructures[0] ?? EMPTY_FORM.structure });
     setErrors({});
+    setAddingService(false);
     setModalOpen(true);
+  };
+
+  /** Valide le service saisi à la main ; il rejoint la liste dès l'enregistrement de l'employé. */
+  const confirmNewService = (): string | null => {
+    const name = normalizeService(newService, services);
+    if (!name) {
+      setErrors((prev) => ({ ...prev, service: "Saisissez le nom du service." }));
+      return null;
+    }
+    if (!services.includes(name)) setServices((prev) => [...prev, name]);
+    setForm((prev) => ({ ...prev, service: name }));
+    setErrors((prev) => ({ ...prev, service: "" }));
+    setAddingService(false);
+    setNewService("");
+    return name;
   };
 
   const openEdit = (emp: Employee) => {
@@ -380,13 +401,21 @@ function EmployeesContent() {
       checkoutSiteId: emp.checkoutSiteId ?? emp.checkoutSite?.id ?? "",
     });
     setErrors({});
+    setAddingService(false);
     setModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Nouveau service saisi sans appuyer sur « Ajouter » : on le prend tel quel.
+    let values = form;
+    if (addingService) {
+      const service = confirmNewService();
+      if (!service) return;
+      values = { ...form, service };
+    }
     const schema = editingId ? employeeSchema : createEmployeeSchema;
-    const result = schema.safeParse(form);
+    const result = schema.safeParse(values);
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
       result.error.issues.forEach((i) => {
@@ -887,18 +916,66 @@ function EmployeesContent() {
                 </Select>
               )}
             </Field>
-            <Field label="Service" required error={errors.service}>
-              {(id) => (
-                <Select id={id} value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} aria-invalid={Boolean(errors.service)}>
-                  <option value="">Sélectionner un service</option>
-                  {SERVICES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                  {form.service && !SERVICES.includes(form.service) && <option value={form.service}>{form.service}</option>}
-                </Select>
-              )}
+            <Field
+              label="Service"
+              required
+              error={errors.service}
+              hint={addingService ? "Le service sera proposé dans la liste dès l'enregistrement de l'employé." : undefined}
+            >
+              {(id) =>
+                addingService ? (
+                  <div className="flex gap-2">
+                    <Input
+                      id={id}
+                      value={newService}
+                      onChange={(e) => setNewService(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          confirmNewService();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setAddingService(false);
+                        }
+                      }}
+                      placeholder="Nom du nouveau service"
+                      maxLength={40}
+                      autoFocus
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.service)}
+                    />
+                    <Button type="button" size="md" onClick={() => confirmNewService()}>
+                      Ajouter
+                    </Button>
+                    <Button type="button" size="md" variant="ghost" onClick={() => setAddingService(false)}>
+                      Annuler
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    id={id}
+                    value={form.service}
+                    onChange={(e) => {
+                      if (e.target.value === NEW_SERVICE_OPTION) {
+                        setNewService("");
+                        setAddingService(true);
+                      } else {
+                        setForm({ ...form, service: e.target.value });
+                      }
+                    }}
+                    aria-invalid={Boolean(errors.service)}
+                  >
+                    <option value="">Sélectionner un service</option>
+                    {services.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                    {form.service && !services.includes(form.service) && <option value={form.service}>{form.service}</option>}
+                    <option value={NEW_SERVICE_OPTION}>+ Ajouter un service…</option>
+                  </Select>
+                )
+              }
             </Field>
             <div className="sm:col-span-2">
               {editingId ? (
@@ -911,7 +988,7 @@ function EmployeesContent() {
                 <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
                   Matricule généré à l&apos;enregistrement :{" "}
                   <span className="font-mono text-slate-700">
-                    {STRUCTURE_BRANDS[form.structure].matriculePrefix}-{form.service || "SERVICE"}-XXXX
+                    {STRUCTURE_BRANDS[form.structure].matriculePrefix}-{form.service ? matriculeServiceCode(form.service) : "SERVICE"}-XXXX
                   </span>{" "}
                   (4 chiffres aléatoires et uniques).
                 </p>

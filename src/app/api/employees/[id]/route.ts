@@ -14,6 +14,7 @@ import { parseDateInputForDbDate } from "@/lib/utils";
 import { STRUCTURE_CODES } from "@/lib/brand";
 import { orgBaseUrl } from "@/lib/tenant";
 import { assertOrgSites, assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
+import { listOrgServices, normalizeService } from "@/lib/services";
 
 const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT"] as const;
 
@@ -113,7 +114,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (body.matricule !== undefined) data.matricule = body.matricule;
     if (body.firstName !== undefined) data.firstName = body.firstName;
     if (body.lastName !== undefined) data.lastName = body.lastName;
-    if (body.service !== undefined) data.service = body.service;
+    if (body.service !== undefined) {
+      const service = normalizeService(body.service, await listOrgServices(db));
+      if (!service) return NextResponse.json({ error: "Le service est requis" }, { status: 400 });
+      data.service = service;
+    }
     if (body.structure !== undefined) data.structure = body.structure;
     if (body.siteId !== undefined) {
       data.site =

@@ -296,6 +296,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 - **Décisions** (approuver, refuser, annuler, supprimer) : confirmation pour les actions destructrices, notification de résultat dans tous les cas.
 - **Pages publiques** (`PublicShell`) : géoloc, formulaires WhatsApp, onboarding, QR code, confidentialité. La page `/geoloc` vérifie d'abord le lien via `GET /api/geoloc/context`, puis demande la position.
 - **Employés** : création avec matricule auto ; suppression réservée **ADMIN** (transaction avec `SET LOCAL statement_timeout`) ; préférer « Enregistrer un départ ».
+- **Services** (`src/lib/services.ts`) : la liste proposée = services par défaut (IT, QHSE, RH, DAF, RAF, ST) + services déjà utilisés par les employés **de l'entreprise** (`GET /api/employees` → `services`). « + Ajouter un service… » permet d'en saisir un nouveau ; il est enregistré avec l'employé, puis proposé à toute l'entreprise. À l'enregistrement, le serveur reprend l'écriture d'un service existant (« rh » → « RH », accents ignorés). Le matricule prend les 4 premières lettres du service (« Logistique » → `LOGI`).
 
 ---
 
@@ -368,6 +369,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-21 | §7, §8, §9, §11 | Refonte UI/UX et marque : composants partagés, navigation groupée avec compteurs, filtres dans l'adresse, pages publiques `PublicShell`, `GET /api/nav-counts`, `GET /api/geoloc/context`, corrections listées au §11. |
 | 2026-10-22 | §7, §8, §11 | Vérification du rendu de tous les documents générés : modules `pdf-kit`, `excel-format`, `export-format`, `src/lib/documents/` ; documents individuels refaits (logo, sections, signatures, pied de page) ; corrections listées au §11. |
 | 2026-10-22 | §3.2, §4.3, annexe B | Menu WhatsApp allégé : boutons et liste regroupée en 9 entrées (au lieu de 15 lignes de texte) ; numéros 1 à 15 inchangés. Boutons fixes Arrivée · Départ · Plus d'options, avec l'état du jour (demande des utilisateurs). |
+| 2026-10-22 | §8.4 | Fiche employé : « + Ajouter un service… » ; liste des services par entreprise (défauts + services déjà utilisés). |
 
 ## 13. Multi-entreprise
 

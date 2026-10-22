@@ -12,6 +12,7 @@ import { sendEmployeeWelcomeWhatsAppToPhones } from "@/lib/employee-welcome";
 import { STRUCTURE_CODES, structureBrand } from "@/lib/brand";
 import { orgBaseUrl, type Db } from "@/lib/tenant";
 import { assertOrgSites, assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
+import { listOrgServices, matriculeServiceCode, normalizeService } from "@/lib/services";
 
 const createEmployeeSchema = z.object({
   matricule: z.string().optional(),
@@ -27,17 +28,7 @@ const createEmployeeSchema = z.object({
 
 /** Préfixe : STRUCTURE-SERVICE-. Suffixe numérique aléatoire, vérifié unique dans l'entreprise. */
 async function generateUniqueMatricule(db: Db, service: string, structure: string): Promise<string> {
-  const raw = service.trim().toUpperCase();
-  const DEPT_MAP: Record<string, string> = {
-    IT: "IT",
-    QHSE: "QHSE",
-    RH: "RH",
-    DAF: "DAF",
-    RAF: "RAF",
-    ST: "ST",
-  };
-  const derived = raw.replace(/[^A-Z]/g, "").slice(0, 4);
-  const dept = DEPT_MAP[raw] || derived || "GEN";
+  const dept = matriculeServiceCode(service);
   const struct = structureBrand(structure)?.matriculePrefix ?? structure.trim().toUpperCase();
   const prefix = `${struct}-${dept}-`;
 
@@ -93,7 +84,7 @@ export async function GET(request: NextRequest) {
     delete statsWhere.active;
     const hasWhatsapp = { OR: [{ whatsappPhone: { not: null } }, { whatsappPhones: { some: {} } }] };
 
-    const [employees, total, activeCount, inactiveCount, whatsappCount] = await Promise.all([
+    const [employees, total, activeCount, inactiveCount, whatsappCount, services] = await Promise.all([
       db.employee.findMany({
         where,
         include: {
@@ -109,12 +100,15 @@ export async function GET(request: NextRequest) {
       db.employee.count({ where: { ...statsWhere, active: true } }),
       db.employee.count({ where: { ...statsWhere, active: false } }),
       db.employee.count({ where: { AND: [statsWhere, { active: true }, hasWhatsapp] } }),
+      listOrgServices(db),
     ]);
 
     return NextResponse.json({
       data: employees,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       stats: { active: activeCount, inactive: inactiveCount, whatsapp: whatsappCount },
+      // Services proposés (par défaut + déjà utilisés dans l'entreprise), pour le filtre et le formulaire.
+      services,
     });
   } catch (error) {
     if (error instanceof Error) {
@@ -139,6 +133,11 @@ export async function POST(request: NextRequest) {
     const { matricule, whatsappPhone, whatsappPhone2, structure: requestedStructure, ...rest } = parsed.data;
     const structure = assertOrgStructure(org, requestedStructure);
     await assertOrgSites(db, [rest.siteId, rest.checkoutSiteId]);
+    // Service ajouté à la main : même écriture qu'un service existant (« rh » → « RH »).
+    rest.service = normalizeService(rest.service, await listOrgServices(db));
+    if (!rest.service) {
+      return NextResponse.json({ error: "Le service est requis" }, { status: 400 });
+    }
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
       finalMatricule = await generateUniqueMatricule(db, rest.service, structure);
