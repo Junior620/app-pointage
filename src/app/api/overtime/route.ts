@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { parseDateInputForDbDate } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié")
         return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit")

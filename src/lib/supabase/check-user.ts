@@ -1,8 +1,17 @@
 import { isAuthRetryableFetchError, type AuthError, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
 
 /** Message renvoyé quand Supabase Auth ne répond pas : la session n'est pas jugée invalide pour autant. */
 export const AUTH_UNAVAILABLE_MESSAGE =
   "Service de connexion momentanément injoignable. Réessayez dans quelques secondes.";
+
+/** Réponse API quand la session n'a pas pu être vérifiée (middleware et routes, via `AuthUnavailableError`). */
+export function authUnavailableResponse() {
+  return NextResponse.json(
+    { error: AUTH_UNAVAILABLE_MESSAGE },
+    { status: 503, headers: { "Retry-After": "5" } }
+  );
+}
 
 export type AuthCheck =
   | { status: "authenticated"; user: User }

@@ -14,7 +14,7 @@ import {
   WidthType,
 } from "docx";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { missionOrderTitle } from "@/lib/mission-order-number";
 import {
   DOCX_COLORS,
@@ -216,6 +216,7 @@ export async function GET(_request: Request, context: RouteContext) {
     });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return new Response(JSON.stringify({ error: error.message }), { status: 401, headers: { "Content-Type": "application/json" } });
       }

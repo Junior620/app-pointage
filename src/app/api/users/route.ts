@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireRole, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { createDashboardUser, DashboardUserError } from "@/lib/create-dashboard-user";
 import { normalizeUserWhatsappPhone } from "@/lib/rh-whatsapp-notify";
@@ -35,6 +35,7 @@ export async function GET() {
     return NextResponse.json({ data: users });
   } catch (error) {
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status });
     }
     if (error instanceof Error) {
+      if (error instanceof AuthUnavailableError) return authUnavailableResponse();
       if (error.message === "Non authentifié") {
         return NextResponse.json({ error: error.message }, { status: 401 });
       }

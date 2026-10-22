@@ -3,6 +3,9 @@ import { AUTH_UNAVAILABLE_MESSAGE, checkUser } from "@/lib/supabase/check-user";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
 
+/** Routes API : `if (error instanceof AuthUnavailableError) return authUnavailableResponse();` → 503. */
+export { authUnavailableResponse } from "@/lib/supabase/check-user";
+
 /** Supabase Auth injoignable : la session n'a pas pu être vérifiée, ce qui ne veut pas dire « non connecté ». */
 export class AuthUnavailableError extends Error {
   constructor() {

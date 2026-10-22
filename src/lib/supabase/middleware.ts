@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { AUTH_UNAVAILABLE_MESSAGE, checkUser } from "./check-user";
+import { authUnavailableResponse, checkUser } from "./check-user";
 
 /** Cookie de session posé par @supabase/ssr : `sb-<ref>-auth-token`, éventuellement découpé en `.0`, `.1`… */
 function hasSessionCookie(request: NextRequest) {
@@ -57,12 +57,7 @@ export async function updateSession(request: NextRequest) {
   // Les pages continuent (le layout revérifie via getSession()), les API répondent 503.
   // Rien n'est accordé ici : requireRole() / getSession() restent l'autorité.
   if (auth.status === "unavailable" && hasSessionCookie(request)) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { error: AUTH_UNAVAILABLE_MESSAGE },
-        { status: 503, headers: { "Retry-After": "5" } }
-      );
-    }
+    if (pathname.startsWith("/api/")) return authUnavailableResponse();
     return supabaseResponse;
   }
 
