@@ -38,8 +38,8 @@ export const APP_TAGLINE = "Gestion des présences";
 export const EXPORT_ACCENT_HEX = "#2563eb";
 
 /**
- * Logos : fichiers recadrés et allégés dans public/brand/ (scpb.png, afrexia.png),
- * générés à partir des originaux fournis (logo.png, logo-dark.png).
+ * Logos : fichiers recadrés et allégés dans public/brand/ (scpb.png, afrexia.png, goldenbeans.png),
+ * générés à partir des originaux fournis (logo.png, logo-dark.png, goldenbeans-original.png).
  */
 export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
   SCPB: {
@@ -72,12 +72,12 @@ export const STRUCTURE_BRANDS: Record<StructureCode, StructureBrand> = {
   GOLDENBEANS: {
     code: "GOLDENBEANS",
     name: "GoldenBeans",
-    // Fichier attendu : public/brand/goldenbeans.png (monogramme en attendant).
-    logo: null,
+    // Emblème seul : le texte « GOLDEN BEANS » de l'original serait illisible à la taille des logos,
+    // le nom est donc écrit à côté. Bateau brun foncé : sur fond sombre, pastille blanche.
+    logo: "/brand/goldenbeans.png",
     logoOnDark: null,
-    wordmark: true,
-    // À ajuster (largeur / hauteur) quand public/brand/goldenbeans.png sera fourni.
-    logoAspect: 1,
+    wordmark: false,
+    logoAspect: 254 / 240,
     hex: "#96691f",
     matriculePrefix: "GB",
     badgeClass: "bg-goldenbeans-50 text-goldenbeans-700 ring-goldenbeans-100",

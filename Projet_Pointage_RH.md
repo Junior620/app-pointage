@@ -277,7 +277,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 |---------|----|
 | Couleurs | `@theme` dans `src/app/globals.css` : `scpb-*` (olive #94a538, orange #f7ad21) et `afrexia-*` (vert forêt #24683c) relevées sur les logos ; `brand-*` (couleur commune de l'interface, bleu provisoire) ; `ink-*` (fonds sombres). |
 | Logos des structures | `src/lib/brand.ts` (`STRUCTURE_BRANDS`) : `logo`, `logoOnDark`, `wordmark` (le logo contient-il le nom ?), `hex` (exports). Sans fichier, un monogramme coloré s'affiche. |
-| Fichiers de logo | `public/brand/scpb.png` et `public/brand/afrexia.png` (recadrés, 240 px de haut), générés à partir des originaux fournis `logo.png` (SCPB) et `logo-dark.png` (AFREXIA). GoldenBeans : `public/brand/goldenbeans.png` attendu (monogramme en attendant). |
+| Fichiers de logo | `public/brand/scpb.png` et `public/brand/afrexia.png` (recadrés, 240 px de haut), générés à partir des originaux fournis `logo.png` (SCPB) et `logo-dark.png` (AFREXIA). `public/brand/goldenbeans.png` (254 × 240) : emblème seul, recadré depuis l'original 1080 × 1080 (`goldenbeans-original.png`, non versionné). Le texte « GOLDEN BEANS » y serait illisible à 24–48 px de haut ou 11 mm, donc `wordmark: false` et le nom est écrit à côté. |
 | Logos dans les PDF | `addPdfLogos(doc, structures)` (`src/lib/pdf-branding.ts`) : rapports, listes employés / missions, ordre de mission et demande d'autorisation (logo de la structure de l'employé). |
 | Pictogramme de l'application | `src/components/brand/BrandMark.tsx`, favicon `src/app/icon.svg`, icône iOS `src/app/apple-icon.tsx`. |
 | Couleurs des graphiques | `src/lib/chart-colors.ts`. |
