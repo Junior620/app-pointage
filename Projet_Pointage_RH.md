@@ -399,8 +399,11 @@ Plusieurs entreprises partagent la même application et la même base, chacune d
 
 ### 13.3 Migrations
 
-- `20261022120000_organizations` (étape 1/2) : compatible avec l'ancien code (valeur par défaut `org_groupe`, anciennes unicités conservées). À appliquer **avant** le déploiement.
-- `prisma/after-deploy/20261022130000_organizations_finalize` (étape 2/2) : retire les valeurs par défaut et les unicités globales. À déplacer dans `prisma/migrations/` puis appliquer **après** le déploiement, avant de créer une autre entreprise.
+- `20261022120000_organizations` (étape 1/2) : compatible avec l'ancien code (valeur par défaut `org_groupe`, anciennes unicités conservées). Appliquée en production le 2026-10-22, **avant** le déploiement.
+- `20261022130000_organizations_finalize` (étape 2/2) : retire les valeurs par défaut et les unicités globales ; clé du compteur d'ordres de mission `(organization_id, year)`. Appliquée en production le 2026-10-22, **après** le déploiement du code multi-entreprise (rangée jusque-là dans `prisma/after-deploy/` pour ne pas partir avec un `migrate deploy` trop tôt).
+- **Appliquer une migration en production** : `prisma migrate deploy` avec `DATABASE_URL` = `DIRECT_URL` (connexion directe, port 5432 ; pas le pooler 6543). Le `.env` de travail peut viser une base locale : vérifier la ligne `Datasource "db"` affichée.
+- **Historique `_prisma_migrations`** : jusqu'au 2026-10-22, les migrations de 2026-02 à 2026-06 étaient présentes en base sans être enregistrées. Elles ont été marquées appliquées (`migrate resolve --applied`) ; trois index ou clés manquants ont été créés en rejouant leurs migrations idempotentes. Ne jamais rejouer `20260528154100` ni `20260601140000` (mises à jour de données).
+- Écarts connus base ↔ `schema.prisma` (`migrate diff`) : clé étrangère `public_submission_logs.employee_id` en `ON DELETE CASCADE` en base (le schéma dit `RESTRICT` : corriger le schéma) ; index unique partiel `users_whatsapp_phone_key` (`WHERE whatsapp_phone IS NOT NULL`, non représentable dans Prisma).
 - Contrôle du cloisonnement sur une base locale : `pnpm tenant:check`.
 
 ---
