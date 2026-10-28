@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toaster";
 import { WaText } from "@/components/ui/WaText";
+import { detectGeoDevice, permissionDeniedHelp, positionUnavailableHelp, type GeoHelp } from "@/lib/geoloc-help";
 
 const VALID_ACTIONS = ["CHECK_IN", "CHECK_OUT", "BREAK_START", "BREAK_END"] as const;
 type GeolocAction = (typeof VALID_ACTIONS)[number];
@@ -70,6 +71,22 @@ function Steps({ current, failed }: { current: Step; failed?: boolean }) {
   );
 }
 
+/** Erreur de position : message, puis étapes numérotées adaptées au téléphone. */
+function GeoErrorBox({ help }: { help: GeoHelp }) {
+  return (
+    <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-left">
+      <p className="text-center text-sm font-semibold text-red-700">{help.message}</p>
+      {help.steps.length > 0 && (
+        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-red-800 marker:font-semibold marker:text-red-600">
+          {help.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function WhatsAppButton({ number }: { number: string | null }) {
   if (!number) return null;
   return (
@@ -94,7 +111,7 @@ function GeolocForm() {
   const [context, setContext] = useState<LinkContext | null>(null);
   const [linkError, setLinkError] = useState("");
   const [checkingLink, setCheckingLink] = useState(true);
-  const [geoError, setGeoError] = useState("");
+  const [geoError, setGeoError] = useState<GeoHelp | null>(null);
   const [geoLoading, setGeoLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ResultState | null>(null);
@@ -162,7 +179,7 @@ function GeolocForm() {
 
   const requestGeolocation = useCallback(() => {
     setGeoLoading(true);
-    setGeoError("");
+    setGeoError(null);
     setResult(null);
     setPendingCoords(null);
     setEarlyConfirm(null);
@@ -170,7 +187,11 @@ function GeolocForm() {
     hasSubmittedRef.current = false;
 
     if (!navigator.geolocation) {
-      setGeoError("La géolocalisation n'est pas prise en charge par ce navigateur. Ouvrez le lien avec Chrome ou Safari.");
+      setGeoError({
+        message: "La géolocalisation n'est pas prise en charge par ce navigateur. Ouvrez le lien avec Chrome ou Safari.",
+        steps: [],
+        reloadToRetry: false,
+      });
       setGeoLoading(false);
       return;
     }
@@ -183,18 +204,27 @@ function GeolocForm() {
         void submitPointage(lat, lng);
       },
       (error) => {
+        // Les étapes dépendent du téléphone : sur iPhone, iOS a son propre réglage de position.
+        const device = detectGeoDevice(navigator.userAgent, {
+          platform: navigator.platform,
+          maxTouchPoints: navigator.maxTouchPoints,
+        });
         switch (error.code) {
           case error.PERMISSION_DENIED:
-            setGeoError("Autorisez l'accès à votre position : touchez l'icône à gauche de l'adresse du site, puis « Autorisations » → « Position », et réessayez.");
+            setGeoError(permissionDeniedHelp(device));
             break;
           case error.POSITION_UNAVAILABLE:
-            setGeoError("Position indisponible. Activez la localisation (GPS) du téléphone et réessayez.");
+            setGeoError(positionUnavailableHelp(device));
             break;
           case error.TIMEOUT:
-            setGeoError("La position met trop de temps à arriver. Rapprochez-vous d'une fenêtre ou sortez, puis réessayez.");
+            setGeoError({
+              message: "La position met trop de temps à arriver. Rapprochez-vous d'une fenêtre ou sortez, puis réessayez.",
+              steps: [],
+              reloadToRetry: false,
+            });
             break;
           default:
-            setGeoError("Impossible d'obtenir votre position.");
+            setGeoError({ message: "Impossible d'obtenir votre position.", steps: [], reloadToRetry: false });
         }
         setGeoLoading(false);
       },
@@ -390,10 +420,14 @@ function GeolocForm() {
 
             {geoError && !busy && (
               <div className="py-2 text-center">
-                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4">
-                  <p className="text-sm text-red-700">{geoError}</p>
-                </div>
-                <Button size="lg" className="w-full" icon={<Navigation className="h-4 w-4" />} onClick={() => requestGeolocation()}>
+                <GeoErrorBox help={geoError} />
+                <Button
+                  size="lg"
+                  className="w-full"
+                  icon={<Navigation className="h-4 w-4" />}
+                  // Après un refus, seul un rechargement fait redemander l'autorisation (Safari notamment).
+                  onClick={() => (geoError.reloadToRetry ? window.location.reload() : requestGeolocation())}
+                >
                   Réessayer
                 </Button>
                 <WhatsAppButton number={whatsapp} />
