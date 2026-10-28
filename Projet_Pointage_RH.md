@@ -356,6 +356,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-22 | Ordre de mission (modèle officiel Word) : « Heure de départ / retour » écrasés dans une colonne d'un mot, lignes à remplir invisibles, signatures décalées | Grille de tableau fixe, lignes à remplir en bordure basse, case du transport cochée d'après la saisie, cadres de signature alignés, logo. |
 | 2026-10-22 | Demande d'absence Word : police par défaut, titre sur deux lignes, statut « Approuvé » (≠ interface), demande annulée non signalée, date de création au jour UTC | Document commun PDF / Word (`src/lib/documents/`), libellés de `status-labels.ts`, bandeau « annulée », date au fuseau Douala. |
 | 2026-10-22 | Exports Excel : dates et durées en texte, pas de ligne d'en-tête figée ni de filtre, « 0h00 » les jours d'absence ; noms de fichiers datés du jour UTC | `finishSheet()`, vraies dates et durées `[h]:mm`, cellules vides les jours non travaillés, `fileDateStamp()` / dates locales. |
+| 2026-10-28 | iPhone : « Autorisez l'accès à votre position » affiché en boucle alors que la position est autorisée dans Safari ; consignes écrites pour Android (« Autorisations ») | Le réglage iOS « Service de localisation → Sites web Safari » bloque tous les sites. `src/lib/geoloc-help.ts` détecte le téléphone et affiche les étapes iPhone (Safari ou autre navigateur), Android ou ordinateur ; « Réessayer » recharge la page après un refus, seule façon pour Safari de redemander l'autorisation. |
 
 ---
 
@@ -374,6 +375,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-22 | §7, §8, §11 | Vérification du rendu de tous les documents générés : modules `pdf-kit`, `excel-format`, `export-format`, `src/lib/documents/` ; documents individuels refaits (logo, sections, signatures, pied de page) ; corrections listées au §11. |
 | 2026-10-22 | §3.2, §4.3, annexe B | Menu WhatsApp allégé : boutons et liste regroupée en 9 entrées (au lieu de 15 lignes de texte) ; numéros 1 à 15 inchangés. Boutons fixes Arrivée · Départ · Plus d'options, avec l'état du jour (demande des utilisateurs). |
 | 2026-10-22 | §8.4 | Fiche employé : « + Ajouter un service… » ; liste des services par entreprise (défauts + services déjà utilisés). |
+| 2026-10-28 | §11 | Page de pointage : aide à l'autorisation de la position selon le téléphone (iPhone, Android, ordinateur). |
 
 ## 13. Multi-entreprise
 
