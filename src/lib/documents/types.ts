@@ -14,6 +14,8 @@ export type DocContent = {
   subtitle: string[];
   /** Bandeau d'alerte sous le titre (ex. demande annulée). */
   notice?: string;
+  /** Paragraphes de texte avant les sections (ex. corps d'une attestation). */
+  intro?: string[];
   sections: DocSection[];
   /** Paragraphes avant les signatures. */
   closing?: string[];

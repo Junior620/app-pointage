@@ -19,6 +19,9 @@ import StructureLogo from "@/components/brand/StructureLogo";
 import HrRemarks from "./HrRemarks";
 import EmployeePeriodNav from "./EmployeePeriodNav";
 import EmployeeAttendanceExport from "./EmployeeAttendanceExport";
+import InternshipCard from "./InternshipCard";
+import { dayKey } from "@/lib/interns";
+import { todayDate } from "@/lib/utils";
 
 /** Jours de la période, du plus ancien au plus récent (dates locales). */
 function getCalendarDays(from: Date, to: Date): Date[] {
@@ -97,6 +100,7 @@ export default async function EmployeeDetailPage({
       site: true,
       checkoutSite: true,
       whatsappPhones: { orderBy: { sortOrder: "asc" } },
+      internship: { include: { supervisor: { select: { firstName: true, lastName: true } } } },
       attendances: {
         where: { date: dbRange },
         orderBy: { date: "desc" },
@@ -113,8 +117,10 @@ export default async function EmployeeDetailPage({
 
   const recordMap = new Map(employee.attendances.map((a) => [dateKeyFromDbDate(a.date), a]));
 
-  // Bornes du contrat : pas d'absence comptée avant l'embauche ni après le départ.
-  const hiredKey = dateKeyLocalCalendar(employee.createdAt);
+  // Bornes du contrat : pas d'absence comptée avant l'embauche (début du stage pour un stagiaire) ni après le départ.
+  const hiredKey = employee.internship
+    ? dateKeyFromDbDate(employee.internship.startDate)
+    : dateKeyLocalCalendar(employee.createdAt);
   const leftKey = employee.departureDate ? dateKeyFromDbDate(employee.departureDate) : null;
 
   type DayRow = {
@@ -202,6 +208,7 @@ export default async function EmployeeDetailPage({
               {employee.active ? "Actif" : employee.departureReason ? "Parti" : "Inactif"}
             </Badge>
             <StructureBadge value={employee.structure} />
+            {employee.kind === "INTERN" && <Badge tone="info">Stagiaire</Badge>}
             <span className="text-slate-500">{employee.service}</span>
           </span>
         }
@@ -239,6 +246,31 @@ export default async function EmployeeDetailPage({
           )}
         </div>
       </Card>
+
+      {employee.internship && (
+        <InternshipCard
+          today={dayKey(todayDate())}
+          intern={{
+            id: employee.id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            kind: employee.kind,
+            active: employee.active,
+            departureReason: employee.departureReason,
+            internship: {
+              startDate: employee.internship.startDate.toISOString(),
+              endDate: employee.internship.endDate.toISOString(),
+              school: employee.internship.school,
+              fieldOfStudy: employee.internship.fieldOfStudy,
+              level: employee.internship.level,
+              monthlyAllowance: employee.internship.monthlyAllowance,
+              supervisorName: employee.internship.supervisor
+                ? `${employee.internship.supervisor.firstName} ${employee.internship.supervisor.lastName}`
+                : null,
+            },
+          }}
+        />
+      )}
 
       {!employee.active && (
         <div

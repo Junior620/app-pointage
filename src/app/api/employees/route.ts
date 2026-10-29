@@ -13,22 +13,41 @@ import { STRUCTURE_CODES, structureBrand } from "@/lib/brand";
 import { orgBaseUrl, type Db } from "@/lib/tenant";
 import { assertOrgSites, assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
 import { listOrgServices, matriculeServiceCode, normalizeService } from "@/lib/services";
+import { INTERN_MATRICULE_CODE } from "@/lib/interns";
+import { INTERNSHIP_INCLUDE, InternshipInputError, internshipData, internshipInputSchema } from "@/lib/internship-input";
 
-const createEmployeeSchema = z.object({
-  matricule: z.string().optional(),
-  firstName: z.string().min(1, "Le prénom est requis"),
-  lastName: z.string().min(1, "Le nom est requis"),
-  service: z.string().min(1, "Le service est requis"),
-  structure: z.enum(STRUCTURE_CODES).optional(),
-  siteId: z.string().optional(),
-  checkoutSiteId: z.string().optional(),
-  whatsappPhone: z.string().optional(),
-  whatsappPhone2: z.string().optional(),
-});
+const EMPLOYEE_INCLUDE = {
+  site: true,
+  checkoutSite: true,
+  whatsappPhones: { orderBy: { sortOrder: "asc" } },
+  internship: { include: INTERNSHIP_INCLUDE },
+} as const;
 
-/** Préfixe : STRUCTURE-SERVICE-. Suffixe numérique aléatoire, vérifié unique dans l'entreprise. */
-async function generateUniqueMatricule(db: Db, service: string, structure: string): Promise<string> {
-  const dept = matriculeServiceCode(service);
+const createEmployeeSchema = z
+  .object({
+    kind: z.enum(["EMPLOYEE", "INTERN"]).optional(),
+    internship: internshipInputSchema.optional(),
+    matricule: z.string().optional(),
+    firstName: z.string().min(1, "Le prénom est requis"),
+    lastName: z.string().min(1, "Le nom est requis"),
+    service: z.string().min(1, "Le service est requis"),
+    structure: z.enum(STRUCTURE_CODES).optional(),
+    siteId: z.string().optional(),
+    checkoutSiteId: z.string().optional(),
+    whatsappPhone: z.string().optional(),
+    whatsappPhone2: z.string().optional(),
+  })
+  .refine((d) => d.kind !== "INTERN" || d.internship, {
+    message: "Les dates et l'école du stage sont requises pour un stagiaire.",
+    path: ["internship"],
+  });
+
+/**
+ * Préfixe : STRUCTURE-SERVICE- (STRUCTURE-STG- pour un stagiaire).
+ * Suffixe numérique aléatoire, vérifié unique dans l'entreprise.
+ */
+async function generateUniqueMatricule(db: Db, service: string, structure: string, intern = false): Promise<string> {
+  const dept = intern ? INTERN_MATRICULE_CODE : matriculeServiceCode(service);
   const struct = structureBrand(structure)?.matriculePrefix ?? structure.trim().toUpperCase();
   const prefix = `${struct}-${dept}-`;
 
@@ -74,6 +93,8 @@ export async function GET(request: NextRequest) {
     if (service) where.service = service;
     const structure = searchParams.get("structure");
     if (structure) where.structure = structure;
+    const kind = searchParams.get("kind");
+    if (kind === "EMPLOYEE" || kind === "INTERN") where.kind = kind;
     if (active !== null && active !== undefined) {
       where.active = active === "true";
     }
@@ -84,14 +105,10 @@ export async function GET(request: NextRequest) {
     delete statsWhere.active;
     const hasWhatsapp = { OR: [{ whatsappPhone: { not: null } }, { whatsappPhones: { some: {} } }] };
 
-    const [employees, total, activeCount, inactiveCount, whatsappCount, services] = await Promise.all([
+    const [employees, total, activeCount, inactiveCount, whatsappCount, internCount, services] = await Promise.all([
       db.employee.findMany({
         where,
-        include: {
-          site: true,
-          checkoutSite: true,
-          whatsappPhones: { orderBy: { sortOrder: "asc" } },
-        },
+        include: EMPLOYEE_INCLUDE,
         skip,
         take: limit,
         orderBy: { lastName: "asc" },
@@ -100,13 +117,14 @@ export async function GET(request: NextRequest) {
       db.employee.count({ where: { ...statsWhere, active: true } }),
       db.employee.count({ where: { ...statsWhere, active: false } }),
       db.employee.count({ where: { AND: [statsWhere, { active: true }, hasWhatsapp] } }),
+      db.employee.count({ where: { ...statsWhere, active: true, kind: "INTERN" } }),
       listOrgServices(db),
     ]);
 
     return NextResponse.json({
       data: employees,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      stats: { active: activeCount, inactive: inactiveCount, whatsapp: whatsappCount },
+      stats: { active: activeCount, inactive: inactiveCount, whatsapp: whatsappCount, interns: internCount },
       // Services proposés (par défaut + déjà utilisés dans l'entreprise), pour le filtre et le formulaire.
       services,
     });
@@ -130,7 +148,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Données invalides", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const { matricule, whatsappPhone, whatsappPhone2, structure: requestedStructure, ...rest } = parsed.data;
+    const { matricule, whatsappPhone, whatsappPhone2, structure: requestedStructure, kind, internship, ...rest } = parsed.data;
+    const intern = kind === "INTERN";
     const structure = assertOrgStructure(org, requestedStructure);
     await assertOrgSites(db, [rest.siteId, rest.checkoutSiteId]);
     // Service ajouté à la main : même écriture qu'un service existant (« rh » → « RH »).
@@ -140,7 +159,7 @@ export async function POST(request: NextRequest) {
     }
     let finalMatricule = (matricule ?? "").trim();
     if (!finalMatricule) {
-      finalMatricule = await generateUniqueMatricule(db, rest.service, structure);
+      finalMatricule = await generateUniqueMatricule(db, rest.service, structure, intern);
     }
 
     const existing = await db.employee.findFirst({ where: { matricule: finalMatricule } });
@@ -148,20 +167,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Ce matricule existe déjà" }, { status: 409 });
     }
 
+    const stage = intern && internship ? await internshipData(db, internship) : null;
+
     const employee = await db.employee.create({
       data: {
         ...rest,
         organizationId: org.id,
         structure,
+        kind: intern ? "INTERN" : "EMPLOYEE",
         matricule: finalMatricule,
         siteId: rest.siteId?.trim() || undefined,
         checkoutSiteId: rest.checkoutSiteId?.trim() || undefined,
+        ...(stage && { internship: { create: { ...stage, organizationId: org.id } } }),
       },
-      include: {
-        site: true,
-        checkoutSite: true,
-        whatsappPhones: { orderBy: { sortOrder: "asc" } },
-      },
+      include: EMPLOYEE_INCLUDE,
     });
 
     try {
@@ -176,11 +195,7 @@ export async function POST(request: NextRequest) {
 
     const refreshed = await db.employee.findUnique({
       where: { id: employee.id },
-      include: {
-        site: true,
-        checkoutSite: true,
-        whatsappPhones: { orderBy: { sortOrder: "asc" } },
-      },
+      include: EMPLOYEE_INCLUDE,
     });
 
     await createAuditLog(scope, {
@@ -213,6 +228,7 @@ export async function POST(request: NextRequest) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
       if (error instanceof OrgValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
+      if (error instanceof InternshipInputError) return NextResponse.json({ error: error.message }, { status: 400 });
       if (error.message === "Impossible de générer un matricule unique") {
         return NextResponse.json({ error: error.message }, { status: 503 });
       }

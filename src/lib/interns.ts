@@ -33,6 +33,16 @@ export function dayKey(d: DateLike): string {
 export type InternshipPeriod = { startDate: DateLike; endDate: DateLike };
 export type InternshipPhase = "upcoming" | "ongoing" | "ended";
 
+/** Statut affiché d'un stage (calculé, pas stocké) : « hired » = stagiaire embauché depuis. */
+export type InternStatus = "ongoing" | "upcoming" | "ended" | "hired";
+
+export const INTERN_STATUS_LABELS: Record<InternStatus, string> = {
+  ongoing: "En cours",
+  upcoming: "À venir",
+  ended: "Terminé",
+  hired: "Embauché",
+};
+
 export function internshipPhase(period: InternshipPeriod, day: DateLike): InternshipPhase {
   const k = dayKey(day);
   if (k < dayKey(period.startDate)) return "upcoming";

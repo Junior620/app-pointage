@@ -27,6 +27,7 @@ export function renderDocumentDocx(content: DocContent, logo: DocxLogo | null): 
         children: [
           docxHeader({ title: content.title, subtitle: content.subtitle, logo }),
           ...(content.notice ? [docxNotice(content.notice)] : []),
+          ...(content.intro ?? []).map((p, i) => docxParagraph(p, { before: i === 0 ? 320 : 0, after: 200 })),
           ...content.sections.flatMap((s) => [docxSectionTitle(s.title), docxKeyValues(s.rows)]),
           spacer(200),
           ...(content.closing ?? []).map((p) => docxParagraph(p)),
