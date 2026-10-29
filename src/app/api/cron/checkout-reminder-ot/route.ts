@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
                 firstName: true,
                 whatsappPhone: true,
                 active: true,
+                kind: true,
               },
             },
           },
@@ -57,11 +58,14 @@ export async function GET(request: NextRequest) {
           const phones = await getEmployeeWhatsappPhones(record.employeeId);
           if (phones.length === 0) continue;
 
+          // Les stagiaires n'ont pas d'heures sup : rappel sans la partie heures sup.
           await sendWhatsAppToEmployee(record.employeeId,
             `🕕 *Rappel important (18h00)*\n\n` +
-              `Bonjour ${employee.firstName}, pensez à pointer votre départ quand vous quittez le bureau.\n\n` +
-              `💡 Les heures supplémentaires se calculent à partir de 18h30 uniquement si vous pointez votre départ manuellement.\n` +
-              `⚠️ Si le départ automatique se déclenche à 21h, les heures sup seront à 0.`
+              `Bonjour ${employee.firstName}, pensez à pointer votre départ quand vous quittez le bureau.` +
+              (employee.kind === "INTERN"
+                ? ""
+                : `\n\n💡 Les heures supplémentaires se calculent à partir de 18h30 uniquement si vous pointez votre départ manuellement.\n` +
+                  `⚠️ Si le départ automatique se déclenche à 21h, les heures sup seront à 0.`)
           );
           count++;
         }

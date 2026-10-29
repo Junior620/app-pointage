@@ -29,6 +29,10 @@
       "schedule": "45 12 * * 1-5"
     },
     {
+      "path": "/api/cron/internships",
+      "schedule": "0 5 * * *"
+    },
+    {
       "path": "/api/cron/menu-announcement",
       "schedule": "30 6 23 10 *"
     }
