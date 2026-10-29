@@ -52,6 +52,19 @@ export function menuChoice(id: string): Intent[] | "LIST" | null {
   return MENU_ACTIONS[id] ?? null;
 }
 
+const OVERTIME_INTENTS: Intent[] = ["MY_OVERTIME", "MY_OVERTIME_PENDING"];
+
+/** Stagiaire : pas d'heures sup. Les deux intentions heures sup ne donnent qu'une réponse. */
+export function intentsFor(intents: Intent[], intern: boolean): Intent[] {
+  if (!intern) return intents;
+  const rest = intents.filter((i) => !OVERTIME_INTENTS.includes(i));
+  return rest.length < intents.length ? [...rest, "MY_OVERTIME"] : rest;
+}
+
+/** Réponse à un stagiaire qui demande ses heures sup (6, 8, mot-clé ou ancien bouton). */
+export const INTERN_OVERTIME_REPLY =
+  "ℹ️ En tant que stagiaire, vous n'avez pas d'heures supplémentaires. Tout votre temps de présence apparaît dans *Mes pointages* (tapez *4*).";
+
 /** Toujours les mêmes, dans le même ordre : l'arrivée et le départ sont les actions de tous les jours. */
 const DAY_BUTTONS: WhatsAppReplyButton[] = [
   { id: "menu:CHECK_IN", title: "Pointer mon arrivée" },
@@ -95,8 +108,14 @@ export function dayMenu(intro: string, record: DayRecord): { body: string; butto
   };
 }
 
-/** Liste regroupée : 9 entrées en 3 rubriques ; la ligne de pause suit l'état du jour. */
-export function fullMenu(record: DayRecord): { body: string; buttonText: string; sections: WhatsAppListSection[] } {
+/**
+ * Liste regroupée : 9 entrées en 3 rubriques ; la ligne de pause suit l'état du jour.
+ * Stagiaire (`intern`) : sans « Mes heures sup ».
+ */
+export function fullMenu(
+  record: DayRecord,
+  { intern = false }: { intern?: boolean } = {}
+): { body: string; buttonText: string; sections: WhatsAppListSection[] } {
   const onBreak = dayState(record) === "ON_BREAK";
   return {
     body:
@@ -120,7 +139,7 @@ export function fullMenu(record: DayRecord): { body: string; buttonText: string;
         rows: [
           { id: "menu:HISTORY", title: "Mes pointages", description: "Mois en cours et semaine · raccourcis 4 et 10" },
           { id: "menu:ABSENCES", title: "Mes absences", description: "Autorisations en cours et absences relevées · 5 et 11" },
-          { id: "menu:OVERTIME", title: "Mes heures sup", description: "Validées et en attente · raccourcis 6 et 8" },
+          ...(intern ? [] : [{ id: "menu:OVERTIME", title: "Mes heures sup", description: "Validées et en attente · raccourcis 6 et 8" }]),
         ],
       },
       {
