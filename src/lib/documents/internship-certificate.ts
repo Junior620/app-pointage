@@ -1,5 +1,6 @@
 import { structureBrand } from "@/lib/brand";
-import { fmtDayLongFr, fmtTimestampDayFr } from "@/lib/export-format";
+import { fileDateStamp, fmtDayLongFr, fmtTimestampDayFr } from "@/lib/export-format";
+import { dayKey } from "@/lib/interns";
 import { calendarDays, daysLabel } from "./leave-request";
 import type { DateLike, DocContent } from "./types";
 
@@ -33,6 +34,11 @@ export function internshipCertificateContent(data: CertificateData, issuedAt: Da
   const student = studies ? `étudiant(e) en ${studies} à ${i.school}` : `étudiant(e) à ${i.school}`;
   const period = `du ${fmtDayLongFr(i.startDate)} au ${fmtDayLongFr(i.endDate)}`;
   const issued = fmtTimestampDayFr(issuedAt);
+  // Délivrée avant la fin du stage : attestation de stage en cours.
+  const ongoing = fileDateStamp(issuedAt) < dayKey(i.endDate);
+  const action = ongoing
+    ? `effectue actuellement un stage au sein de notre service ${e.service} depuis le ${fmtDayLongFr(i.startDate)} (fin prévue le ${fmtDayLongFr(i.endDate)})`
+    : `a effectué un stage au sein de notre service ${e.service}, ${period}`;
 
   const rows: [string, string][] = [
     ["Stagiaire", `${fullName} (matricule ${e.matricule})`],
@@ -44,7 +50,10 @@ export function internshipCertificateContent(data: CertificateData, issuedAt: Da
   ];
   if (data.attendance && data.attendance.workingDays > 0) {
     const { presentDays, workingDays } = data.attendance;
-    rows.push(["Présence", `${presentDays} jour${presentDays > 1 ? "s" : ""} sur ${workingDays} jour${workingDays > 1 ? "s" : ""} ouvré${workingDays > 1 ? "s" : ""}`]);
+    rows.push([
+      ongoing ? "Présence à ce jour" : "Présence",
+      `${presentDays} jour${presentDays > 1 ? "s" : ""} sur ${workingDays} jour${workingDays > 1 ? "s" : ""} ouvré${workingDays > 1 ? "s" : ""}`,
+    ]);
   }
 
   return {
@@ -52,7 +61,7 @@ export function internshipCertificateContent(data: CertificateData, issuedAt: Da
     title: "Attestation de stage",
     subtitle: [`Matricule ${e.matricule} · délivrée le ${issued}`],
     intro: [
-      `Je soussigné(e), ______________________________, Responsable des Ressources humaines de ${structureName}, atteste que ${fullName}, ${student}, a effectué un stage au sein de notre service ${e.service}, ${period}.`,
+      `Je soussigné(e), ______________________________, Responsable des Ressources humaines de ${structureName}, atteste que ${fullName}, ${student}, ${action}.`,
     ],
     sections: [{ title: "Récapitulatif du stage", rows }],
     closing: [
