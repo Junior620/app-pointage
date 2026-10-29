@@ -13,6 +13,7 @@ import {
 import { logoMeta, type DocxLogo } from "./logo";
 import { leaveRequestContent, type LeaveDocInput } from "./leave-request";
 import { missionOrderContent, type MissionDocInput } from "./mission-order";
+import { internshipCertificateContent, type CertificateData } from "./internship-certificate";
 import type { DocContent } from "./types";
 
 /** Téléchargements des documents RH générés dans le navigateur. */
@@ -31,6 +32,11 @@ async function renderDocumentPdf(content: DocContent) {
   const { autoTable } = await import("jspdf-autotable");
   let y = await addPdfHeader(doc, { title: content.title, subtitle: content.subtitle, structures: [content.structure] });
   if (content.notice) y = addPdfNotice(doc, content.notice, y);
+  if (content.intro?.length) {
+    y += 2;
+    for (const paragraph of content.intro) y = addPdfParagraph(doc, paragraph, y, { gap: 7 });
+    y += 2;
+  }
   for (const section of content.sections) {
     y = addPdfSectionTitle(doc, section.title, y);
     y = addPdfKeyValues(doc, autoTable, section.rows, y) + 8;
@@ -79,4 +85,8 @@ export function downloadMissionOrderPdf(mission: MissionDocInput): Promise<void>
 
 export function downloadMissionOrderDocx(mission: MissionDocInput): Promise<void> {
   return downloadContentDocx(missionOrderContent(mission));
+}
+
+export function downloadInternshipCertificatePdf(data: CertificateData): Promise<void> {
+  return downloadContentPdf(internshipCertificateContent(data));
 }

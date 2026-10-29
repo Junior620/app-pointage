@@ -10,10 +10,11 @@ import {
   Clock,
   Coffee,
   UserCog,
+  GraduationCap,
 } from "lucide-react";
 
 /** Clé des compteurs « à traiter » renvoyés par GET /api/nav-counts. */
-export type NavCountKey = "overtime" | "leaves" | "missions";
+export type NavCountKey = "overtime" | "leaves" | "missions" | "interns";
 
 export type NavLink = {
   href: string;
@@ -58,6 +59,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Administration",
     links: [
       { href: "/employees", label: "Employés", icon: Users },
+      { href: "/interns", label: "Stagiaires", icon: GraduationCap, countKey: "interns" },
       { href: "/users", label: "Utilisateurs", icon: UserCog, adminOnly: true },
       { href: "/settings", label: "Paramètres", icon: Settings },
     ],

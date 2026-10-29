@@ -5,6 +5,7 @@ export const DEPARTURE_REASON_LABELS: Record<DepartureReason, string> = {
   END_OF_CONTRACT: "Fin de contrat",
   DISMISSAL: "Licenciement",
   ABANDONMENT: "Abandon de poste",
+  INTERNSHIP_END: "Fin de stage",
 };
 
 export function departureReasonLabel(reason: DepartureReason | null | undefined): string {

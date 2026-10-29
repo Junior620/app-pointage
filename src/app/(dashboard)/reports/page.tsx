@@ -26,6 +26,7 @@ import { useUrlFilters } from "@/lib/use-url-filters";
 import { downloadBlob } from "@/lib/documents/download";
 import { EXCEL_DECIMAL_FORMAT, finishSheet, setColumnFormats } from "@/lib/excel-format";
 import { fmtHoursFr, fmtPercentFr, generatedAtLabel } from "@/lib/export-format";
+import { employeeKindLabel } from "@/lib/interns";
 import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -57,6 +58,7 @@ interface ReportRow {
   overtimeHours: number;
   /** null : aucune arrivée pointée sur la période (taux sans objet). */
   punctualityRate: number | null;
+  kind?: string;
 }
 
 interface DayData {
@@ -154,7 +156,8 @@ function ReportsContent() {
   const presets = presetRanges();
   const monthPreset = presets[1];
   const severalStructures = useHasSeveralStructures();
-  const [filters, setFilters] = useUrlFilters({ from: monthPreset.from, to: monthPreset.to, service: "", structure: "" });
+  const [filters, setFilters] = useUrlFilters({ from: monthPreset.from, to: monthPreset.to, service: "", structure: "", kind: "" });
+  const kind = filters.kind === "EMPLOYEE" || filters.kind === "INTERN" ? filters.kind : "";
   const dateFrom = filters.from;
   const dateTo = filters.to;
   const service = filters.service;
@@ -226,6 +229,7 @@ function ReportsContent() {
         dateTo,
         ...(service.trim() && { service: service.trim() }),
         ...(structure && { structure }),
+        ...(kind && { kind }),
         ...(selectedEmployeeId && { employeeId: selectedEmployeeId }),
         ...(!selectedEmployeeId && appliedSearch.trim() && { search: appliedSearch.trim() }),
       });
@@ -253,7 +257,7 @@ function ReportsContent() {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, service, structure, appliedSearch, selectedEmployeeId, toast]);
+  }, [dateFrom, dateTo, service, structure, kind, appliedSearch, selectedEmployeeId, toast]);
 
   // Le rapport se recalcule dès qu'un filtre change.
   useEffect(() => {
@@ -391,6 +395,13 @@ function ReportsContent() {
                   {s}
                 </option>
               ))}
+            </Select>
+          </FilterField>
+          <FilterField label="Type">
+            <Select value={kind} onChange={(e) => setFilters({ kind: e.target.value })}>
+              <option value="">Employés et stagiaires</option>
+              <option value="EMPLOYEE">Employés</option>
+              <option value="INTERN">Stagiaires</option>
             </Select>
           </FilterField>
           {severalStructures && (
@@ -810,6 +821,7 @@ function RankingList({
 const REPORT_COLUMNS = [
   { header: "Matricule", key: "matricule", width: 18 },
   { header: "Nom", key: "name", width: 25 },
+  { header: "Type", key: "kind", width: 11 },
   { header: "Structure", key: "structure", width: 12 },
   { header: "Service", key: "service", width: 12 },
   { header: "Jours", key: "totalDays", width: 10 },
@@ -853,7 +865,7 @@ async function exportExcel(rows: ReportRow[], summary: Summary | null, period: s
   const addSheet = (name: string, data: ReportRow[]) => {
     const sheet = workbook.addWorksheet(name);
     sheet.columns = REPORT_COLUMNS;
-    data.forEach((row) => sheet.addRow({ ...row }));
+    data.forEach((row) => sheet.addRow({ ...row, kind: employeeKindLabel(row.kind) }));
     setColumnFormats(sheet, { totalHours: EXCEL_DECIMAL_FORMAT, overtimeHours: EXCEL_DECIMAL_FORMAT });
     finishSheet(sheet);
   };
@@ -894,10 +906,11 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, period: str
   autoTable(doc, {
     ...PDF_TABLE,
     startY,
-    head: [["Matricule", "Nom", "Structure", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Heures", "H. sup", "Ponctualité"]],
+    head: [["Matricule", "Nom", "Type", "Structure", "Service", "Jours", "Présents", "Absents", "Retards", "Missions", "Heures", "H. sup", "Ponctualité"]],
     body: sorted.map((r) => [
       r.matricule,
       r.name,
+      employeeKindLabel(r.kind),
       r.structure,
       r.service,
       r.totalDays,
@@ -909,7 +922,7 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, period: str
       fmtHoursFr(r.overtimeHours),
       fmtPercentFr(r.punctualityRate),
     ]),
-    columnStyles: centered(4, 11),
+    columnStyles: centered(5, 12),
   });
 
   for (const label of STRUCTURE_CODES) {
@@ -932,10 +945,11 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, period: str
     autoTable(doc, {
       ...PDF_TABLE,
       startY: y,
-      head: [["Matricule", "Nom", "Service", "Présents", "Absents", "Retards", "Heures", "H. sup", "Ponctualité"]],
+      head: [["Matricule", "Nom", "Type", "Service", "Présents", "Absents", "Retards", "Heures", "H. sup", "Ponctualité"]],
       body: structRows.map((r) => [
         r.matricule,
         r.name,
+        employeeKindLabel(r.kind),
         r.service,
         r.presents,
         r.absents,
@@ -944,7 +958,7 @@ async function exportPdf(rows: ReportRow[], summary: Summary | null, period: str
         fmtHoursFr(r.overtimeHours),
         fmtPercentFr(r.punctualityRate),
       ]),
-      columnStyles: centered(3, 8),
+      columnStyles: centered(4, 9),
     });
   }
 

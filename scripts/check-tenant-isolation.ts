@@ -63,6 +63,9 @@ async function main() {
       data: { organizationId: orgB.id, employeeId: empB.id, startDate: day, endDate: day, reason: "Test" },
     });
     const holB = await b.holiday.create({ data: { organizationId: orgB.id, name: "Férié B", date: day } });
+    const internB = await b.internship.create({
+      data: { organizationId: orgB.id, employeeId: empB.id, startDate: day, endDate: day, school: "École B" },
+    });
 
     // Même matricule autorisé dans une autre entreprise
     const empA = await a.employee.create({
@@ -81,6 +84,11 @@ async function main() {
     );
     check("findMany sur une relation → rien", (await a.leaveRequest.findMany({ where: { employee: { id: empB.id } } })).length === 0);
     check("aggregate → 0", (await a.holiday.aggregate({ _count: true, where: { id: holB.id } }))._count === 0);
+    check("stage de B → introuvable", (await a.internship.findUnique({ where: { id: internB.id } })) === null);
+    check(
+      "stage par employeeId de B → introuvable",
+      (await a.internship.findUnique({ where: { employeeId: empB.id } })) === null
+    );
     check(
       "groupBy → rien de B",
       (await a.employee.groupBy({ by: ["structure"], _count: true })).every((g) => g.structure !== "GOLDENBEANS")
@@ -91,6 +99,9 @@ async function main() {
     check("updateMany sur B → 0", (await a.leaveRequest.updateMany({ where: { id: leaveB.id }, data: { reason: "X" } })).count === 0);
     await rejects("delete d'une ligne de B → refusé", () => a.attendanceRecord.delete({ where: { id: recB.id } }));
     check("deleteMany sur B → 0", (await a.holiday.deleteMany({ where: { id: holB.id } })).count === 0);
+    await rejects("prolonger le stage de B → refusé", () =>
+      a.internship.update({ where: { id: internB.id }, data: { endDate: day } })
+    );
     await rejects("create avec l'entreprise B → refusé", () =>
       a.holiday.create({ data: { organizationId: orgB.id, name: "Intrus", date: day } })
     );
@@ -116,6 +127,7 @@ async function main() {
   } finally {
     for (const org of [orgA, orgB]) {
       const where = { organizationId: org.id };
+      await prisma.internship.deleteMany({ where });
       await prisma.attendanceRecord.deleteMany({ where });
       await prisma.leaveRequest.deleteMany({ where });
       await prisma.holiday.deleteMany({ where });

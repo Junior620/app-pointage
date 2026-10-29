@@ -15,8 +15,17 @@ import { STRUCTURE_CODES } from "@/lib/brand";
 import { orgBaseUrl } from "@/lib/tenant";
 import { assertOrgSites, assertOrgStructure, OrgValidationError } from "@/lib/org-validation";
 import { listOrgServices, normalizeService } from "@/lib/services";
+import { INTERNSHIP_INCLUDE, InternshipInputError, internshipData, internshipInputSchema } from "@/lib/internship-input";
+import { dayKey } from "@/lib/interns";
 
-const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT"] as const;
+const DEPARTURE_REASONS = ["RESIGNATION", "END_OF_CONTRACT", "DISMISSAL", "ABANDONMENT", "INTERNSHIP_END"] as const;
+
+const EMPLOYEE_INCLUDE = {
+  site: true,
+  checkoutSite: true,
+  whatsappPhones: { orderBy: { sortOrder: "asc" } },
+  internship: { include: INTERNSHIP_INCLUDE },
+} as const;
 
 const updateEmployeeBodySchema = z
   .object({
@@ -29,6 +38,8 @@ const updateEmployeeBodySchema = z
     checkoutSiteId: z.union([z.string(), z.null()]).optional(),
     whatsappPhone: z.union([z.string(), z.null()]).optional(),
     whatsappPhone2: z.union([z.string(), z.null()]).optional(),
+    kind: z.enum(["EMPLOYEE", "INTERN"]).optional(),
+    internship: internshipInputSchema.optional(),
     active: z.boolean().optional(),
     departureDate: z.union([z.string(), z.null()]).optional(),
     departureReason: z.enum(DEPARTURE_REASONS).nullable().optional(),
@@ -52,6 +63,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         site: true,
         checkoutSite: true,
         whatsappPhones: { orderBy: { sortOrder: "asc" } },
+        internship: { include: INTERNSHIP_INCLUDE },
         attendances: {
           where: { date: { gte: thirtyDaysAgo } },
           orderBy: { date: "desc" },
@@ -88,10 +100,17 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
     const body = parsed.data;
 
-    const before = await db.employee.findUnique({ where: { id } });
+    const before = await db.employee.findUnique({ where: { id }, include: { internship: true } });
     if (!before) {
       return NextResponse.json({ error: "Employé non trouvé" }, { status: 404 });
     }
+
+    // Stagiaire : la fiche de stage est obligatoire (créée ou mise à jour avec l'employé).
+    const nextKind = body.kind ?? before.kind;
+    if (nextKind === "INTERN" && !body.internship && !before.internship) {
+      return NextResponse.json({ error: "Les dates et l'école du stage sont requises pour un stagiaire." }, { status: 400 });
+    }
+    const stage = body.internship ? await internshipData(db, body.internship, id) : null;
 
     const siteIdValue =
       body.siteId !== undefined ? (typeof body.siteId === "string" ? body.siteId.trim() || null : null) : undefined;
@@ -120,6 +139,18 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       data.service = service;
     }
     if (body.structure !== undefined) data.structure = body.structure;
+    if (body.kind !== undefined) data.kind = body.kind;
+    if (stage) {
+      // Nouvelle date de fin : le rappel « fin dans 7 jours » repartira.
+      const endChanged = !before.internship || dayKey(before.internship.endDate) !== dayKey(stage.endDate);
+      const reminder = endChanged ? { endReminderSentAt: null } : {};
+      data.internship = {
+        upsert: {
+          create: { ...stage, organizationId: org.id },
+          update: { ...stage, ...reminder },
+        },
+      };
+    }
     if (body.siteId !== undefined) {
       data.site =
         siteIdValue === null ? { disconnect: true } : { connect: { id: siteIdValue } };
@@ -146,7 +177,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         return NextResponse.json(
           {
             error:
-              "Pour enregistrer un départ, la date de départ et le motif (démission, fin de contrat, licenciement ou abandon) sont obligatoires.",
+              "Pour enregistrer un départ, la date de départ et le motif (démission, fin de contrat, licenciement, abandon ou fin de stage) sont obligatoires.",
           },
           { status: 400 }
         );
@@ -179,11 +210,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const employee = await db.employee.update({
       where: { id },
       data,
-      include: {
-        site: true,
-        checkoutSite: true,
-        whatsappPhones: { orderBy: { sortOrder: "asc" } },
-      },
+      include: EMPLOYEE_INCLUDE,
     });
 
     await createAuditLog(scope, {
@@ -210,11 +237,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         employeeOut =
           (await db.employee.findUnique({
             where: { id },
-            include: {
-              site: true,
-              checkoutSite: true,
-              whatsappPhones: { orderBy: { sortOrder: "asc" } },
-            },
+            include: EMPLOYEE_INCLUDE,
           })) ?? employee;
         if (employeeOut.active && newPhones.length > 0) {
           welcomeSent = await sendEmployeeWelcomeWhatsAppToPhones(newPhones, {
@@ -241,6 +264,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       if (error.message === "Non authentifié") return NextResponse.json({ error: error.message }, { status: 401 });
       if (error.message === "Accès interdit") return NextResponse.json({ error: error.message }, { status: 403 });
       if (error instanceof OrgValidationError) return NextResponse.json({ error: error.message }, { status: 400 });
+      if (error instanceof InternshipInputError) return NextResponse.json({ error: error.message }, { status: 400 });
     }
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }

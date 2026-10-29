@@ -13,6 +13,8 @@ import type { CheckInStatus } from "@prisma/client";
 import { findMatchingWorkSite, getEmployeeWorkSites } from "./employee-sites";
 import { APP_TIMEZONE } from "./timezone";
 import { formatTime } from "./utils";
+import { internshipPhase } from "./interns";
+import { fmtDayFr } from "./export-format";
 
 type CheckResult = {
   success: boolean;
@@ -31,6 +33,7 @@ async function getScheduleForEmployee(db: Db, employeeId: string) {
     include: {
       site: { include: { schedules: true } },
       checkoutSite: true,
+      internship: { select: { startDate: true, endDate: true } },
     },
   });
 
@@ -237,6 +240,18 @@ export async function processCheckIn(
     return { success: false, message: "Configuration manquante. Contactez les RH." };
   }
 
+  // Stagiaire : pointage possible seulement pendant la période du stage.
+  const internship = data.employee.kind === "INTERN" ? data.employee.internship : null;
+  if (internship) {
+    const phase = internshipPhase(internship, today);
+    if (phase === "upcoming") {
+      return { success: false, message: `Votre stage commence le ${fmtDayFr(internship.startDate)} : le pointage sera possible à partir de ce jour.` };
+    }
+    if (phase === "ended") {
+      return { success: false, message: `Votre stage s'est terminé le ${fmtDayFr(internship.endDate)}. Contactez les RH s'il est prolongé.` };
+    }
+  }
+
   const scheduleStart = parseTimeString(data.schedule.startTime, today, APP_TIMEZONE);
   const graceEnd = new Date(
     scheduleStart.getTime() + data.schedule.lateGraceMin * 60 * 1000
@@ -371,8 +386,13 @@ export async function processCheckOut(
   otWindowEnd.setHours(OVERTIME_END_HOUR, 0, 0, 0);
   const effectiveCheckoutForOvertime = now > otWindowEnd ? otWindowEnd : now;
 
+  // Stagiaire : le temps travaillé est compté, mais jamais en heures supplémentaires.
+  const intern = data.employee.kind === "INTERN";
+
   let overtime: number;
-  if (weekendOptionalWork) {
+  if (intern) {
+    overtime = 0;
+  } else if (weekendOptionalWork) {
     // Samedi / dimanche : journée hors planning semaine — toute la durée travaillée compte en heures sup
     const overtimeStart = record.checkInTime;
     const totalForOvertime = minutesBetween(overtimeStart, effectiveCheckoutForOvertime);
@@ -683,11 +703,14 @@ export async function runMarkAbsent({ db, organizationId }: TenantScope): Promis
 
   const allActive = await db.employee.findMany({
     where: { active: true, whatsappPhone: { not: null } },
-    select: { id: true },
+    select: { id: true, kind: true, internship: { select: { startDate: true, endDate: true } } },
   });
 
   let count = 0;
   for (const emp of allActive) {
+    // Stagiaire enregistré à l'avance (ou fin pas encore traitée) : aucune absence hors du stage.
+    if (emp.kind === "INTERN" && emp.internship && internshipPhase(emp.internship, today) !== "ongoing") continue;
+
     const existing = await db.attendanceRecord.findUnique({
       where: { employeeId_date: { employeeId: emp.id, date: today } },
     });

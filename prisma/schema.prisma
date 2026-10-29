@@ -77,6 +77,13 @@ enum DepartureReason {
   END_OF_CONTRACT // Fin de contrat
   DISMISSAL // Licenciement
   ABANDONMENT // Abandon de poste
+  INTERNSHIP_END // Fin de stage
+}
+
+/** Employé salarié ou stagiaire (pas d'heures sup, fin de stage automatique). */
+enum EmployeeKind {
+  EMPLOYEE
+  INTERN
 }
 
 enum OvertimeStatus {
@@ -113,6 +120,7 @@ model Organization {
   hrRemarks HrRemark[]
   auditLogs AuditLog[]
   publicSubmissionLogs PublicSubmissionLog[]
+  internships Internship[]
 
   @@map("organizations")
 }
@@ -146,6 +154,7 @@ model Employee {
   lastName         String             @map("last_name")
   service          String
   structure        Structure          @default(SCPB)
+  kind             EmployeeKind       @default(EMPLOYEE)
   active           Boolean            @default(true)
   whatsappPhone    String?            @unique @map("whatsapp_phone")
   whatsappLinkedAt DateTime?          @map("whatsapp_linked_at")
@@ -168,9 +177,37 @@ model Employee {
   hrRemarks        HrRemark[]
   publicSubmissions PublicSubmissionLog[]
   whatsappPhones     EmployeeWhatsappPhone[]
+  internship         Internship?
+  supervisedInternships Internship[] @relation("InternshipSupervisor")
 
   @@unique([organizationId, matricule])
   @@map("employees")
+}
+
+/** Stage d'un employé de type INTERN : dates, école, encadrant, gratification. */
+model Internship {
+  id                String       @id @default(cuid())
+  organizationId    String       @map("organization_id")
+  organization      Organization @relation(fields: [organizationId], references: [id])
+  employeeId        String       @unique @map("employee_id")
+  employee          Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startDate         DateTime     @map("start_date") @db.Date
+  endDate           DateTime     @map("end_date") @db.Date
+  school            String
+  fieldOfStudy      String?      @map("field_of_study")
+  level             String?
+  supervisorId      String?      @map("supervisor_id")
+  supervisor        Employee?    @relation("InternshipSupervisor", fields: [supervisorId], references: [id], onDelete: SetNull)
+  /** Gratification mensuelle (FCFA). */
+  monthlyAllowance  Int?         @map("monthly_allowance")
+  /** Rappel « fin de stage dans 7 jours » envoyé aux RH (remis à zéro si la date de fin change). */
+  endReminderSentAt DateTime?    @map("end_reminder_sent_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  @@index([organizationId])
+  @@index([organizationId, endDate])
+  @@map("internships")
 }
 
 model EmployeeWhatsappPhone {

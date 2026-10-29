@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
   Search,
@@ -20,6 +21,7 @@ import {
   FileSpreadsheet,
   FileText,
   RotateCcw,
+  GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,8 @@ import { fileDateStamp, generatedAtLabel } from "@/lib/export-format";
 import { PDF_TABLE, addPdfHeader, createPdf, savePdf } from "@/lib/pdf-kit";
 import { STRUCTURE_BRANDS, STRUCTURE_CODES, type StructureCode } from "@/lib/brand";
 import { DEFAULT_SERVICES, matriculeServiceCode, normalizeService } from "@/lib/services";
+import { INTERN_MATRICULE_CODE, employeeKindLabel } from "@/lib/interns";
+import { fmtDayFr } from "@/lib/export-format";
 import { useOrg } from "@/components/org/OrgProvider";
 import StructureOptions from "@/components/org/StructureOptions";
 import { useDebouncedCommit, useUrlFilters } from "@/lib/use-url-filters";
@@ -55,7 +59,21 @@ type DepartureReasonCode =
   | "RESIGNATION"
   | "END_OF_CONTRACT"
   | "DISMISSAL"
-  | "ABANDONMENT";
+  | "ABANDONMENT"
+  | "INTERNSHIP_END";
+
+type EmployeeKind = "EMPLOYEE" | "INTERN";
+
+interface InternshipInfo {
+  startDate: string;
+  endDate: string;
+  school: string;
+  fieldOfStudy: string | null;
+  level: string | null;
+  supervisorId: string | null;
+  supervisor?: { id: string; firstName: string; lastName: string } | null;
+  monthlyAllowance: number | null;
+}
 
 interface Employee {
   id: string;
@@ -64,6 +82,8 @@ interface Employee {
   lastName: string;
   service: string;
   structure: StructureCode;
+  kind?: EmployeeKind;
+  internship?: InternshipInfo | null;
   whatsappPhone: string | null;
   whatsappPhones?: { phone: string; sortOrder: number }[];
   active: boolean;
@@ -76,7 +96,7 @@ interface Employee {
   departureNote?: string | null;
 }
 
-type EmployeeStats = { active: number; inactive: number; whatsapp: number };
+type EmployeeStats = { active: number; inactive: number; whatsapp: number; interns?: number };
 
 /** Valeur de l'option « Ajouter un service… » du formulaire (jamais enregistrée). */
 const NEW_SERVICE_OPTION = "__nouveau_service__";
@@ -97,21 +117,62 @@ function phonesOf(emp: Employee): string[] {
   return emp.whatsappPhones?.map((p) => p.phone) ?? (emp.whatsappPhone ? [emp.whatsappPhone] : []);
 }
 
-const employeeSchema = z.object({
-  matricule: z.string().optional(),
-  firstName: z.string().min(1, "Le prénom est requis"),
-  lastName: z.string().min(1, "Le nom est requis"),
-  service: z.string().min(1, "Le service est requis"),
-  structure: z.enum(STRUCTURE_CODES),
-  whatsappPhone: z.string().optional(),
-  whatsappPhone2: z.string().optional(),
-  siteId: z.string().optional(),
-  checkoutSiteId: z.string().optional(),
-});
-
-const createEmployeeSchema = employeeSchema.omit({ matricule: true });
+const employeeSchema = z
+  .object({
+    matricule: z.string().optional(),
+    firstName: z.string().min(1, "Le prénom est requis"),
+    lastName: z.string().min(1, "Le nom est requis"),
+    service: z.string().min(1, "Le service est requis"),
+    structure: z.enum(STRUCTURE_CODES),
+    kind: z.enum(["EMPLOYEE", "INTERN"]),
+    whatsappPhone: z.string().optional(),
+    whatsappPhone2: z.string().optional(),
+    siteId: z.string().optional(),
+    checkoutSiteId: z.string().optional(),
+    // Fiche de stage (stagiaires uniquement)
+    internStart: z.string(),
+    internEnd: z.string(),
+    school: z.string(),
+    fieldOfStudy: z.string(),
+    level: z.string(),
+    supervisorId: z.string(),
+    allowance: z.string(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.kind !== "INTERN") return;
+    if (!d.internStart) ctx.addIssue({ code: "custom", path: ["internStart"], message: "Date de début requise" });
+    if (!d.internEnd) ctx.addIssue({ code: "custom", path: ["internEnd"], message: "Date de fin requise" });
+    if (d.internStart && d.internEnd && d.internEnd < d.internStart) {
+      ctx.addIssue({ code: "custom", path: ["internEnd"], message: "La fin doit être après le début" });
+    }
+    if (!d.school.trim()) ctx.addIssue({ code: "custom", path: ["school"], message: "L'école est requise" });
+    if (d.allowance.trim() && !/^\d+$/.test(d.allowance.replace(/\s/g, ""))) {
+      ctx.addIssue({ code: "custom", path: ["allowance"], message: "Montant en FCFA, sans décimales" });
+    }
+  });
 
 type EmployeeForm = z.infer<typeof employeeSchema>;
+
+/** Corps envoyé à l'API : la fiche de stage n'accompagne qu'un stagiaire. */
+function employeePayload(values: EmployeeForm, editing: boolean) {
+  const { internStart, internEnd, school, fieldOfStudy, level, supervisorId, allowance, matricule, ...base } = values;
+  const allowanceDigits = allowance.replace(/\s/g, "");
+  return {
+    ...base,
+    ...(editing ? { matricule } : {}),
+    ...(values.kind === "INTERN" && {
+      internship: {
+        startDate: internStart,
+        endDate: internEnd,
+        school: school.trim(),
+        fieldOfStudy: fieldOfStudy.trim() || null,
+        level: level.trim() || null,
+        supervisorId: supervisorId || null,
+        monthlyAllowance: allowanceDigits ? Number(allowanceDigits) : null,
+      },
+    }),
+  };
+}
 
 const EMPTY_FORM: EmployeeForm = {
   matricule: "",
@@ -120,10 +181,18 @@ const EMPTY_FORM: EmployeeForm = {
   service: "",
   // Remplacée à l'ouverture du formulaire par la première structure de l'entreprise.
   structure: "SCPB",
+  kind: "EMPLOYEE",
   whatsappPhone: "",
   whatsappPhone2: "",
   siteId: "",
   checkoutSiteId: "",
+  internStart: "",
+  internEnd: "",
+  school: "",
+  fieldOfStudy: "",
+  level: "",
+  supervisorId: "",
+  allowance: "",
 };
 
 export default function EmployeesPage() {
@@ -138,7 +207,8 @@ function EmployeesContent() {
   const toast = useToast();
   const confirm = useConfirm();
   const { structures: orgStructures } = useOrg();
-  const [filters, setFilters] = useUrlFilters({ q: "", service: "", structure: "", status: "all", page: "1" });
+  const [filters, setFilters] = useUrlFilters({ q: "", service: "", structure: "", kind: "", status: "all", page: "1" });
+  const kindFilter = (["EMPLOYEE", "INTERN"].includes(filters.kind) ? filters.kind : "") as EmployeeKind | "";
   const search = filters.q;
   const serviceFilter = filters.service;
   const structureFilter = filters.structure;
@@ -163,6 +233,8 @@ function EmployeesContent() {
   const [addingService, setAddingService] = useState(false);
   const [newService, setNewService] = useState("");
   const [sites, setSites] = useState<{ id: string; name: string }[]>([]);
+  // Encadrants proposés pour un stagiaire (employés actifs), chargés à la première ouverture.
+  const [supervisors, setSupervisors] = useState<Employee[] | null>(null);
   const [userRole, setUserRole] = useState<string>("");
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -197,9 +269,10 @@ function EmployeesContent() {
     if (search) f.q = search;
     if (serviceFilter) f.service = serviceFilter;
     if (structureFilter) f.structure = structureFilter;
+    if (kindFilter) f.kind = kindFilter;
     if (statusFilter !== "all") f.active = statusFilter === "active" ? "true" : "false";
     return f;
-  }, [search, serviceFilter, structureFilter, statusFilter]);
+  }, [search, serviceFilter, structureFilter, kindFilter, statusFilter]);
 
   const fetchEmployees = useCallback(async () => {
     setLoading(true);
@@ -270,6 +343,7 @@ function EmployeesContent() {
         { header: "Matricule", key: "matricule", width: 18 },
         { header: "Nom", key: "lastName", width: 18 },
         { header: "Prénom", key: "firstName", width: 18 },
+        { header: "Type", key: "kind", width: 11 },
         { header: "Service", key: "service", width: 14 },
         { header: "Structure", key: "structure", width: 12 },
         { header: "Site", key: "site", width: 20 },
@@ -284,6 +358,7 @@ function EmployeesContent() {
           matricule: emp.matricule,
           lastName: emp.lastName,
           firstName: emp.firstName,
+          kind: employeeKindLabel(emp.kind),
           service: emp.service,
           structure: emp.structure,
           site: emp.site?.name ?? "Non assigné",
@@ -335,11 +410,12 @@ function EmployeesContent() {
       autoTable(doc, {
         ...PDF_TABLE,
         startY,
-        head: [["Matricule", "Nom", "Prénom", "Service", "Structure", "Site", "WhatsApp", "Statut", "Date départ", "Motif"]],
+        head: [["Matricule", "Nom", "Prénom", "Type", "Service", "Structure", "Site", "WhatsApp", "Statut", "Date départ", "Motif"]],
         body: data.map((emp) => [
           emp.matricule,
           emp.lastName,
           emp.firstName,
+          employeeKindLabel(emp.kind),
           emp.service,
           emp.structure,
           emp.site?.name ?? "Non assigné",
@@ -364,13 +440,38 @@ function EmployeesContent() {
     toast.success(`${all.length} employé${all.length > 1 ? "s" : ""} exporté${all.length > 1 ? "s" : ""} (PDF).`);
   };
 
-  const openCreate = () => {
-    setEditingId(null);
-    setForm({ ...EMPTY_FORM, structure: orgStructures[0] ?? EMPTY_FORM.structure });
-    setErrors({});
-    setAddingService(false);
-    setModalOpen(true);
-  };
+  const loadSupervisors = useCallback(() => {
+    if (supervisors) return;
+    fetchAllEmployeePages<Employee>({ active: "true", kind: "EMPLOYEE" })
+      .then(setSupervisors)
+      .catch(() => setSupervisors([]));
+  }, [supervisors]);
+
+  const openCreate = useCallback(
+    (kind: EmployeeKind = "EMPLOYEE") => {
+      setEditingId(null);
+      setForm({ ...EMPTY_FORM, kind, structure: orgStructures[0] ?? EMPTY_FORM.structure });
+      setErrors({});
+      setAddingService(false);
+      setModalOpen(true);
+      if (kind === "INTERN") loadSupervisors();
+    },
+    [orgStructures, loadSupervisors]
+  );
+
+  // « Nouveau stagiaire » depuis la rubrique Stagiaires : /employees?nouveau=stagiaire
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const presetHandled = useRef(false);
+  useEffect(() => {
+    if (presetHandled.current || searchParams.get("nouveau") !== "stagiaire") return;
+    presetHandled.current = true;
+    openCreate("INTERN");
+    const rest = new URLSearchParams(window.location.search);
+    rest.delete("nouveau");
+    router.replace(rest.size ? `${pathname}?${rest}` : pathname, { scroll: false });
+  }, [searchParams, openCreate, router, pathname]);
 
   /** Valide le service saisi à la main ; il rejoint la liste dès l'enregistrement de l'employé. */
   const confirmNewService = (): string | null => {
@@ -399,10 +500,19 @@ function EmployeesContent() {
       whatsappPhone2: emp.whatsappPhones?.[1]?.phone ?? "",
       siteId: emp.siteId ?? emp.site?.id ?? "",
       checkoutSiteId: emp.checkoutSiteId ?? emp.checkoutSite?.id ?? "",
+      kind: emp.kind ?? "EMPLOYEE",
+      internStart: emp.internship?.startDate.slice(0, 10) ?? "",
+      internEnd: emp.internship?.endDate.slice(0, 10) ?? "",
+      school: emp.internship?.school ?? "",
+      fieldOfStudy: emp.internship?.fieldOfStudy ?? "",
+      level: emp.internship?.level ?? "",
+      supervisorId: emp.internship?.supervisorId ?? "",
+      allowance: emp.internship?.monthlyAllowance != null ? String(emp.internship.monthlyAllowance) : "",
     });
     setErrors({});
     setAddingService(false);
     setModalOpen(true);
+    if (emp.kind === "INTERN") loadSupervisors();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -414,8 +524,7 @@ function EmployeesContent() {
       if (!service) return;
       values = { ...form, service };
     }
-    const schema = editingId ? employeeSchema : createEmployeeSchema;
-    const result = schema.safeParse(values);
+    const result = employeeSchema.safeParse(values);
     if (!result.success) {
       const fieldErrors: Record<string, string> = {};
       result.error.issues.forEach((i) => {
@@ -428,7 +537,7 @@ function EmployeesContent() {
     try {
       const url = editingId ? `/api/employees/${editingId}` : "/api/employees";
       const method = editingId ? "PUT" : "POST";
-      const payload = editingId ? result.data : { ...result.data }; // matricule généré côté serveur
+      const payload = employeePayload(result.data, Boolean(editingId)); // à la création, matricule généré côté serveur
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -566,7 +675,7 @@ function EmployeesContent() {
 
   const toggleStatus = (value: "active" | "inactive") =>
     setFilters({ status: statusFilter === value ? "all" : value, page: "1" });
-  const hasActiveFilters = Boolean(search || serviceFilter || structureFilter || statusFilter !== "all");
+  const hasActiveFilters = Boolean(search || serviceFilter || structureFilter || kindFilter || statusFilter !== "all");
   const statsTotal = stats ? stats.active + stats.inactive : total;
 
   return (
@@ -599,14 +708,14 @@ function EmployeesContent() {
             >
               <span className="hidden sm:inline">PDF</span>
             </Button>
-            <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
+            <Button onClick={() => openCreate()} icon={<Plus className="h-4 w-4" />}>
               Ajouter
             </Button>
           </>
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
         <StatTile icon={Users} label="Total" value={statsTotal} tone="brand" onClick={() => setFilters({ status: "all", page: "1" })} active={statusFilter === "all" && hasActiveFilters === false} />
         <StatTile icon={UserCheck} label="Actifs" value={stats?.active ?? "–"} tone="success" onClick={() => toggleStatus("active")} active={statusFilter === "active"} />
         <StatTile icon={UserX} label="Partis / inactifs" value={stats?.inactive ?? "–"} tone="danger" onClick={() => toggleStatus("inactive")} active={statusFilter === "inactive"} />
@@ -616,6 +725,14 @@ function EmployeesContent() {
           value={stats?.whatsapp ?? "–"}
           tone="violet"
           sub={stats && stats.active > 0 ? `${Math.round((stats.whatsapp / stats.active) * 100)} % des actifs` : ""}
+        />
+        <StatTile
+          icon={GraduationCap}
+          label="Stagiaires actifs"
+          value={stats?.interns ?? "–"}
+          tone="info"
+          onClick={() => setFilters({ kind: kindFilter === "INTERN" ? "" : "INTERN", page: "1" })}
+          active={kindFilter === "INTERN"}
         />
       </div>
 
@@ -628,7 +745,7 @@ function EmployeesContent() {
               icon={<RotateCcw className="h-3.5 w-3.5" />}
               onClick={() => {
                 setSearchInput("");
-                setFilters({ q: "", service: "", structure: "", status: "all", page: "1" });
+                setFilters({ q: "", service: "", structure: "", kind: "", status: "all", page: "1" });
               }}
             >
               Réinitialiser
@@ -669,6 +786,13 @@ function EmployeesContent() {
             </Select>
           </FilterField>
         )}
+        <FilterField label="Type">
+          <Select value={kindFilter} onChange={(e) => setFilters({ kind: e.target.value, page: "1" })}>
+            <option value="">Employés et stagiaires</option>
+            <option value="EMPLOYEE">Employés</option>
+            <option value="INTERN">Stagiaires</option>
+          </Select>
+        </FilterField>
         <FilterField label="Statut">
           <Select value={statusFilter} onChange={(e) => setFilters({ status: e.target.value, page: "1" })}>
             <option value="all">Tous les statuts</option>
@@ -729,7 +853,7 @@ function EmployeesContent() {
                   description={hasActiveFilters ? "Essayez d'autres filtres ou un autre terme de recherche." : "Commencez par ajouter votre premier collaborateur."}
                   action={
                     !hasActiveFilters ? (
-                      <Button onClick={openCreate} icon={<Plus className="h-4 w-4" />}>
+                      <Button onClick={() => openCreate()} icon={<Plus className="h-4 w-4" />}>
                         Ajouter un employé
                       </Button>
                     ) : undefined
@@ -762,11 +886,16 @@ function EmployeesContent() {
                           {emp.lastName[0]}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate font-medium text-slate-800 group-hover:text-brand-700">
-                            {emp.firstName} {emp.lastName}
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate font-medium text-slate-800 group-hover:text-brand-700">
+                              {emp.firstName} {emp.lastName}
+                            </span>
+                            {emp.kind === "INTERN" && <Badge tone="info">Stagiaire</Badge>}
                           </span>
                           <span className="block truncate text-xs text-slate-500">
-                            {[emp.site?.name ?? "Zone non assignée", emp.checkoutSite?.name].filter(Boolean).join(" · ")}
+                            {emp.kind === "INTERN" && emp.internship
+                              ? `Stage jusqu'au ${fmtDayFr(emp.internship.endDate)}`
+                              : [emp.site?.name ?? "Zone non assignée", emp.checkoutSite?.name].filter(Boolean).join(" · ")}
                           </span>
                         </span>
                       </Link>
@@ -883,8 +1012,14 @@ function EmployeesContent() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         dismissible={!submitting}
-        title={editingId ? "Modifier l'employé" : "Nouvel employé"}
-        description={editingId ? "Modifiez les informations du collaborateur." : "Ajoutez un collaborateur. Avec un numéro WhatsApp, il reçoit un message de bienvenue."}
+        title={editingId ? (form.kind === "INTERN" ? "Modifier le stagiaire" : "Modifier l'employé") : form.kind === "INTERN" ? "Nouveau stagiaire" : "Nouvel employé"}
+        description={
+          editingId
+            ? "Modifiez les informations du collaborateur."
+            : form.kind === "INTERN"
+              ? "Le stagiaire pointe comme un employé, sans heures sup. Il sort automatiquement le lendemain de la fin du stage."
+              : "Ajoutez un collaborateur. Avec un numéro WhatsApp, il reçoit un message de bienvenue."
+        }
         size="lg"
         footer={
           <>
@@ -892,12 +1027,34 @@ function EmployeesContent() {
               Annuler
             </Button>
             <Button type="submit" form="employee-form" loading={submitting}>
-              {editingId ? "Enregistrer" : "Créer l'employé"}
+              {editingId ? "Enregistrer" : form.kind === "INTERN" ? "Créer le stagiaire" : "Créer l'employé"}
             </Button>
           </>
         }
       >
         <form id="employee-form" onSubmit={handleSubmit} className="space-y-5" noValidate>
+          <div role="radiogroup" aria-label="Type de collaborateur" className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+            {(["EMPLOYEE", "INTERN"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={form.kind === k}
+                onClick={() => {
+                  setForm({ ...form, kind: k });
+                  if (k === "INTERN") loadSupervisors();
+                }}
+                className={cn(
+                  "flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  form.kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                )}
+              >
+                {k === "INTERN" ? <GraduationCap className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+                {employeeKindLabel(k)}
+              </button>
+            ))}
+          </div>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Prénom" required error={errors.firstName}>
               {(id) => (
@@ -988,13 +1145,62 @@ function EmployeesContent() {
                 <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-500">
                   Matricule généré à l&apos;enregistrement :{" "}
                   <span className="font-mono text-slate-700">
-                    {STRUCTURE_BRANDS[form.structure].matriculePrefix}-{form.service ? matriculeServiceCode(form.service) : "SERVICE"}-XXXX
+                    {STRUCTURE_BRANDS[form.structure].matriculePrefix}-
+                    {form.kind === "INTERN" ? INTERN_MATRICULE_CODE : form.service ? matriculeServiceCode(form.service) : "SERVICE"}-XXXX
                   </span>{" "}
                   (4 chiffres aléatoires et uniques).
                 </p>
               )}
             </div>
           </div>
+
+          {form.kind === "INTERN" && (
+            <fieldset className="space-y-3 rounded-xl border border-sky-100 bg-sky-50/50 p-4">
+              <legend className="sr-only">Stage</legend>
+              <div>
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-sky-900">
+                  <GraduationCap className="h-4 w-4" /> Stage
+                </p>
+                <p className="mt-0.5 text-xs text-sky-800/80">
+                  Pointage possible du premier au dernier jour du stage. Les RH sont prévenus 7 jours avant la fin.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Début du stage" required error={errors.internStart}>
+                  {(id) => <Input id={id} type="date" value={form.internStart} onChange={(e) => setForm({ ...form, internStart: e.target.value })} aria-invalid={Boolean(errors.internStart)} />}
+                </Field>
+                <Field label="Fin du stage" required error={errors.internEnd}>
+                  {(id) => <Input id={id} type="date" value={form.internEnd} min={form.internStart || undefined} onChange={(e) => setForm({ ...form, internEnd: e.target.value })} aria-invalid={Boolean(errors.internEnd)} />}
+                </Field>
+                <Field label="École / université" required error={errors.school} className="sm:col-span-2">
+                  {(id) => <Input id={id} value={form.school} onChange={(e) => setForm({ ...form, school: e.target.value })} placeholder="Université de Douala" maxLength={160} aria-invalid={Boolean(errors.school)} />}
+                </Field>
+                <Field label="Filière">
+                  {(id) => <Input id={id} value={form.fieldOfStudy} onChange={(e) => setForm({ ...form, fieldOfStudy: e.target.value })} placeholder="Comptabilité et gestion" maxLength={160} />}
+                </Field>
+                <Field label="Niveau">
+                  {(id) => <Input id={id} value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} placeholder="BTS 2, Licence 3, Master 1…" maxLength={80} />}
+                </Field>
+                <Field label="Encadrant (maître de stage)">
+                  {(id) => (
+                    <Select id={id} value={form.supervisorId} onChange={(e) => setForm({ ...form, supervisorId: e.target.value })}>
+                      <option value="">{supervisors ? "— Aucun —" : "Chargement…"}</option>
+                      {(supervisors ?? [])
+                        .filter((s) => s.id !== editingId)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.lastName} {s.firstName} — {s.service}
+                          </option>
+                        ))}
+                    </Select>
+                  )}
+                </Field>
+                <Field label="Gratification mensuelle (FCFA)" error={errors.allowance} hint="Optionnel. Sert au récapitulatif mensuel.">
+                  {(id) => <Input id={id} value={form.allowance} onChange={(e) => setForm({ ...form, allowance: e.target.value })} placeholder="50000" inputMode="numeric" aria-invalid={Boolean(errors.allowance)} />}
+                </Field>
+              </div>
+            </fieldset>
+          )}
 
           <fieldset className="space-y-3 rounded-xl border border-brand-100 bg-brand-50/50 p-4">
             <legend className="sr-only">Zones de pointage</legend>
@@ -1106,6 +1312,7 @@ function EmployeesContent() {
                 <option value="END_OF_CONTRACT">Fin de contrat</option>
                 <option value="DISMISSAL">Licenciement</option>
                 <option value="ABANDONMENT">Abandon de poste</option>
+                <option value="INTERNSHIP_END">Fin de stage</option>
               </Select>
             )}
           </Field>
