@@ -209,11 +209,9 @@ function InternsContent() {
             <tr>
               <Th>Stagiaire</Th>
               <Th>École</Th>
-              <Th>Service</Th>
-              <Th>Encadrant</Th>
+              <Th>Service · encadrant</Th>
               <Th>Période</Th>
               <Th align="right">Gratification</Th>
-              <Th>Statut</Th>
               <Th align="right">
                 <span className="sr-only">Actions</span>
               </Th>
@@ -221,9 +219,9 @@ function InternsContent() {
           </THead>
           <tbody>
             {loading ? (
-              <TableSkeletonRows cols={8} />
+              <TableSkeletonRows cols={6} />
             ) : visible.length === 0 ? (
-              <TableMessageRow cols={8}>
+              <TableMessageRow cols={6}>
                 <EmptyState
                   icon={GraduationCap}
                   title={rows.length === 0 ? "Aucun stagiaire" : "Aucun stage pour ce filtre"}
@@ -262,9 +260,11 @@ function InternsContent() {
                     <Td className="max-w-[240px]">
                       <span className="line-clamp-2 text-sm text-slate-700">{schoolLine(r)}</span>
                     </Td>
-                    <Td>{r.employee.service}</Td>
                     <Td className="whitespace-nowrap">
-                      {r.supervisor ? `${r.supervisor.firstName} ${r.supervisor.lastName}` : <span className="text-slate-400">—</span>}
+                      <span className="block text-sm text-slate-700">{r.employee.service}</span>
+                      <span className="block text-xs text-slate-500">
+                        {r.supervisor ? `Encadrant : ${r.supervisor.firstName} ${r.supervisor.lastName}` : "Sans encadrant"}
+                      </span>
                     </Td>
                     <Td className="min-w-[180px]">
                       <span className="block whitespace-nowrap text-sm">
@@ -281,14 +281,14 @@ function InternsContent() {
                         </span>
                       )}
                       {r.status === "upcoming" && <span className="mt-1 block text-xs text-sky-700">{internshipCountdownLabel(r, today)}</span>}
+                      {(r.status === "ended" || r.status === "hired") && (
+                        <Badge tone={STATUS_TONE[r.status]} dot className="mt-1">
+                          {INTERN_STATUS_LABELS[r.status]}
+                        </Badge>
+                      )}
                     </Td>
                     <Td align="right" className="whitespace-nowrap tabular-nums">
                       {r.monthlyAllowance != null ? fmtFcfa(r.monthlyAllowance) : <span className="text-slate-400">—</span>}
-                    </Td>
-                    <Td>
-                      <Badge tone={STATUS_TONE[r.status]} dot>
-                        {INTERN_STATUS_LABELS[r.status]}
-                      </Badge>
                     </Td>
                     <Td align="right">
                       <div className="flex items-center justify-end gap-0.5">
