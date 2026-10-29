@@ -120,6 +120,7 @@ const TENANT_MODELS = new Set<string>([
   "HrRemark",
   "AuditLog",
   "PublicSubmissionLog",
+  "Internship",
 ]);
 
 export class TenantViolationError extends Error {
