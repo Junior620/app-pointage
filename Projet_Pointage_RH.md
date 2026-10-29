@@ -378,6 +378,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-22 | §8.4 | Fiche employé : « + Ajouter un service… » ; liste des services par entreprise (défauts + services déjà utilisés). |
 | 2026-10-28 | §11 | Page de pointage : aide à l'autorisation de la position selon le téléphone (iPhone, Android, ordinateur). |
 | 2026-10-29 | §3.3, §14 | Stagiaires : type d'employé et fiche de stage (migration `20261029120000_interns`), pas d'heures sup, fin automatique et rappel J-7, rubrique Stagiaires, attestation, récapitulatif des gratifications, filtres Type. |
+| 2026-10-29 | §14 | Menu WhatsApp des stagiaires sans les entrées heures sup (6 et 8), réponse explicative s'ils les demandent. |
 
 ## 13. Multi-entreprise
 
@@ -431,6 +432,7 @@ Un stagiaire est un **employé** de type `INTERN` (`employees.kind`) accompagné
 | Fiche : absences comptées à partir du début du stage | `employees/[id]/page.tsx` |
 | Rappel RH à J-7 (une fois, `end_reminder_sent_at`, remis à zéro si la fin change) et sortie automatique le lendemain de la fin (motif `INTERNSHIP_END` « Fin de stage ») | `src/lib/internship-lifecycle.ts`, `GET /api/cron/internships` |
 | Matricule `STRUCTURE-STG-XXXX` | `POST /api/employees` |
+| Menu WhatsApp sans « Mes heures sup » (liste, menus texte de secours) ; si le stagiaire tape *6* ou *8*, réponse « pas d'heures sup, voir Mes pointages » | `fullMenu`, `intentsFor` (`src/lib/whatsapp-menu.ts`), `withoutOvertimeLines` (`src/lib/intent-parser.ts`) |
 
 **Écrans** : formulaire employé (type Employé / Stagiaire, section Stage), liste Employés (pastille, filtre « Type », indicateur), fiche (carte Stage), rubrique **Stagiaires** `/interns` (en cours, fin dans 7 jours, à venir, terminés, embauchés ; prolonger, terminer, embaucher), « Stages qui finissent cette semaine » dans le bloc À traiter, filtre « Type » des Rapports. API : `GET /api/interns`, `PATCH /api/interns/[id]` (`extend`, `end`, `hire`), `GET /api/interns/allowances?month=AAAA-MM`, `GET /api/interns/[id]/certificate` (`?format=json` pour le PDF, sinon Word).
 

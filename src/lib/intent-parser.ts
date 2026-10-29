@@ -353,6 +353,14 @@ export const HELP_MESSAGE = `📋 *Commandes disponibles :*
 
 Répondez par le *numéro* (1 à 15) ou tapez la commande.`;
 
+/** Menus texte d'un stagiaire : sans les lignes 6 et 8 (heures sup). Les autres numéros ne changent pas. */
+export function withoutOvertimeLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^(6️⃣|8️⃣)/u.test(line))
+    .join("\n");
+}
+
 export function getWelcomeMessage(firstName: string): string {
   return `👋 Bonjour ${firstName}
 

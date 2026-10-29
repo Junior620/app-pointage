@@ -6,8 +6,8 @@ import {
   sendWhatsAppList,
   normalizePhone,
 } from "@/lib/whatsapp";
-import { dayMenu, fullMenu, menuChoice } from "@/lib/whatsapp-menu";
-import { parseIntent, getWelcomeMessage, HELP_MESSAGE } from "@/lib/intent-parser";
+import { INTERN_OVERTIME_REPLY, dayMenu, fullMenu, intentsFor, menuChoice } from "@/lib/whatsapp-menu";
+import { parseIntent, getWelcomeMessage, HELP_MESSAGE, withoutOvertimeLines } from "@/lib/intent-parser";
 import { issueLeaveFormToken } from "@/lib/leave-form-token";
 import { issueMissionFormToken } from "@/lib/mission-form-token";
 import {
@@ -234,7 +234,7 @@ async function handleMessage(
     if (choice === "LIST") {
       await sendFullMenu(ctx);
     } else if (choice) {
-      for (const intent of choice) await runIntent(ctx, intent);
+      for (const intent of intentsFor(choice, isIntern(ctx))) await runIntent(ctx, intent);
     } else {
       await sendDayMenu(ctx, "Cette option n'est plus disponible.");
     }
@@ -315,8 +315,13 @@ type IntentContext = {
   appUrl: string | null;
   phone: string;
   normalizedPhone: string;
-  employee: { id: string; firstName: string; active: boolean };
+  employee: { id: string; firstName: string; active: boolean; kind: string };
 };
+
+/** Stagiaire : pas d'heures sup, ni dans les menus ni dans les réponses. */
+function isIntern(ctx: IntentContext): boolean {
+  return ctx.employee.kind === "INTERN";
+}
 
 /** Traite une intention, qu'elle vienne d'un message texte (numéro, mot-clé) ou du menu (bouton, liste). */
 async function runIntent(ctx: IntentContext, intent: Intent, comment?: string) {
@@ -359,11 +364,13 @@ async function runIntent(ctx: IntentContext, intent: Intent, comment?: string) {
       break;
 
     case "MY_OVERTIME":
-      await handleMyOvertime(db, phone, employee.id, employee.firstName);
+      if (isIntern(ctx)) await sendWhatsAppMessage(phone, INTERN_OVERTIME_REPLY);
+      else await handleMyOvertime(db, phone, employee.id, employee.firstName);
       break;
 
     case "MY_OVERTIME_PENDING":
-      await handleMyOvertimePending(db, phone, employee.id, employee.firstName);
+      if (isIntern(ctx)) await sendWhatsAppMessage(phone, INTERN_OVERTIME_REPLY);
+      else await handleMyOvertimePending(db, phone, employee.id, employee.firstName);
       break;
 
     case "DAY_DETAIL":
@@ -419,15 +426,17 @@ function findTodayRecord(db: Db, employeeId: string) {
 async function sendDayMenu(ctx: IntentContext, intro: string) {
   const { body, buttons } = dayMenu(intro, await findTodayRecord(ctx.db, ctx.employee.id));
   if (!(await sendWhatsAppReplyButtons(ctx.phone, body, buttons))) {
-    await sendWhatsAppMessage(ctx.phone, getWelcomeMessage(ctx.employee.firstName));
+    const text = getWelcomeMessage(ctx.employee.firstName);
+    await sendWhatsAppMessage(ctx.phone, isIntern(ctx) ? withoutOvertimeLines(text) : text);
   }
 }
 
 /** Liste regroupée (« Plus d'options », « menu ») ; liste texte des commandes si l'envoi échoue. */
 async function sendFullMenu(ctx: IntentContext) {
-  const { body, buttonText, sections } = fullMenu(await findTodayRecord(ctx.db, ctx.employee.id));
+  const intern = isIntern(ctx);
+  const { body, buttonText, sections } = fullMenu(await findTodayRecord(ctx.db, ctx.employee.id), { intern });
   if (!(await sendWhatsAppList(ctx.phone, body, buttonText, sections))) {
-    await sendWhatsAppMessage(ctx.phone, HELP_MESSAGE);
+    await sendWhatsAppMessage(ctx.phone, intern ? withoutOvertimeLines(HELP_MESSAGE) : HELP_MESSAGE);
   }
 }
 
