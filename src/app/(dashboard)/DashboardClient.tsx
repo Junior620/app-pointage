@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Landmark,
   Coffee,
+  GraduationCap,
   CalendarOff,
   MapPin,
   CheckCircle2,
@@ -228,6 +229,10 @@ export default function DashboardClient({ userName }: { userName: string }) {
     { key: "leaves", label: "Autorisations en attente", count: counts?.leaves ?? 0, href: "/leaves?status=PENDING", icon: CalendarOff },
     { key: "missions", label: "Missions en attente", count: counts?.missions ?? 0, href: "/missions?status=PENDING", icon: MapPin },
     { key: "breaks", label: "Retours de pause manquants", count: data?.breaks?.missingReturn ?? 0, href: "/breaks", icon: Coffee },
+    // Seulement quand un stage se termine bientôt (une entreprise sans stagiaire ne voit rien de plus).
+    ...((counts?.interns ?? 0) > 0
+      ? [{ key: "interns", label: "Stages qui finissent cette semaine", count: counts?.interns ?? 0, href: "/interns?statut=soon", icon: GraduationCap }]
+      : []),
   ];
   const todoTotal = todo.reduce((n, t) => n + t.count, 0);
 
@@ -325,7 +330,7 @@ export default function DashboardClient({ userName }: { userName: string }) {
           }
           icon={todoTotal > 0 ? <AlertTriangle className="h-5 w-5 text-amber-500" /> : <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
         />
-        <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5 xl:grid-cols-4">
+        <div className={cn("grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-5", todo.length > 4 ? "lg:grid-cols-3 xl:grid-cols-5" : "xl:grid-cols-4")}>
           {todo.map((t) => {
             const Icon = t.icon;
             const active = t.count > 0;

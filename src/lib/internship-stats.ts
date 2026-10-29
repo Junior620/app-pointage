@@ -32,6 +32,16 @@ function workingDayKeys(fromKey: string, toKey: string, holidays: Set<string>): 
   return keys;
 }
 
+/** Nombre de jours ouvrés entre deux jours inclus (lundi–vendredi hors fériés de l'entreprise). */
+export async function countWorkingDays(db: Db, fromKey: string, toKey: string): Promise<number> {
+  if (fromKey > toKey) return 0;
+  const holidays = await db.holiday.findMany({
+    where: { date: { gte: utcDay(fromKey), lte: new Date(utcDay(toKey).getTime() + DAY_MS - 1) } },
+    select: { date: true },
+  });
+  return workingDayKeys(fromKey, toKey, new Set(holidays.map((h) => dayKey(h.date)))).length;
+}
+
 /** Récapitulatif de présence de plusieurs employés sur [from, to] (jours calendaires, bornes incluses). */
 export async function attendanceSummaries(
   db: Db,

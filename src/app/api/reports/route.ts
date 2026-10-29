@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTenant, AuthUnavailableError, authUnavailableResponse } from "@/lib/auth";
-import { Structure } from "@prisma/client";
+import { Structure, type EmployeeKind } from "@prisma/client";
 import { parseDateInputForDbDate, utcCalendarDayBounds } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     const structure = searchParams.get("structure")?.trim() || undefined;
     const search = searchParams.get("search")?.trim() || undefined;
     const employeeId = searchParams.get("employeeId")?.trim() || undefined;
+    const kindParam = searchParams.get("kind");
+    const kind: EmployeeKind | undefined = kindParam === "EMPLOYEE" || kindParam === "INTERN" ? kindParam : undefined;
 
     if (!startDate || !endDate) {
       return NextResponse.json({ error: "dateFrom et dateTo sont requis" }, { status: 400 });
@@ -32,6 +34,7 @@ export async function GET(request: NextRequest) {
       ...(employeeId ? { id: employeeId } : { active: true }),
       ...(service && { service }),
       ...(structure && { structure: structure as Structure }),
+      ...(kind && { kind }),
       ...(!employeeId &&
         search && {
           OR: [
@@ -70,6 +73,7 @@ export async function GET(request: NextRequest) {
       name: string;
       service: string;
       structure: string;
+      kind: string;
       presents: number;
       absents: number;
       retards: number;
@@ -135,6 +139,7 @@ export async function GET(request: NextRequest) {
         name: `${emp.lastName} ${emp.firstName}`,
         service: emp.service,
         structure: emp.structure,
+        kind: emp.kind,
         presents: empPresent + empPermission + empMission,
         absents: empAbsent,
         retards: empLate,
