@@ -70,6 +70,7 @@ RH ──► Navigateur ──► Supabase Auth ──► Dashboard Next.js ─�
 | `POST /api/cron/mark-absent` | Marquage absences. |
 | `POST /api/cron/overtime-reminder` | Rappel RH sur heures sup en attente. |
 | `POST /api/cron/weekly-summary` | Résumé hebdo (WhatsApp / logique métier associée). |
+| `GET /api/cron/internships` | Chaque jour vers 6 h à Douala (`0 5 * * *`) : sortie automatique des stagiaires le lendemain de la fin du stage, rappel WhatsApp aux RH 7 jours avant (une fois). Voir §14. |
 | `GET /api/cron/menu-announcement` | **Envoi unique** du nouveau menu WhatsApp à chaque employé actif de chaque entreprise, le 2026-10-23 au matin (`vercel.json` : `30 6 23 10 *`, soit 7 h 30 à Douala ; rien en dehors de ce jour ni après 10 h, `src/lib/menu-announcement.ts`). Entrée à retirer de `vercel.json` ensuite. |
 
 *(Sécuriser ces routes par secret header / Vercel Cron selon configuration projet.)*
@@ -376,6 +377,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-22 | §3.2, §4.3, annexe B | Menu WhatsApp allégé : boutons et liste regroupée en 9 entrées (au lieu de 15 lignes de texte) ; numéros 1 à 15 inchangés. Boutons fixes Arrivée · Départ · Plus d'options, avec l'état du jour (demande des utilisateurs). |
 | 2026-10-22 | §8.4 | Fiche employé : « + Ajouter un service… » ; liste des services par entreprise (défauts + services déjà utilisés). |
 | 2026-10-28 | §11 | Page de pointage : aide à l'autorisation de la position selon le téléphone (iPhone, Android, ordinateur). |
+| 2026-10-29 | §3.3, §14 | Stagiaires : type d'employé et fiche de stage (migration `20261029120000_interns`), pas d'heures sup, fin automatique et rappel J-7, rubrique Stagiaires, attestation, récapitulatif des gratifications, filtres Type. |
 
 ## 13. Multi-entreprise
 
@@ -415,6 +417,30 @@ Plusieurs entreprises partagent la même application et la même base, chacune d
 - **Historique `_prisma_migrations`** : jusqu'au 2026-10-22, les migrations de 2026-02 à 2026-06 étaient présentes en base sans être enregistrées. Elles ont été marquées appliquées (`migrate resolve --applied`) ; trois index ou clés manquants ont été créés en rejouant leurs migrations idempotentes. Ne jamais rejouer `20260528154100` ni `20260601140000` (mises à jour de données).
 - Écarts connus base ↔ `schema.prisma` (`migrate diff`) : clé étrangère `public_submission_logs.employee_id` en `ON DELETE CASCADE` en base (le schéma dit `RESTRICT` : corriger le schéma) ; index unique partiel `users_whatsapp_phone_key` (`WHERE whatsapp_phone IS NOT NULL`, non représentable dans Prisma).
 - Contrôle du cloisonnement sur une base locale : `pnpm tenant:check`.
+
+---
+
+## 14. Stagiaires
+
+Un stagiaire est un **employé** de type `INTERN` (`employees.kind`) accompagné d'une **fiche de stage** (table `internships`, une par employé) : début, fin, école, filière, niveau, encadrant (un employé), gratification mensuelle (FCFA). Il pointe sur WhatsApp comme un employé (même lien, même géofence, mêmes horaires du site).
+
+| Règle | Où |
+|-------|----|
+| Jamais d'heures sup (temps travaillé compté normalement) ; rappel de 18 h sans la partie heures sup | `processCheckOut` (`src/lib/attendance-engine.ts`), `cron/checkout-reminder-ot` |
+| Pointage refusé avant le début / après la fin du stage ; aucune absence marquée hors stage | `processCheckIn`, `runMarkAbsent` |
+| Fiche : absences comptées à partir du début du stage | `employees/[id]/page.tsx` |
+| Rappel RH à J-7 (une fois, `end_reminder_sent_at`, remis à zéro si la fin change) et sortie automatique le lendemain de la fin (motif `INTERNSHIP_END` « Fin de stage ») | `src/lib/internship-lifecycle.ts`, `GET /api/cron/internships` |
+| Matricule `STRUCTURE-STG-XXXX` | `POST /api/employees` |
+
+**Écrans** : formulaire employé (type Employé / Stagiaire, section Stage), liste Employés (pastille, filtre « Type », indicateur), fiche (carte Stage), rubrique **Stagiaires** `/interns` (en cours, fin dans 7 jours, à venir, terminés, embauchés ; prolonger, terminer, embaucher), « Stages qui finissent cette semaine » dans le bloc À traiter, filtre « Type » des Rapports. API : `GET /api/interns`, `PATCH /api/interns/[id]` (`extend`, `end`, `hire`), `GET /api/interns/allowances?month=AAAA-MM`, `GET /api/interns/[id]/certificate` (`?format=json` pour le PDF, sinon Word).
+
+**Documents** :
+- *Attestation de stage* (PDF navigateur / Word serveur, `src/lib/documents/internship-certificate.ts`) : « a effectué » une fois le stage terminé, « effectue actuellement… (fin prévue le …) » avant ; présence = jours présents ou en mission sur les jours ouvrés.
+- *Récapitulatif des gratifications* (Excel / PDF) : par stagiaire, jours ouvrés du stage dans le mois, présents, missions, autorisations, absences non justifiées (dont jours passés sans pointage). **Montant au prorata (indicatif)** = gratification × (jours ouvrés du stage dans le mois − absences non justifiées) ÷ jours ouvrés du mois. Mois en cours : provisoire. La RH fixe le montant final (`src/lib/internship-stats.ts`).
+
+**Embaucher** : le stagiaire passe en `EMPLOYEE` (heures sup, plus de fin automatique) ; sa fiche de stage reste dans l'historique et l'attestation reste disponible.
+
+> Le rappel RH part sur WhatsApp : sans modèle Meta approuvé, il n'arrive que si le destinataire a écrit au bot dans les 24 h (§3.3). Le compteur du menu et le bloc À traiter affichent de toute façon les stages qui finissent.
 
 ---
 
