@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { forEachOrg, sum } from "@/lib/tenant";
-import { sendWhatsAppMessage } from "@/lib/whatsapp";
+import { sendWhatsAppToEmployee } from "@/lib/employee-whatsapp";
 import { formatTime, todayDate, isWeekend, parseTimeString } from "@/lib/utils";
 import { APP_TIMEZONE } from "@/lib/timezone";
+import { inCronHour } from "@/lib/cron-window";
 const CHECKOUT_REMIND_AFTER_MIN = 15;
 
 function isAuthorized(request: NextRequest): boolean {
@@ -29,6 +30,12 @@ export async function GET(request: NextRequest) {
 
     if (isWeekend(today)) {
       return NextResponse.json({ success: true, message: "Week-end — pas de rappel", count: 0 });
+    }
+
+    // Cron « 0 17 » UTC : part entre 18 h 00 et 18 h 59 à Douala (plan Hobby), donc toujours après
+    // fin de journée (17 h 30) + 15 min.
+    if (!inCronHour(now, today, "18:00")) {
+      return NextResponse.json({ success: true, message: "Hors fenêtre rappel départ (18 h)", count: 0 });
     }
 
     const count = sum(
@@ -58,26 +65,31 @@ export async function GET(request: NextRequest) {
         let count = 0;
         for (const record of records) {
           const { employee } = record;
-          if (!employee.active || !employee.whatsappPhone) continue;
+          if (!employee.active) continue;
 
+          // Une seule exécution par jour : plus de fenêtre de 30 min par employé, qui faisait sauter
+          // le rappel quand le cron partait avant fin de journée + 15 min.
           const endAt = getScheduleEndForRecord(record);
           const remindAt = new Date(
             endAt.getTime() + CHECKOUT_REMIND_AFTER_MIN * 60 * 1000
           );
-          const remindUntil = new Date(remindAt.getTime() + 30 * 60 * 1000);
-          if (now < remindAt || now >= remindUntil) continue;
+          if (now < remindAt) continue;
 
           const endLabel = formatTime(endAt);
           const inTime = formatTime(record.checkInTime);
 
-          await sendWhatsAppMessage(
-            employee.whatsappPhone,
-            `⚠️ *Rappel de pointage*\n\n` +
-              `Bonjour ${employee.firstName}, vous avez pointé votre arrivée à ${inTime} mais votre départ (prévu vers ${endLabel}) n'a pas encore été enregistré.\n\n` +
-              `Tapez *DÉPART* ou *2* pour pointer votre sortie maintenant.\n\n` +
-              `Si vous ne pointez pas, un départ automatique sera enregistré à la clôture.`
-          );
-          count++;
+          try {
+            await sendWhatsAppToEmployee(
+              employee.id,
+              `⚠️ *Rappel de pointage*\n\n` +
+                `Bonjour ${employee.firstName}, vous avez pointé votre arrivée à ${inTime} mais votre départ (prévu vers ${endLabel}) n'a pas encore été enregistré.\n\n` +
+                `Tapez *DÉPART* ou *2* pour pointer votre sortie maintenant.\n\n` +
+                `Si vous ne pointez pas, un départ automatique sera enregistré à la clôture.`
+            );
+            count++;
+          } catch (e) {
+            console.error("[checkout-reminder]", employee.id, e);
+          }
         }
         return count;
       })

@@ -66,16 +66,22 @@ RH ──► Navigateur ──► Supabase Auth ──► Dashboard Next.js ─�
 | Route | Usage typique |
 |-------|----------------|
 | `POST /api/cron/auto-checkout` | Départs automatiques à l’heure de fin de planning. |
-| `POST /api/cron/checkout-reminder` | Rappels départ. |
+| `POST /api/cron/checkout-reminder` | Rappel départ, entre 18 h 00 et 18 h 59 (`0 17 * * 1-5`) : arrivée pointée, départ non pointé, fin de journée du site + 15 min passée. |
+| `POST /api/cron/pause-start-reminder` | Rappel début de pause, entre 12 h 00 et 12 h 59 (`0 11 * * 1-5`) : arrivé, pas de pause commencée. |
+| `POST /api/cron/pause-end-reminder` | Premier rappel de fin de pause, entre 13 h 00 et 13 h 59 (`0 12 * * 1-5`) : pause commencée depuis plus de 60 min, retour non pointé. |
+| `POST /api/cron/pause-return-reminder` | Relance retour de pause, entre 14 h 00 et 14 h 59 (`0 13 * * 1-5`) : mêmes conditions, toujours pas de retour. |
 | `POST /api/cron/mark-absent` | Marquage absences. |
 | `POST /api/cron/overtime-reminder` | Rappel RH sur heures sup en attente. |
 | `POST /api/cron/weekly-summary` | Résumé hebdo (WhatsApp / logique métier associée). |
 | `GET /api/cron/internships` | Chaque jour vers 6 h à Douala (`0 5 * * *`) : sortie automatique des stagiaires le lendemain de la fin du stage, rappel WhatsApp aux RH 7 jours avant (une fois). Voir §14. |
-| `GET /api/cron/menu-announcement` | **Envoi unique** du nouveau menu WhatsApp à chaque employé actif de chaque entreprise, le 2026-10-23 au matin (`vercel.json` : `30 6 23 10 *`, soit 7 h 30 à Douala ; rien en dehors de ce jour ni après 10 h, `src/lib/menu-announcement.ts`). Entrée à retirer de `vercel.json` ensuite. |
 
 *(Sécuriser ces routes par secret header / Vercel Cron selon configuration projet.)*
 
-- **Plan Vercel Hobby** : chaque cron part **dans l'heure** prévue (± 59 min), pas à la minute près. Exemple : `30 6 * * *` part entre 6 h 00 et 6 h 59 UTC, soit entre 7 h 00 et 7 h 59 à Douala.
+- **Plan Vercel Hobby** : chaque cron part **une fois par jour, dans l'heure** prévue, pas à la minute près. Exemple : `0 11 * * *` part entre 11 h 00 et 11 h 59 UTC, soit entre 12 h 00 et 12 h 59 à Douala.
+  - Les crons sont donc programmés à l'heure pile (minute 0).
+  - Les rappels vérifient toute l'heure locale avec `inCronHour()` (`src/lib/cron-window.ts`), plus 30 min de marge si l'appel arrive en retard. Une fenêtre plus courte ferait sauter le rappel certains jours.
+  - Les rappels aux employés passent par `sendWhatsAppToEmployee()`, qui envoie à tous leurs numéros.
+  - L'annonce unique du nouveau menu (2026-10-23) a été retirée après envoi.
 - **Messages WhatsApp envoyés par les crons** : sans modèle approuvé par Meta, un message n'arrive que si l'employé a écrit au bot dans les **24 h** précédentes. Sinon, l'envoi échoue (erreur Meta `131047`, visible dans les logs).
 
 ---
@@ -379,6 +385,7 @@ Compteurs « à traiter » (heures sup, autorisations et missions en attente) : 
 | 2026-10-28 | §11 | Page de pointage : aide à l'autorisation de la position selon le téléphone (iPhone, Android, ordinateur). |
 | 2026-10-29 | §3.3, §14 | Stagiaires : type d'employé et fiche de stage (migration `20261029120000_interns`), pas d'heures sup, fin automatique et rappel J-7, rubrique Stagiaires, attestation, récapitulatif des gratifications, filtres Type. |
 | 2026-10-29 | §14 | Menu WhatsApp des stagiaires sans les entrées heures sup (6 et 8), réponse explicative s'ils les demandent. |
+| 2026-11-10 | §3.3 | Rappels WhatsApp (pause début, fin et retour, départ) : fenêtres d'une heure adaptées au plan Vercel Hobby (`inCronHour`), crons à l'heure pile, envoi à tous les numéros de l'employé ; annonce du 23/10 retirée. |
 
 ## 13. Multi-entreprise
 
