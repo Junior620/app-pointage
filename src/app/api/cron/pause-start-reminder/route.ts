@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { forEachOrg, sum } from "@/lib/tenant";
 import { sendWhatsAppToEmployee } from "@/lib/employee-whatsapp";
-import { todayDate, isWeekend, parseTimeString } from "@/lib/utils";
-
-const APP_TIMEZONE = process.env.APP_TIMEZONE || "Africa/Douala";
+import { todayDate, isWeekend } from "@/lib/utils";
+import { inCronHour } from "@/lib/cron-window";
 
 function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
@@ -20,13 +19,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, message: "Week-end — pas de rappel pause", count: 0 });
   }
 
-  const now = new Date();
-  const sendAt = parseTimeString("12:30", today, APP_TIMEZONE);
-  const sendUntil = new Date(sendAt.getTime() + 30 * 60 * 1000);
-  if (now < sendAt || now >= sendUntil) {
+  // Cron « 0 11 » UTC : part entre 12 h 00 et 12 h 59 à Douala (plan Hobby).
+  if (!inCronHour(new Date(), today, "12:00")) {
     return NextResponse.json({
       success: true,
-      message: "Hors fenêtre rappel pause début (12h30)",
+      message: "Hors fenêtre rappel pause début (12 h)",
       count: 0,
     });
   }
@@ -53,10 +50,11 @@ export async function GET(request: NextRequest) {
       let count = 0;
       for (const record of records) {
         if (!record.employee.active) continue;
+        // Envoyé entre 12 h 00 et 12 h 59 : le texte ne suppose pas que la pause a déjà commencé.
         const text =
-          `☕ *Rappel pause (12h30)*\n\n` +
-          `Bonjour ${record.employee.firstName}, c'est l'heure de la pause déjeuner.\n\n` +
-          `Tapez *début pause* ou *13* pour pointer votre départ en pause.`;
+          `☕ *Rappel pause déjeuner*\n\n` +
+          `Bonjour ${record.employee.firstName}, pensez à pointer votre pause déjeuner (vers 12h30).\n\n` +
+          `Au moment de partir, tapez *début pause* ou *13*.`;
         try {
           await sendWhatsAppToEmployee(record.employee.id, text);
           count++;
