@@ -161,21 +161,24 @@ export async function sendWhatsAppLocationRequest(
   }
 }
 
+/**
+ * Signature Meta d'un appel du webhook (en-tête X-Hub-Signature-256) : « sha256= » suivi du HMAC SHA-256
+ * du corps brut, calculé avec la clé secrète de l'application (WHATSAPP_APP_SECRET).
+ * Faux si la clé n'est pas configurée, si l'en-tête manque ou s'il ne correspond pas.
+ */
 export function verifyWebhookSignature(
-  rawBody: string,
-  signature: string
+  rawBody: Buffer | string,
+  signature: string | null | undefined
 ): boolean {
   const appSecret = process.env.WHATSAPP_APP_SECRET;
-  if (!appSecret) return false;
+  if (!appSecret || !signature) return false;
 
-  const expectedSig =
-    "sha256=" +
-    crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
-
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSig)
+  const expected = Buffer.from(
+    "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex")
   );
+  const received = Buffer.from(signature.trim());
+  // timingSafeEqual exige deux tampons de même longueur.
+  return received.length === expected.length && crypto.timingSafeEqual(received, expected);
 }
 
 export function normalizePhone(phone: string): string {

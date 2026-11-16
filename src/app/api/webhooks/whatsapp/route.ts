@@ -5,6 +5,7 @@ import {
   sendWhatsAppReplyButtons,
   sendWhatsAppList,
   normalizePhone,
+  verifyWebhookSignature,
 } from "@/lib/whatsapp";
 import { INTERN_OVERTIME_REPLY, dayMenu, fullMenu, intentsFor, menuChoice } from "@/lib/whatsapp-menu";
 import { parseIntent, getWelcomeMessage, HELP_MESSAGE, withoutOvertimeLines } from "@/lib/intent-parser";
@@ -94,7 +95,19 @@ async function processWhatsAppPayload(body: WhatsAppWebhookPayload) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: WhatsAppWebhookPayload = await request.json();
+    // Seuls les appels signés par Meta sont traités : sans cela, n'importe qui pourrait écrire au bot
+    // au nom d'un employé (motif de retard, motif d'heures sup…). La signature porte sur les octets reçus.
+    const raw = Buffer.from(await request.arrayBuffer());
+    if (!verifyWebhookSignature(raw, request.headers.get("x-hub-signature-256"))) {
+      if (!process.env.WHATSAPP_APP_SECRET) {
+        console.error("[WhatsApp] WHATSAPP_APP_SECRET manquant : les messages entrants ne peuvent pas être vérifiés.");
+      } else {
+        console.warn("[WhatsApp] Webhook refusé : signature Meta absente ou invalide.");
+      }
+      return NextResponse.json({ error: "Signature invalide" }, { status: 401 });
+    }
+
+    const body: WhatsAppWebhookPayload = JSON.parse(raw.toString("utf8"));
     after(() => processWhatsAppPayload(body));
     return NextResponse.json({ status: "ok" });
   } catch (error) {
